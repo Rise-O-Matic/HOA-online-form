@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fairway Canyon HOA — Architectural Review Committee Application</title>
+<meta name="description" content="Online Architectural Review Committee (ARC) application for the Fairway Canyon Homeowners Association." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Libre+Franklin:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<!-- ===================== HEADER ===================== -->
+<header class="masthead" id="top">
+  <div class="masthead__inner">
+    <div class="masthead__brand">
+      <span class="masthead__eyebrow">Fairway Canyon Homeowners Association</span>
+      <h1 class="masthead__title">Architectural Review<br />Committee Application</h1>
+    </div>
+    <div class="masthead__contact">
+      <p class="masthead__contact-label">Architectural Review Committee</p>
+      <address>
+        Fairway Canyon Association<br />
+        36189 Champions Drive<br />
+        Beaumont, CA 92223
+      </address>
+      <dl class="contact-grid">
+        <dt>Direct</dt><dd><a href="tel:9518014246">951.801.4246</a></dd>
+        <dt>Phone</dt><dd><a href="tel:9519226444">951.922.6444</a></dd>
+        <dt>Email</dt><dd><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></dd>
+      </dl>
+    </div>
+  </div>
+  <div class="masthead__rule" aria-hidden="true"></div>
+</header>
+
+<!-- mockup notice -->
+<div class="mockup-banner" role="note">
+  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Nothing is submitted to a server; use <em>Preview &amp; Print</em> to produce a finished application, or your work is saved locally in this browser.
+</div>
+
+<div class="layout">
+
+  <!-- ===================== SIDE NAV ===================== -->
+  <aside class="sidenav" aria-label="Application sections">
+    <nav>
+      <ol>
+        <li><a href="#applicant" class="is-active">Applicant Information</a></li>
+        <li><a href="#submissions">Required Submissions</a></li>
+        <li><a href="#siteplan">Site / Plot Plan</a></li>
+        <li><a href="#description">Proposed Change</a></li>
+        <li><a href="#neighbors">Adjacent Owners</a></li>
+        <li><a href="#acknowledgments">Acknowledgments</a></li>
+        <li><a href="#reference">Dates &amp; Submission</a></li>
+      </ol>
+    </nav>
+    <div class="sidenav__progress">
+      <div class="sidenav__bar"><span id="progress-fill"></span></div>
+      <p id="progress-text">0% complete</p>
+    </div>
+    <div class="sidenav__actions">
+      <button type="button" class="btn btn--ghost btn--sm" id="save-draft">Save draft</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="clear-draft">Clear</button>
+    </div>
+  </aside>
+
+  <!-- ===================== FORM ===================== -->
+  <main>
+    <form id="arc-form" novalidate>
+
+      <!-- ---------- APPLICANT ---------- -->
+      <section class="card reveal" id="applicant">
+        <header class="card__head">
+          <span class="card__num">01</span>
+          <div>
+            <h2>Applicant Information</h2>
+            <p class="card__sub">The homeowner(s) of record submitting this request.</p>
+          </div>
+        </header>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="owner-name">Homeowner(s) Name <span class="req">*</span></label>
+            <input type="text" id="owner-name" name="ownerName" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label for="property-address">Property Address <span class="req">*</span></label>
+            <input type="text" id="property-address" name="propertyAddress" autocomplete="street-address" required />
+          </div>
+          <div class="field">
+            <label for="owner-phone">Phone <span class="req">*</span></label>
+            <input type="tel" id="owner-phone" name="ownerPhone" autocomplete="tel" required />
+          </div>
+          <div class="field">
+            <label for="owner-email">E-Mail <span class="req">*</span></label>
+            <input type="email" id="owner-email" name="ownerEmail" autocomplete="email" required />
+          </div>
+        </div>
+
+        <div class="field field--sig">
+          <label>Homeowner(s) Signature <span class="req">*</span></label>
+          <div class="sigpad" data-sigpad="ownerInfoSignature">
+            <canvas></canvas>
+            <span class="sigpad__hint">Sign here</span>
+            <button type="button" class="sigpad__clear" aria-label="Clear signature">Clear</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- REQUIRED SUBMISSIONS ---------- -->
+      <section class="card reveal" id="submissions">
+        <header class="card__head">
+          <span class="card__num">02</span>
+          <div>
+            <h2>Required Submissions</h2>
+            <p class="card__sub">An application missing any required item is considered <strong>incomplete</strong>. The 45-day review period does not begin until everything is provided.</p>
+          </div>
+        </header>
+
+        <p class="checklist__intro">Confirm each item is included with your packet:</p>
+        <ul class="checklist">
+          <li><label><input type="checkbox" name="req_plot" /><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Use a clean, legible, color-coded layout.</span></label></li>
+          <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></label></li>
+          <li><label><input type="checkbox" name="req_key" /><span><strong>Color-coded plan or key</strong> of proposed improvements.</span></label></li>
+          <li><label><input type="checkbox" name="req_photos" /><span><strong>Full yard photos</strong> (see requirements below) — front and back, capturing the entire yard.</span></label></li>
+          <li><label><input type="checkbox" name="req_neighbors" /><span><strong>Signatures from all impacted neighbors</strong> (recorded in Section 05).</span></label></li>
+          <li><label><input type="checkbox" name="req_fee" /><span><strong>Application fee</strong> — arranged with Carol Taylor after submission.</span></label></li>
+        </ul>
+
+        <details class="callout">
+          <summary>Photo requirements &mdash; specific angles required</summary>
+          <div class="callout__body grid-2">
+            <div>
+              <h4>Front Yard — 3 photos</h4>
+              <ul>
+                <li>One from the middle of the street (safely), property line to property line, with no vehicles or people in frame.</li>
+                <li>One from the curb on <em>each</em> side of the yard.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Back Yard — 4 photos</h4>
+              <ul>
+                <li>One from the furthest point from the home, showing the full yard.</li>
+                <li>One from <em>each</em> side, capturing the entire yard.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="field" style="margin-top:1rem">
+            <label for="photos">Attach photos &amp; documents <span class="muted">(demo — files stay in your browser)</span></label>
+            <input type="file" id="photos" name="photos" multiple accept="image/*,application/pdf" />
+            <ul class="filelist" id="filelist" hidden></ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ---------- SITE PLAN ---------- -->
+      <section class="card reveal" id="siteplan">
+        <header class="card__head">
+          <span class="card__num">03</span>
+          <div>
+            <h2>Site / Plot Plan</h2>
+            <p class="card__sub">Sketch your lot on the grid below. Pick a material, then click or drag across cells. Your plan is color-coded automatically by the key.</p>
+          </div>
+        </header>
+
+        <div class="plot">
+          <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
+
+          <div class="plot__stage">
+            <span class="plot__edge plot__edge--top">Back Yard</span>
+            <span class="plot__edge plot__edge--bottom">Front Yard</span>
+            <div class="plot__grid-wrap">
+              <div class="plot__grid" id="plot-grid" aria-label="Site plan drawing grid"></div>
+            </div>
+          </div>
+
+          <div class="plot__tools">
+            <button type="button" class="btn btn--ghost btn--sm" id="plot-house">Reset house</button>
+            <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
+            <span class="plot__hint">Tip: choose <strong>Erase</strong> to remove. House is pre-placed in the center.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- DESCRIPTION ---------- -->
+      <section class="card reveal" id="description">
+        <header class="card__head">
+          <span class="card__num">04</span>
+          <div>
+            <h2>Description of Proposed Change</h2>
+            <p class="card__sub">Please be specific — include colors, style, location, size, and materials to be used.</p>
+          </div>
+        </header>
+
+        <div class="field">
+          <label for="proposal" class="sr-only">Description of proposed change</label>
+          <textarea id="proposal" name="proposal" rows="8" maxlength="3000" required
+            placeholder="Example: Install an Alumawood patio cover (12' × 24') in the back yard, color 'Sandstone'. Add 80 sq. ft. of turf and a metal storage shed (10' × 12') along the rear fence…"></textarea>
+          <div class="field__meta"><span id="proposal-count">0</span> / 3000 characters</div>
+        </div>
+      </section>
+
+      <!-- ---------- NEIGHBORS ---------- -->
+      <section class="card reveal" id="neighbors">
+        <header class="card__head">
+          <span class="card__num">05</span>
+          <div>
+            <h2>Adjacent Property Owners</h2>
+            <p class="card__sub">Signatures of the adjacent owners most affected by the change. <em>A neighbor's signature does not constitute approval or disapproval.</em></p>
+          </div>
+        </header>
+
+        <div id="neighbor-list" class="neighbor-list"></div>
+        <button type="button" class="btn btn--ghost" id="add-neighbor">+ Add another neighbor</button>
+      </section>
+
+      <!-- ---------- ACKNOWLEDGMENTS ---------- -->
+      <section class="card reveal" id="acknowledgments">
+        <header class="card__head">
+          <span class="card__num">06</span>
+          <div>
+            <h2>Owner Acknowledgments</h2>
+            <p class="card__sub">Please read each statement and check to acknowledge. All are required.</p>
+          </div>
+        </header>
+
+        <ol class="acks" id="acks"></ol>
+
+        <div class="grid-2 ack-sign">
+          <div class="field field--sig">
+            <label>Owner Signature <span class="req">*</span></label>
+            <div class="sigpad" data-sigpad="ownerAckSignature">
+              <canvas></canvas>
+              <span class="sigpad__hint">Sign here</span>
+              <button type="button" class="sigpad__clear" aria-label="Clear signature">Clear</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="ack-date">Date <span class="req">*</span></label>
+            <input type="date" id="ack-date" name="ackDate" required />
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- SUBMIT BAR ---------- -->
+      <div class="submitbar">
+        <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
+        <div class="submitbar__btns">
+          <button type="button" class="btn btn--ghost" id="download-json">Download data (JSON)</button>
+          <button type="submit" class="btn btn--primary">Preview &amp; Print Application</button>
+        </div>
+      </div>
+
+    </form>
+
+    <!-- ---------- REFERENCE ---------- -->
+    <section class="card card--muted reveal" id="reference">
+      <header class="card__head">
+        <span class="card__num">i</span>
+        <div>
+          <h2>Review Dates &amp; Submission</h2>
+          <p class="card__sub">For reference only — no input required.</p>
+        </div>
+      </header>
+
+      <div class="reference-grid">
+        <div>
+          <h3 class="ref-title">Architectural Review Dates — 2026</h3>
+          <p class="ref-note">The completed ARC packet must be submitted by the deadline to make that month's board meeting. <strong>No exceptions.</strong> Dates subject to change.</p>
+          <table class="dates">
+            <thead><tr><th>Board Meeting</th><th>Application Deadline</th></tr></thead>
+            <tbody id="dates-body"></tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3 class="ref-title">How to Submit</h3>
+          <div class="info-card">
+            <p>All applications must be submitted <strong>by email only</strong> to:</p>
+            <p class="info-card__email"><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></p>
+            <p>Incomplete applications will be returned and automatically denied — please read all instructions thoroughly before submitting.</p>
+          </div>
+          <h3 class="ref-title">Assistance</h3>
+          <div class="info-card">
+            <p><strong>Carol Taylor</strong> — Sr. Architectural Specialist</p>
+            <ul class="tight">
+              <li>Hours: Tuesday – Saturday, 9:00 AM – 4:30 PM</li>
+              <li>Direct: <a href="tel:9518014246">951-801-4246</a></li>
+              <li>In-person meetings require an appointment.</li>
+            </ul>
+            <p class="ref-note">The review process will not begin until both the full application and the fee are received.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="sitefoot">
+      <p>Fairway Canyon HOA — Architectural Review Committee · Updated May 2026</p>
+      <p class="muted">Unofficial online mockup. Not affiliated with FirstService Residential. No data is transmitted.</p>
+    </footer>
+  </main>
+</div>
+
+<!-- ===================== PREVIEW MODAL ===================== -->
+<div class="modal" id="preview-modal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+    <header class="modal__head">
+      <h2 id="preview-title">Application Preview</h2>
+      <button type="button" class="modal__x" data-close aria-label="Close">&times;</button>
+    </header>
+    <div class="modal__scroll" id="preview-content"></div>
+    <footer class="modal__foot">
+      <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
+      <button type="button" class="btn btn--primary" id="do-print">Print / Save as PDF</button>
+    </footer>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
