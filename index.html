@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Libre+Franklin:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.css" />
 <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
@@ -38,7 +39,7 @@
 
 <!-- mockup notice -->
 <div class="mockup-banner" role="note">
-  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Nothing is submitted to a server; use <em>Preview &amp; Print</em> to produce a finished application, or your work is saved locally in this browser.
+  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Use <em>Email to Committee</em> to generate a PDF and open a pre-addressed email, or <em>Preview &amp; Print</em> to review first. Your work is saved locally in this browser.
 </div>
 
 <div class="layout">
@@ -47,9 +48,8 @@
   <aside class="sidenav" aria-label="Application sections">
     <nav>
       <ol>
-        <li><a href="#applicant" class="is-active">Applicant Information</a></li>
+        <li><a href="#siteplan" class="is-active">Site / Plot Plan</a></li>
         <li><a href="#submissions">Required Submissions</a></li>
-        <li><a href="#siteplan">Site / Plot Plan</a></li>
         <li><a href="#description">Proposed Change</a></li>
         <li><a href="#neighbors">Adjacent Owners</a></li>
         <li><a href="#acknowledgments">Acknowledgments</a></li>
@@ -70,45 +70,6 @@
   <main>
     <form id="arc-form" novalidate>
 
-      <!-- ---------- APPLICANT ---------- -->
-      <section class="card reveal" id="applicant">
-        <header class="card__head">
-          <span class="card__num">01</span>
-          <div>
-            <h2>Applicant Information</h2>
-            <p class="card__sub">The homeowner(s) of record submitting this request.</p>
-          </div>
-        </header>
-
-        <div class="grid-2">
-          <div class="field">
-            <label for="owner-name">Homeowner(s) Name <span class="req">*</span></label>
-            <input type="text" id="owner-name" name="ownerName" autocomplete="name" required />
-          </div>
-          <div class="field">
-            <label for="property-address">Property Address <span class="req">*</span></label>
-            <input type="text" id="property-address" name="propertyAddress" autocomplete="street-address" required />
-          </div>
-          <div class="field">
-            <label for="owner-phone">Phone <span class="req">*</span></label>
-            <input type="tel" id="owner-phone" name="ownerPhone" autocomplete="tel" required />
-          </div>
-          <div class="field">
-            <label for="owner-email">E-Mail <span class="req">*</span></label>
-            <input type="email" id="owner-email" name="ownerEmail" autocomplete="email" required />
-          </div>
-        </div>
-
-        <div class="field field--sig">
-          <label>Homeowner(s) Signature <span class="req">*</span></label>
-          <div class="sigpad" data-sigpad="ownerInfoSignature">
-            <canvas></canvas>
-            <span class="sigpad__hint">Sign here</span>
-            <button type="button" class="sigpad__clear" aria-label="Clear signature">Clear</button>
-          </div>
-        </div>
-      </section>
-
       <!-- ---------- REQUIRED SUBMISSIONS ---------- -->
       <section class="card reveal" id="submissions">
         <header class="card__head">
@@ -123,14 +84,13 @@
         <ul class="checklist">
           <li><label><input type="checkbox" name="req_plot" /><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Use a clean, legible, color-coded layout.</span></label></li>
           <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></label></li>
-          <li><label><input type="checkbox" name="req_key" /><span><strong>Color-coded plan or key</strong> of proposed improvements.</span></label></li>
           <li><label><input type="checkbox" name="req_photos" /><span><strong>Full yard photos</strong> (see requirements below) — front and back, capturing the entire yard.</span></label></li>
           <li><label><input type="checkbox" name="req_neighbors" /><span><strong>Signatures from all impacted neighbors</strong> (recorded in Section 05).</span></label></li>
-          <li><label><input type="checkbox" name="req_fee" /><span><strong>Application fee</strong> — arranged with Carol Taylor after submission.</span></label></li>
+          <li><label><input type="checkbox" name="req_fee" /><span><strong>Application fee</strong> — arranged with CarolMarie Taylor after submission.</span></label></li>
         </ul>
 
-        <details class="callout">
-          <summary>Photo requirements &mdash; specific angles required</summary>
+        <div class="callout callout--open">
+          <p class="callout__title">Photo requirements &mdash; specific angles required</p>
           <div class="callout__body grid-2">
             <div>
               <h4>Front Yard — 3 photos</h4>
@@ -152,34 +112,110 @@
             <input type="file" id="photos" name="photos" multiple accept="image/*,application/pdf" />
             <ul class="filelist" id="filelist" hidden></ul>
           </div>
-        </details>
+        </div>
       </section>
 
-      <!-- ---------- SITE PLAN ---------- -->
+      <!-- ---------- SITE PLAN (wizard) ---------- -->
       <section class="card reveal" id="siteplan">
         <header class="card__head">
-          <span class="card__num">03</span>
+          <span class="card__num">01</span>
           <div>
             <h2>Site / Plot Plan</h2>
-            <p class="card__sub">Sketch your lot on the grid below. Pick a material, then click or drag across cells. Your plan is color-coded automatically by the key.</p>
+            <p class="card__sub" id="step-subtitle">Enter your information, locate your property, then draw your plan.</p>
           </div>
         </header>
 
-        <div class="plot">
-          <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
+        <!-- Step indicators -->
+        <nav class="plot-steps-nav" aria-label="Plot plan steps">
+          <button type="button" class="plot-steps-nav__dot is-active" data-goto="1"><span>1</span> Info</button>
+          <button type="button" class="plot-steps-nav__dot" data-goto="2"><span>2</span> Select</button>
+          <button type="button" class="plot-steps-nav__dot" data-goto="3"><span>3</span> Orient</button>
+          <button type="button" class="plot-steps-nav__dot" data-goto="4"><span>4</span> Draw</button>
+        </nav>
 
-          <div class="plot__stage">
-            <span class="plot__edge plot__edge--top">Back Yard</span>
-            <span class="plot__edge plot__edge--bottom">Front Yard</span>
-            <div class="plot__grid-wrap">
-              <div class="plot__grid" id="plot-grid" aria-label="Site plan drawing grid"></div>
+        <!-- STEP 1: Applicant information -->
+        <div class="plot-step is-active" data-step="1">
+          <h3 class="plot-step__title">Applicant Information</h3>
+          <p class="plot-step__desc">The homeowner(s) of record submitting this request.</p>
+          <div class="grid-2">
+            <div class="field">
+              <label for="owner-name">Homeowner(s) Name <span class="req">*</span></label>
+              <input type="text" id="owner-name" name="ownerName" autocomplete="name" required />
+            </div>
+            <div class="field">
+              <label for="property-address">Property Address <span class="req">*</span></label>
+              <input type="text" id="property-address" name="propertyAddress" autocomplete="street-address" required />
+            </div>
+            <div class="field">
+              <label for="owner-phone">Phone <span class="req">*</span></label>
+              <input type="tel" id="owner-phone" name="ownerPhone" autocomplete="tel" required />
+            </div>
+            <div class="field">
+              <label for="owner-email">E-Mail <span class="req">*</span></label>
+              <input type="email" id="owner-email" name="ownerEmail" autocomplete="email" required />
             </div>
           </div>
+          <div class="plot-step__nav">
+            <span></span>
+            <button type="button" class="btn btn--primary btn--sm" id="step1-next">Next: Select parcel</button>
+          </div>
+        </div>
 
-          <div class="plot__tools">
-            <button type="button" class="btn btn--ghost btn--sm" id="plot-house">Reset house</button>
-            <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
-            <span class="plot__hint">Tip: choose <strong>Erase</strong> to remove. House is pre-placed in the center.</span>
+        <!-- STEP 2: Select your parcel -->
+        <div class="plot-step" data-step="2">
+          <h3 class="plot-step__title">Select Your Parcel</h3>
+          <p class="plot-step__desc">Click on your lot to select it. The parcel boundaries are from Riverside County records.</p>
+          <span class="map-reference__status" id="map-status"></span>
+          <div class="map-reference">
+            <div id="map-container">
+              <div class="map-reference__placeholder" id="map-placeholder">
+                Locating your property&hellip;
+              </div>
+            </div>
+          </div>
+          <div class="plot-step__nav">
+            <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
+            <button type="button" class="btn btn--primary btn--sm" id="step2-next" disabled>Next: Orient</button>
+          </div>
+        </div>
+
+        <!-- STEP 3: Orient your property -->
+        <div class="plot-step" data-step="3">
+          <h3 class="plot-step__title">Orient Your Property</h3>
+          <p class="plot-step__desc">Rotate the map until the front of your property (the street side) faces down, matching the grid layout.</p>
+          <div class="map-reference" id="map-step3">
+            <!-- map-container moves here via JS -->
+          </div>
+          <div class="map-reference__rotate" id="map-rotate-wrap">
+            <label for="map-rotate">Rotate until the front of your property faces down</label>
+            <div class="map-reference__rotate-row">
+              <input type="range" id="map-rotate" min="0" max="360" value="0" step="1" />
+              <span id="map-rotate-value">0&deg;</span>
+            </div>
+          </div>
+          <div class="plot-step__nav">
+            <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
+            <button type="button" class="btn btn--primary btn--sm" id="step3-next">Next: Draw plan</button>
+          </div>
+        </div>
+
+        <!-- STEP 4: Draw your plan -->
+        <div class="plot-step" data-step="4">
+          <h3 class="plot-step__title">Draw Your Plan</h3>
+          <p class="plot-step__desc">Pick a material, then click or drag across cells. Use <strong>Erase</strong> to remove or <strong>Move</strong> to reposition a region.</p>
+          <div class="plot">
+            <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
+            <div class="plot__stage">
+              <span class="plot__edge plot__edge--top">Back Yard</span>
+              <span class="plot__edge plot__edge--bottom">Front Yard</span>
+              <div class="plot__grid-wrap">
+                <div class="plot__grid" id="plot-grid" aria-label="Site plan drawing grid"></div>
+              </div>
+            </div>
+            <div class="plot__tools">
+              <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
+              <button type="button" class="btn btn--ghost btn--sm" data-back>Back to orientation</button>
+            </div>
           </div>
         </div>
       </section>
@@ -187,7 +223,7 @@
       <!-- ---------- DESCRIPTION ---------- -->
       <section class="card reveal" id="description">
         <header class="card__head">
-          <span class="card__num">04</span>
+          <span class="card__num">03</span>
           <div>
             <h2>Description of Proposed Change</h2>
             <p class="card__sub">Please be specific — include colors, style, location, size, and materials to be used.</p>
@@ -205,7 +241,7 @@
       <!-- ---------- NEIGHBORS ---------- -->
       <section class="card reveal" id="neighbors">
         <header class="card__head">
-          <span class="card__num">05</span>
+          <span class="card__num">04</span>
           <div>
             <h2>Adjacent Property Owners</h2>
             <p class="card__sub">Signatures of the adjacent owners most affected by the change. <em>A neighbor's signature does not constitute approval or disapproval.</em></p>
@@ -219,7 +255,7 @@
       <!-- ---------- ACKNOWLEDGMENTS ---------- -->
       <section class="card reveal" id="acknowledgments">
         <header class="card__head">
-          <span class="card__num">06</span>
+          <span class="card__num">05</span>
           <div>
             <h2>Owner Acknowledgments</h2>
             <p class="card__sub">Please read each statement and check to acknowledge. All are required.</p>
@@ -249,11 +285,22 @@
         <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
         <div class="submitbar__btns">
           <button type="button" class="btn btn--ghost" id="download-json">Download data (JSON)</button>
-          <button type="submit" class="btn btn--primary">Preview &amp; Print Application</button>
+          <button type="submit" class="btn btn--ghost">Preview &amp; Print</button>
+          <button type="button" class="btn btn--primary" id="email-btn">Email to Committee</button>
         </div>
       </div>
 
     </form>
+
+    <!-- ---------- WHAT HAPPENS NEXT ---------- -->
+    <div class="next-steps-notice">
+      <h3>What Happens Next</h3>
+      <ol>
+        <li><strong>Submit your application</strong> — Email the completed form and all attachments to <a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a>.</li>
+        <li><strong>Committee review</strong> — The Architectural Review Committee will review your application at the next scheduled board meeting (see dates below). The 45-day review period begins once all required materials and the fee are received.</li>
+        <li><strong>Decision &amp; payment</strong> — If the application is approved, the committee will contact you to arrange payment of the application fee and provide written approval before any work may begin.</li>
+      </ol>
+    </div>
 
     <!-- ---------- REFERENCE ---------- -->
     <section class="card card--muted reveal" id="reference">
@@ -276,7 +323,7 @@
         </div>
 
         <div>
-          <h3 class="ref-title">How to Submit</h3>
+          <h3 class="ref-title">How to Submit Signature Forms</h3>
           <div class="info-card">
             <p>All applications must be submitted <strong>by email only</strong> to:</p>
             <p class="info-card__email"><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></p>
@@ -284,7 +331,7 @@
           </div>
           <h3 class="ref-title">Assistance</h3>
           <div class="info-card">
-            <p><strong>Carol Taylor</strong> — Sr. Architectural Specialist</p>
+            <p><strong>CarolMarie Taylor</strong> — Sr. Architectural Specialist</p>
             <ul class="tight">
               <li>Hours: Tuesday – Saturday, 9:00 AM – 4:30 PM</li>
               <li>Direct: <a href="tel:9518014246">951-801-4246</a></li>
@@ -314,11 +361,13 @@
     <div class="modal__scroll" id="preview-content"></div>
     <footer class="modal__foot">
       <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
-      <button type="button" class="btn btn--primary" id="do-print">Print / Save as PDF</button>
+      <button type="button" class="btn btn--ghost" id="do-print">Save as PDF</button>
+      <button type="button" class="btn btn--primary" id="do-email">Email to Committee</button>
     </footer>
   </div>
 </div>
 
+<script src="https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>

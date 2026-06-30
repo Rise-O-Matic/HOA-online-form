@@ -285,6 +285,7 @@ input.invalid, textarea.invalid, .sigpad.invalid {
   box-shadow: 0 0 0 3px rgba(164,17,31,.1);
 }
 .field__meta { font-size: .74rem; color: var(--ink-faint); text-align: right; margin-top: .3rem; }
+.field__error { display: block; font-size: .78rem; color: var(--crimson); font-weight: 500; margin-top: .3rem; }
 
 input[type="file"] { padding: .55rem; background: var(--paper); cursor: pointer; }
 .filelist { list-style: none; margin: .7rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -392,6 +393,13 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .callout summary::-webkit-details-marker { display: none; }
 .callout summary::before { content: "▸ "; }
 .callout[open] summary::before { content: "▾ "; }
+.callout__title {
+  padding: .85rem 1.1rem;
+  font-weight: 600;
+  font-size: .88rem;
+  color: var(--crimson);
+  margin: 0;
+}
 .callout__body { padding: 0 1.1rem 1rem; }
 .callout__body h4 {
   font-family: var(--font-disp); font-weight: 600; font-size: 1rem;
@@ -431,6 +439,29 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   background:
     linear-gradient(45deg, #fff 45%, #d33 45%, #d33 55%, #fff 55%);
 }
+.palette .swatch--move {
+  background: #fff;
+  position: relative;
+  cursor: move;
+}
+.palette .swatch--move::after {
+  content: "✥";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: .7rem;
+  color: #555;
+}
+.plot__cell.is-move-source {
+  outline: 2px dashed var(--crimson);
+  outline-offset: -2px;
+  opacity: .5;
+}
+.plot__cell.is-move-preview {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
 
 .plot__stage { position: relative; padding: 1.4rem 0; }
 .plot__edge {
@@ -459,8 +490,17 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border-bottom: 1px solid #e8e3d8;
   cursor: pointer;
 }
-.plot__cell.is-house {
-  background: #1f4e6b !important;
+.plot__cell.is-outside {
+  background: transparent !important;
+  border-color: transparent !important;
+  pointer-events: none;
+  cursor: default;
+}
+.plot__parcel-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  pointer-events: none;
+  z-index: 2;
 }
 .plot__grid::after { content: none; }
 .plot__tools {
@@ -468,6 +508,120 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   margin-top: 1rem;
 }
 .plot__hint { font-size: .78rem; color: var(--ink-faint); }
+
+/* ===================== WIZARD STEPS ===================== */
+.plot-steps-nav {
+  display: flex; gap: .4rem; margin-bottom: 1.4rem;
+  border-bottom: 1px solid var(--line); padding-bottom: 1rem;
+}
+.plot-steps-nav__dot {
+  display: flex; align-items: center; gap: .4rem;
+  font-family: var(--font-ui); font-size: .78rem; font-weight: 500;
+  padding: .35rem .7rem; border-radius: 99px;
+  border: 1px solid var(--line-2); background: var(--paper);
+  color: var(--ink-faint); cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.plot-steps-nav__dot span {
+  display: grid; place-items: center;
+  width: 1.3rem; height: 1.3rem; border-radius: 50%;
+  background: var(--line); color: var(--ink-faint);
+  font-weight: 700; font-size: .7rem;
+}
+.plot-steps-nav__dot.is-active {
+  border-color: var(--crimson); background: var(--paper-2);
+  color: var(--crimson);
+}
+.plot-steps-nav__dot.is-active span {
+  background: var(--crimson); color: #fff;
+}
+.plot-steps-nav__dot.is-done span {
+  background: var(--green); color: #fff;
+}
+.plot-steps-nav__dot.is-done { color: var(--green); border-color: var(--green); }
+
+.plot-step { display: none; }
+.plot-step.is-active { display: block; }
+.plot-step__title {
+  font-family: var(--font-disp); font-weight: 600; font-size: 1.15rem;
+  margin: 0 0 .3rem; color: var(--ink);
+}
+.plot-step__desc {
+  font-size: .88rem; color: var(--ink-soft); margin: 0 0 1rem;
+}
+.plot-step__nav {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--line);
+}
+
+/* ===================== MAP REFERENCE ===================== */
+.map-reference { margin-top: 1.2rem; }
+.map-reference__body { padding: 0 1.1rem 1rem; }
+.map-reference__controls {
+  display: flex; align-items: center; gap: .8rem;
+  margin-bottom: .8rem; flex-wrap: wrap;
+}
+.map-reference__status { font-size: .8rem; color: var(--ink-faint); }
+.map-reference__status.err { color: var(--crimson); font-weight: 500; }
+.map-reference__status.ok  { color: var(--green); font-weight: 500; }
+
+#map-container {
+  width: 100%; max-width: 500px;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--paper);
+  position: relative;
+}
+.map-reference__placeholder {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  text-align: center; padding: 2rem;
+  font-size: .88rem; color: var(--ink-faint);
+  font-family: var(--font-disp); font-style: italic;
+}
+
+/* Rotation slider */
+.map-reference__rotate {
+  max-width: 660px; margin: .8rem auto 0;
+}
+.map-reference__rotate label {
+  display: block; font-size: .8rem; font-weight: 600;
+  color: var(--ink-soft); margin-bottom: .35rem;
+}
+.map-reference__rotate-row {
+  display: flex; align-items: center; gap: .8rem;
+}
+.map-reference__rotate-row input[type="range"] {
+  flex: 1; accent-color: var(--crimson);
+  height: 6px; cursor: pointer;
+}
+.map-reference__rotate-row span {
+  font-size: .82rem; font-variant-numeric: tabular-nums;
+  color: var(--ink-faint); min-width: 3.5em; text-align: right;
+}
+
+/* Apply to Plot Plan */
+.map-reference__apply {
+  max-width: 660px; margin: 1rem auto 0;
+  display: flex; align-items: center; gap: .8rem;
+}
+.map-reference__apply-hint {
+  font-size: .8rem; color: var(--ink-faint);
+}
+
+/* MapLibre overrides */
+.map-reference .maplibregl-ctrl { font-family: var(--font-ui); }
+.map-reference .maplibregl-ctrl-attrib {
+  font-size: .65rem; background: rgba(255,253,249,.85);
+}
+
+@media (max-width: 620px) {
+  #map-container { max-width: 100%; }
+  .map-reference__rotate { max-width: 100%; }
+}
 
 /* ===================== NEIGHBORS ===================== */
 .neighbor-list { display: grid; gap: 1rem; margin-bottom: 1.1rem; }
@@ -554,6 +708,34 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .btn--ghost:hover { border-color: var(--ink); color: var(--ink); }
 .btn--sm { padding: .4rem .9rem; font-size: .78rem; }
+
+/* ===================== NEXT STEPS NOTICE ===================== */
+.next-steps-notice {
+  background: #f1f5ef;
+  border: 1px solid #c5d8bd;
+  border-left: 4px solid var(--green);
+  border-radius: var(--radius-sm);
+  padding: 1.3rem 1.6rem;
+  margin-bottom: 1.5rem;
+  font-size: .88rem;
+  color: var(--ink-soft);
+}
+.next-steps-notice h3 {
+  font-family: var(--font-disp);
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--green);
+  margin: 0 0 .7rem;
+}
+.next-steps-notice ol {
+  margin: 0;
+  padding-left: 1.3rem;
+}
+.next-steps-notice li {
+  margin-bottom: .5rem;
+  line-height: 1.55;
+}
+.next-steps-notice li:last-child { margin-bottom: 0; }
 
 /* ===================== REFERENCE ===================== */
 .reference-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 2rem; }
@@ -665,5 +847,5 @@ ul.tight li { margin-bottom: .25rem; }
 @media print {
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
-  .sidenav, .submitbar, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .plot__tools { display: none !important; }
+  .sidenav, .submitbar, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .plot__tools, .map-reference { display: none !important; }
 }

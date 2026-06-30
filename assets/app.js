@@ -7,13 +7,13 @@
 
   const $  = (s, c = document) => c.querySelector(s);
   const $$ = (s, c = document) => Array.from(c.querySelectorAll(s));
-  const DRAFT_KEY = "fairwayCanyonArcDraft.v1";
+  const DRAFT_KEY = "fairwayCanyonArcDraft.v2";
 
   /* ------------------------------------------------------
      DATA: acknowledgments, palette, review dates
   ------------------------------------------------------ */
   const ACKS = [
-    "Compliance with the Guidelines, Protective Covenants and ARC approval does <strong>not</strong> necessarily constitute compliance with building and zoning codes of Riverside County. A building permit may still be required.",
+    'Compliance with the <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Guidelines</a>, <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Protective Covenants</a> and ARC approval does <strong>not</strong> necessarily constitute compliance with building and zoning codes of <a href="https://www.rivcocob.org/building-and-safety/" target="_blank" rel="noopener">Riverside County</a>. A building permit may still be required.',
     "No exterior alteration shall commence until <strong>written ARC approval</strong> has been returned to the homeowner. Unapproved or out-of-scope work may require restoration to the former condition at the homeowner's expense, plus legal costs.",
     "I am responsible to provide all required details on attached sheets (plot, sketches, scale drawings, photos, illustrations, plans, contracts, etc.), with the location of the change indicated on a color-coded plot.",
     "For changes in <strong>paint color</strong>, I will attach a manufacturer's sample indicating the color/code and the proposed vendor's name.",
@@ -34,7 +34,8 @@
     { id: "tree",      label: "Tree",            color: "#2e6b35" },
     { id: "light",     label: "Yard Light",      color: "#f4c430" },
     { id: "camera",    label: "Camera",          color: "#6a4bb0" },
-    { id: "erase",     label: "Erase",           color: null      }
+    { id: "erase",     label: "Erase",           color: null      },
+    { id: "move",      label: "Move",            color: null      }
   ];
   const PALETTE_MAP = Object.fromEntries(PALETTE.map(p => [p.id, p]));
 
@@ -49,11 +50,87 @@
     ["December 17 (tentative)", "December 8 (tentative)"]
   ];
 
-  const GRID_COLS = 30;
-  const GRID_ROWS = 18;
-  // pre-placed house block (centered)
-  const HOUSE = { c0: 12, c1: 17, r0: 7, r1: 10 };
-  const isHouse = (c, r) => c >= HOUSE.c0 && c <= HOUSE.c1 && r >= HOUSE.r0 && r <= HOUSE.r1;
+  const CELL_SIZE = 22;
+  const TARGET_MAX_DIM = 30; // longest parcel dimension maps to this many cells
+  let gridCols = 30;
+  let gridRows = 18;
+  let parcelMask = null;        // 2D bool array [r][c] — true = inside parcel
+  let parcelPolygonPx = null;   // polygon vertices in pixel coords for SVG overlay
+  let selectedParcelGeoJSON = null;
+  let parcelBearing = 0;
+  let parcelsData = null;       // raw GeoJSON from county query
+  const isOutside = (c, r) => parcelMask !== null && !parcelMask[r]?.[c];
+
+  /* --- Geometry: parcel polygon → grid projection --- */
+  function geoToLocalMeters(ring, center) {
+    const toRad = Math.PI / 180;
+    const cosLat = Math.cos(center[1] * toRad);
+    return ring.map(([lng, lat]) => ({
+      x: (lng - center[0]) * cosLat * 111320,
+      y: (lat - center[1]) * 111320
+    }));
+  }
+
+  function rotatePoints(pts, angleDeg) {
+    const a = angleDeg * Math.PI / 180;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    return pts.map(p => ({ x: p.x * cos + p.y * sin, y: -p.x * sin + p.y * cos }));
+  }
+
+  function computeBBox(pts) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+    return { minX, maxX, minY, maxY };
+  }
+
+  function pointInPolygon(px, py, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function buildParcelGrid(coordRing, bearing) {
+    // Centroid
+    const cx = coordRing.reduce((s, p) => s + p[0], 0) / coordRing.length;
+    const cy = coordRing.reduce((s, p) => s + p[1], 0) / coordRing.length;
+    // To local meters, then rotate to match the map view
+    // MapLibre bearing rotates the view CW, so we rotate coordinates by -bearing
+    // to align them with what the user sees on screen
+    const local = geoToLocalMeters(coordRing, [cx, cy]);
+    const rotated = rotatePoints(local, -bearing);
+    // Flip Y: geographic Y increases northward (up), but grid rows increase
+    // downward. Negating Y makes the grid match the map's screen orientation.
+    const screen = rotated.map(p => ({ x: p.x, y: -p.y }));
+    const bb = computeBBox(screen);
+    const w = bb.maxX - bb.minX, h = bb.maxY - bb.minY;
+    // Scale: longest dimension → TARGET_MAX_DIM cells
+    const metersPerCell = Math.max(w, h) / TARGET_MAX_DIM;
+    const cols = Math.max(6, Math.min(60, Math.ceil(w / metersPerCell)));
+    const rows = Math.max(6, Math.min(40, Math.ceil(h / metersPerCell)));
+    // Build mask
+    const mask = Array.from({ length: rows }, () => Array(cols).fill(false));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const px = bb.minX + (c + 0.5) * metersPerCell;
+        const py = bb.minY + (r + 0.5) * metersPerCell;
+        mask[r][c] = pointInPolygon(px, py, screen);
+      }
+    }
+    // Polygon in pixel coords (for SVG overlay)
+    const polyPx = screen.map(p => ({
+      x: (p.x - bb.minX) / metersPerCell * CELL_SIZE,
+      y: (p.y - bb.minY) / metersPerCell * CELL_SIZE
+    }));
+    return { cols, rows, mask, polygonPx: polyPx };
+  }
 
   /* ------------------------------------------------------
      SIGNATURE PAD
@@ -130,44 +207,44 @@
   let activeTool = "turf";
   let painting = false;
   // model: cellState[r][c] = paletteId or null
-  const cellState = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(null));
+  let cellState = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
 
   function buildGrid() {
-    gridEl.style.gridTemplateColumns = `repeat(${GRID_COLS}, 22px)`;
+    gridEl.innerHTML = "";
+    gridEl.style.gridTemplateColumns = `repeat(${gridCols}, ${CELL_SIZE}px)`;
     const frag = document.createDocumentFragment();
-    for (let r = 0; r < GRID_ROWS; r++) {
-      for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < gridRows; r++) {
+      for (let c = 0; c < gridCols; c++) {
         const cell = document.createElement("div");
         cell.className = "plot__cell";
         cell.dataset.r = r; cell.dataset.c = c;
-        if (isHouse(c, r)) {
-          cell.classList.add("is-house");
-          if (c === HOUSE.c0 && r === HOUSE.r0) {
-            cell.style.position = "relative";
-          }
-        }
+        if (isOutside(c, r)) cell.classList.add("is-outside");
         frag.appendChild(cell);
       }
     }
     gridEl.appendChild(frag);
-    // House label overlay
-    const label = document.createElement("div");
-    label.textContent = "HOUSE";
-    Object.assign(label.style, {
-      position: "absolute", color: "#fff", fontFamily: "var(--font-disp)",
-      fontWeight: "600", letterSpacing: ".1em", fontSize: ".8rem",
-      pointerEvents: "none",
-      left: (HOUSE.c0 * 22) + "px", top: (HOUSE.r0 * 22) + "px",
-      width: ((HOUSE.c1 - HOUSE.c0 + 1) * 22) + "px",
-      height: ((HOUSE.r1 - HOUSE.r0 + 1) * 22) + "px",
-      display: "grid", placeItems: "center"
-    });
-    gridEl.appendChild(label);
+    // SVG parcel outline overlay
+    if (parcelPolygonPx) {
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svgW = gridCols * CELL_SIZE, svgH = gridRows * CELL_SIZE;
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("width", svgW);
+      svg.setAttribute("height", svgH);
+      svg.setAttribute("class", "plot__parcel-overlay");
+      const poly = document.createElementNS(svgNS, "polygon");
+      poly.setAttribute("points", parcelPolygonPx.map(p => `${p.x},${p.y}`).join(" "));
+      poly.setAttribute("fill", "none");
+      poly.setAttribute("stroke", "#a4111f");
+      poly.setAttribute("stroke-width", "2");
+      poly.setAttribute("stroke-dasharray", "6 3");
+      svg.appendChild(poly);
+      gridEl.appendChild(svg);
+    }
   }
 
   function paint(cell) {
     const r = +cell.dataset.r, c = +cell.dataset.c;
-    if (isHouse(c, r)) return; // protect house
+    if (isOutside(c, r)) return; // protect house
     if (activeTool === "erase") {
       cellState[r][c] = null;
       cell.style.background = "";
@@ -185,7 +262,7 @@
       b.dataset.tool = p.id;
       if (p.id === activeTool) b.classList.add("is-active");
       const sw = document.createElement("span");
-      sw.className = "swatch" + (p.id === "erase" ? " swatch--erase" : "");
+      sw.className = "swatch" + (p.id === "erase" ? " swatch--erase" : "") + (p.id === "move" ? " swatch--move" : "");
       if (p.color) sw.style.background = p.color;
       b.append(sw, document.createTextNode(p.label));
       b.addEventListener("click", () => {
@@ -196,38 +273,152 @@
     });
   }
 
+  /* --- Move tool state --- */
+  let moveRegion = null;  // { cells: [{r,c,id}], anchorR, anchorC }
+  let moveStartR = 0, moveStartC = 0;
+
+  function floodFill(r, c) {
+    const target = cellState[r][c];
+    if (!target) return [];
+    const visited = new Set();
+    const result = [];
+    const stack = [[r, c]];
+    while (stack.length) {
+      const [cr, cc] = stack.pop();
+      const key = cr + "," + cc;
+      if (visited.has(key)) continue;
+      if (cr < 0 || cr >= gridRows || cc < 0 || cc >= gridCols) continue;
+      if (isOutside(cc, cr)) continue;
+      if (cellState[cr][cc] !== target) continue;
+      visited.add(key);
+      result.push({ r: cr, c: cc, id: target });
+      stack.push([cr - 1, cc], [cr + 1, cc], [cr, cc - 1], [cr, cc + 1]);
+    }
+    return result;
+  }
+
+  function refreshCell(r, c) {
+    const cell = gridEl.querySelector(`.plot__cell[data-r="${r}"][data-c="${c}"]`);
+    if (!cell || cell.classList.contains("is-outside")) return;
+    const v = cellState[r][c];
+    cell.style.background = v ? PALETTE_MAP[v]?.color || "" : "";
+    cell.classList.remove("is-move-source", "is-move-preview");
+  }
+
+  function showMovePreview(dr, dc) {
+    // clear old previews
+    $$(".is-move-preview", gridEl).forEach(el => {
+      el.classList.remove("is-move-preview");
+      const rr = +el.dataset.r, cc = +el.dataset.c;
+      const v = cellState[rr][cc];
+      el.style.background = v ? PALETTE_MAP[v]?.color || "" : "";
+    });
+    // show new preview
+    moveRegion.cells.forEach(({ r, c, id }) => {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= gridRows || nc < 0 || nc >= gridCols) return;
+      if (isOutside(nc, nr)) return;
+      const cell = gridEl.querySelector(`.plot__cell[data-r="${nr}"][data-c="${nc}"]`);
+      if (cell) {
+        cell.style.background = PALETTE_MAP[id]?.color || "";
+        cell.classList.add("is-move-preview");
+      }
+    });
+  }
+
+  function commitMove(dr, dc) {
+    if (!moveRegion) return;
+    // erase source
+    moveRegion.cells.forEach(({ r, c }) => {
+      if (!isOutside(c, r)) cellState[r][c] = null;
+    });
+    // place at destination
+    moveRegion.cells.forEach(({ r, c, id }) => {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= gridRows || nc < 0 || nc >= gridCols) return;
+      if (isOutside(nc, nr)) return;
+      cellState[nr][nc] = id;
+    });
+    // refresh all affected cells
+    const allCells = new Set();
+    moveRegion.cells.forEach(({ r, c }) => { allCells.add(r + "," + c); allCells.add((r + dr) + "," + (c + dc)); });
+    allCells.forEach(key => { const [rr, cc] = key.split(",").map(Number); refreshCell(rr, cc); });
+    // clear highlight
+    $$(".is-move-source, .is-move-preview", gridEl).forEach(el => el.classList.remove("is-move-source", "is-move-preview"));
+    moveRegion = null;
+  }
+
   function bindGrid() {
     gridEl.addEventListener("pointerdown", e => {
       const cell = e.target.closest(".plot__cell");
       if (!cell) return;
+
+      if (activeTool === "move") {
+        const r = +cell.dataset.r, c = +cell.dataset.c;
+        if (isOutside(c, r) || !cellState[r][c]) return;
+        // flood-fill to find the contiguous region
+        moveRegion = { cells: floodFill(r, c), anchorR: r, anchorC: c };
+        moveStartR = r; moveStartC = c;
+        // highlight source cells
+        moveRegion.cells.forEach(({ r: rr, c: cc }) => {
+          const el = gridEl.querySelector(`.plot__cell[data-r="${rr}"][data-c="${cc}"]`);
+          if (el) el.classList.add("is-move-source");
+        });
+        gridEl.setPointerCapture?.(e.pointerId);
+        return;
+      }
+
       painting = true; paint(cell);
       gridEl.setPointerCapture?.(e.pointerId);
     });
-    gridEl.addEventListener("pointerover", e => {
+
+    gridEl.addEventListener("pointermove", e => {
+      if (moveRegion) {
+        const rect = gridEl.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+        const c = Math.floor(x / 22), r = Math.floor(y / 22);
+        const dr = r - moveStartR, dc = c - moveStartC;
+        showMovePreview(dr, dc);
+        moveRegion._lastDR = dr; moveRegion._lastDC = dc;
+        return;
+      }
       if (!painting) return;
       const cell = e.target.closest(".plot__cell");
       if (cell) paint(cell);
     });
-    window.addEventListener("pointerup", () => { painting = false; });
+
+    window.addEventListener("pointerup", () => {
+      if (moveRegion) {
+        const dr = moveRegion._lastDR || 0, dc = moveRegion._lastDC || 0;
+        if (dr !== 0 || dc !== 0) commitMove(dr, dc);
+        else {
+          // no movement — just clear highlight
+          $$(".is-move-source, .is-move-preview", gridEl).forEach(el => el.classList.remove("is-move-source", "is-move-preview"));
+          moveRegion = null;
+        }
+      }
+      painting = false;
+    });
+
     // prevent native drag of grid
     gridEl.addEventListener("dragstart", e => e.preventDefault());
   }
 
   function clearPlot() {
-    for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
-      if (isHouse(c, r)) continue;
+    for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) {
+      if (isOutside(c, r)) continue;
       cellState[r][c] = null;
     }
     $$(".plot__cell", gridEl).forEach(cell => {
-      if (!cell.classList.contains("is-house")) cell.style.background = "";
+      if (!cell.classList.contains("is-outside")) cell.style.background = "";
     });
   }
 
   function applyPlotState(state) {
     if (!Array.isArray(state)) return;
-    for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) {
       const v = state?.[r]?.[c] || null;
-      if (isHouse(c, r)) continue;
+      if (isOutside(c, r)) continue;
       cellState[r][c] = v;
       const cell = gridEl.querySelector(`.plot__cell[data-r="${r}"][data-c="${c}"]`);
       if (cell) cell.style.background = v ? PALETTE_MAP[v]?.color || "" : "";
@@ -236,25 +427,34 @@
 
   // Render the grid model to a PNG for the preview/print
   function renderPlotImage() {
-    const cs = 18, w = GRID_COLS * cs, h = GRID_ROWS * cs;
+    const cs = 18, w = gridCols * cs, h = gridRows * cs;
     const cv = document.createElement("canvas");
     cv.width = w; cv.height = h;
     const ctx = cv.getContext("2d");
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
-    for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) {
+      if (isOutside(c, r)) continue; // skip outside cells
       const x = c * cs, y = r * cs;
-      if (isHouse(c, r)) { ctx.fillStyle = "#1f4e6b"; ctx.fillRect(x, y, cs, cs); continue; }
       const v = cellState[r][c];
       if (v) { ctx.fillStyle = PALETTE_MAP[v].color; ctx.fillRect(x, y, cs, cs); }
     }
-    // grid lines
+    // grid lines (inside cells only)
     ctx.strokeStyle = "#e3ddd0"; ctx.lineWidth = 1;
-    for (let c = 0; c <= GRID_COLS; c++) { ctx.beginPath(); ctx.moveTo(c * cs, 0); ctx.lineTo(c * cs, h); ctx.stroke(); }
-    for (let r = 0; r <= GRID_ROWS; r++) { ctx.beginPath(); ctx.moveTo(0, r * cs); ctx.lineTo(w, r * cs); ctx.stroke(); }
+    for (let c = 0; c <= gridCols; c++) { ctx.beginPath(); ctx.moveTo(c * cs, 0); ctx.lineTo(c * cs, h); ctx.stroke(); }
+    for (let r = 0; r <= gridRows; r++) { ctx.beginPath(); ctx.moveTo(0, r * cs); ctx.lineTo(w, r * cs); ctx.stroke(); }
     ctx.strokeStyle = "#888"; ctx.strokeRect(.5, .5, w - 1, h - 1);
-    // house label
-    ctx.fillStyle = "#fff"; ctx.font = "600 12px Georgia"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("HOUSE", ((HOUSE.c0 + HOUSE.c1 + 1) / 2) * cs, ((HOUSE.r0 + HOUSE.r1 + 1) / 2) * cs);
+    // Parcel outline
+    if (parcelPolygonPx) {
+      const scale = cs / CELL_SIZE;
+      ctx.strokeStyle = "#a4111f"; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+      ctx.beginPath();
+      parcelPolygonPx.forEach((p, i) => {
+        const px = p.x * scale, py = p.y * scale;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath(); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     return cv.toDataURL("image/png");
   }
 
@@ -262,12 +462,378 @@
     return cellState.some(row => row.some(v => v));
   }
 
+  function rebuildGridForParcel(feature, bearing) {
+    const ring = feature.geometry.coordinates[0];
+    const result = buildParcelGrid(ring, bearing);
+    gridCols = result.cols;
+    gridRows = result.rows;
+    parcelMask = result.mask;
+    parcelPolygonPx = result.polygonPx;
+    cellState = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
+    buildGrid();
+    updateProgress();
+  }
+
   buildGrid();
   buildPalette();
   bindGrid();
   $("#plot-clear").addEventListener("click", clearPlot);
-  $("#plot-house").addEventListener("click", () => {
-    $$(".plot__cell.is-house", gridEl).forEach(c => { c.style.background = ""; });
+
+  /* ------------------------------------------------------
+     MAP REFERENCE (MapLibre GL JS + OpenFreeMap + County Parcels)
+  ------------------------------------------------------ */
+  const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+  const ASSESSOR_TABLE_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/services/OpenData/Assessor/MapServer/50/query";
+  const PARCEL_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/services/OpenData/Assessor/MapServer/40/query";
+  const HOA_CENTER = [-116.9770, 33.9295]; // [lng, lat] — Beaumont, CA
+  const PROPERTY_ZOOM = 18;
+  const PARCEL_RADIUS = 0.003; // ~300m bounding box around the address
+
+  let mapInstance = null;
+  let mapMarker = null;
+  let mapReady = false;
+
+  function initMap() {
+    if (mapReady) return;
+    const placeholder = $("#map-placeholder");
+    if (placeholder) placeholder.remove();
+
+    mapInstance = new maplibregl.Map({
+      container: "map-container",
+      style: MAP_STYLE,
+      center: HOA_CENTER,
+      zoom: 15,
+      scrollZoom: false,
+      maxZoom: 20,
+      attributionControl: true
+    });
+
+    mapInstance.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false }), "top-right");
+
+    mapInstance.on("load", () => {
+      // Hide building footprints from the base style
+      ["building", "building-3d"].forEach(id => {
+        if (mapInstance.getLayer(id)) mapInstance.setLayoutProperty(id, "visibility", "none");
+      });
+
+      // Add empty parcel source — populated after geocoding
+      mapInstance.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      mapInstance.addLayer({
+        id: "parcel-fills",
+        type: "fill",
+        source: "parcels",
+        paint: { "fill-color": "rgba(247,244,238,0.15)", "fill-opacity": 0.3 }
+      });
+      mapInstance.addLayer({
+        id: "parcel-highlight",
+        type: "fill",
+        source: "parcels",
+        paint: { "fill-color": "rgba(164,17,31,0.25)", "fill-opacity": 0.6 },
+        filter: ["==", "APN", ""]
+      });
+      mapInstance.addLayer({
+        id: "parcel-lines",
+        type: "line",
+        source: "parcels",
+        paint: { "line-color": "#a4111f", "line-width": 1.5, "line-opacity": 0.7 }
+      });
+      mapInstance.addLayer({
+        id: "parcel-highlight-line",
+        type: "line",
+        source: "parcels",
+        paint: { "line-color": "#fff", "line-width": 3, "line-opacity": 1 },
+        filter: ["==", "APN", ""]
+      });
+      mapInstance.addLayer({
+        id: "parcel-labels",
+        type: "symbol",
+        source: "parcels",
+        layout: {
+          "text-field": ["coalesce", ["to-string", ["get", "STREET_NUMBER"]], ["get", "APN"]],
+          "text-size": 11,
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-allow-overlap": false,
+          "text-ignore-placement": false
+        },
+        paint: { "text-color": "#7d0d18", "text-halo-color": "#fff", "text-halo-width": 1.5 },
+        minzoom: 17
+      });
+
+      // Click on a parcel to select it
+      mapInstance.on("click", "parcel-fills", (e) => {
+        if (!e.features || !e.features.length) return;
+        const apn = e.features[0].properties.APN;
+        selectedAPN = apn;
+        // Store full GeoJSON from original data (not simplified render)
+        selectedParcelGeoJSON = parcelsData?.features?.find(f => f.properties.APN === apn) || e.features[0];
+        mapInstance.setFilter("parcel-highlight", ["==", "APN", apn]);
+        mapInstance.setFilter("parcel-highlight-line", ["==", "APN", apn]);
+
+        // Show popup with APN
+        new maplibregl.Popup({ offset: 4 })
+          .setLngLat(e.lngLat)
+          .setHTML("<strong>Selected parcel</strong><br>APN: " + esc(apn) + "<br><span style='font-size:.8em;color:#666;'>Click Apply to Plot Plan to shape your grid.</span>")
+          .addTo(mapInstance);
+
+        // Enable Step 2 Next button (Select → Orient)
+        const step2Next = $("#step2-next");
+        if (step2Next) step2Next.disabled = false;
+
+        $("#map-status").textContent = "Parcel " + apn + " selected — click Next to orient.";
+        $("#map-status").className = "map-reference__status ok";
+      });
+
+      // Cursor change on parcel hover
+      mapInstance.on("mouseenter", "parcel-fills", () => { mapInstance.getCanvas().style.cursor = "pointer"; });
+      mapInstance.on("mouseleave", "parcel-fills", () => { mapInstance.getCanvas().style.cursor = ""; });
+
+      // Flush any parcels that arrived before the style loaded
+      mapStyleLoaded = true;
+      if (pendingParcels) {
+        mapInstance.getSource("parcels").setData(pendingParcels);
+        pendingParcels = null;
+      }
+    });
+
+    mapReady = true;
+  }
+
+  let selectedAPN = null;
+  let pendingParcels = null; // queued GeoJSON if map isn't loaded yet
+  let mapStyleLoaded = false;
+
+  async function loadParcels(lng, lat) {
+    const bbox = [lng - PARCEL_RADIUS, lat - PARCEL_RADIUS, lng + PARCEL_RADIUS, lat + PARCEL_RADIUS].join(",");
+    const params = new URLSearchParams({
+      geometry: bbox,
+      geometryType: "esriGeometryEnvelope",
+      inSR: "4326",
+      outSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outFields: "APN",
+      f: "geojson",
+      returnGeometry: "true"
+    });
+    try {
+      const res = await fetch(PARCEL_URL + "?" + params);
+      if (!res.ok) return;
+      const geojson = await res.json();
+      if (!geojson.features) return;
+
+      // Fetch addresses for these parcels from the assessor table
+      const apns = geojson.features.map(f => f.properties.APN).filter(Boolean);
+      if (apns.length) {
+        try {
+          const whereClause = apns.map(a => "APN='" + a + "'").join(" OR ");
+          const addrParams = new URLSearchParams({
+            where: whereClause,
+            outFields: "APN,STREET_NUMBER,SITUS_STREET",
+            f: "json",
+            returnGeometry: "false",
+            resultRecordCount: "2000"
+          });
+          const addrRes = await fetch(ASSESSOR_TABLE_URL + "?" + addrParams);
+          if (addrRes.ok) {
+            const addrData = await addrRes.json();
+            const addrMap = {};
+            (addrData.features || []).forEach(f => { addrMap[f.attributes.APN] = f.attributes; });
+            geojson.features.forEach(f => {
+              const info = addrMap[f.properties.APN];
+              if (info) {
+                f.properties.STREET_NUMBER = info.STREET_NUMBER || "";
+                f.properties.SITUS_STREET = info.SITUS_STREET || "";
+              }
+            });
+          }
+        } catch (e) { /* address lookup is best-effort */ }
+      }
+
+      parcelsData = geojson;
+      if (mapStyleLoaded && mapInstance.getSource("parcels")) {
+        mapInstance.getSource("parcels").setData(geojson);
+      } else {
+        pendingParcels = geojson;
+      }
+    } catch (e) {
+      const s = $("#map-status");
+      s.textContent = "Could not load parcel boundaries. Check your connection and try again.";
+      s.className = "map-reference__status err";
+    }
+  }
+
+  // Parse a street address into number + name for the county assessor query
+  function parseAddress(address) {
+    const m = address.trim().match(/^(\d+)\s+(.+?)(?:\s+(?:ave|avenue|st|street|dr|drive|ct|court|ln|lane|pl|place|way|blvd|boulevard|tr|trail|cir|circle|rd|road))?\.?\s*$/i);
+    if (!m) return null;
+    return { number: parseInt(m[1], 10), name: m[2].toUpperCase().replace(/\s+(AVE|AVENUE|ST|STREET|DR|DRIVE|CT|COURT|LN|LANE|PL|PLACE|WAY|BLVD|BOULEVARD|TR|TRAIL|CIR|CIRCLE|RD|ROAD)$/i, "").trim() };
+  }
+
+  async function locateByAddress(address) {
+    const mapStatus = $("#map-status");
+    mapStatus.textContent = "Looking up address\u2026";
+    mapStatus.className = "map-reference__status";
+
+    const parsed = parseAddress(address);
+    if (!parsed) {
+      mapStatus.textContent = "Could not parse address. Enter a street number and name (e.g. 11506 Aaron Ave).";
+      mapStatus.className = "map-reference__status err";
+      return;
+    }
+
+    try {
+      // Step 1: Query assessor table for this address → get APN
+      const addrParams = new URLSearchParams({
+        where: `STREET_NUMBER=${parsed.number} AND STREET_NAME='${parsed.name}' AND CITY='BEAUMONT'`,
+        outFields: "APN,SITUS_STREET",
+        f: "json",
+        returnGeometry: "false",
+        resultRecordCount: "1"
+      });
+      const addrRes = await fetch(ASSESSOR_TABLE_URL + "?" + addrParams);
+      if (!addrRes.ok) throw new Error("Network error");
+      const addrData = await addrRes.json();
+
+      if (!addrData.features || !addrData.features.length) {
+        mapStatus.textContent = "Address not found in county records. Check the street number and name.";
+        mapStatus.className = "map-reference__status err";
+        return;
+      }
+
+      const apn = addrData.features[0].attributes.APN;
+      const situs = addrData.features[0].attributes.SITUS_STREET;
+
+      // Step 2: Get the parcel polygon for this APN
+      const parcelParams = new URLSearchParams({
+        where: "APN='" + apn + "'",
+        outSR: "4326",
+        outFields: "APN",
+        f: "geojson",
+        returnGeometry: "true"
+      });
+      const parcelRes = await fetch(PARCEL_URL + "?" + parcelParams);
+      if (!parcelRes.ok) throw new Error("Network error");
+      const parcelData = await parcelRes.json();
+
+      if (!parcelData.features || !parcelData.features.length) {
+        mapStatus.textContent = "Found APN " + apn + " but could not load its parcel geometry.";
+        mapStatus.className = "map-reference__status err";
+        return;
+      }
+
+      // Get centroid of the matched parcel
+      const coords = parcelData.features[0].geometry.coordinates[0];
+      const cLng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+      const cLat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+
+      // Step 3: Load surrounding parcels and fly to location
+      mapInstance.flyTo({ center: [cLng, cLat], zoom: PROPERTY_ZOOM, duration: 1200 });
+      loadParcels(cLng, cLat);
+
+      mapStatus.textContent = "Found " + situs + " (APN: " + apn + ") — click on your parcel to select it.";
+      mapStatus.className = "map-reference__status ok";
+    } catch (err) {
+      mapStatus.textContent = "Could not reach Riverside County records. Check your connection.";
+      mapStatus.className = "map-reference__status err";
+    }
+  }
+
+  /* --- WIZARD STEP NAVIGATION --- */
+  let currentStep = 1;
+  const stepDots = $$(".plot-steps-nav__dot");
+  const mapContainer = $("#map-container");
+
+  function showStep(n) {
+    currentStep = n;
+    $$(".plot-step").forEach(el => el.classList.toggle("is-active", +el.dataset.step === n));
+    stepDots.forEach(dot => {
+      const s = +dot.dataset.goto;
+      dot.classList.toggle("is-active", s === n);
+      dot.classList.toggle("is-done", s < n);
+    });
+
+    // Move the map container into the current step's .map-reference (steps 2-3 share it)
+    if (n >= 2 && n <= 3) {
+      const target = n === 2 ? $(".plot-step[data-step='2'] .map-reference")
+                   : $("#map-step3");
+      if (target && mapContainer.parentElement !== target) {
+        target.prepend(mapContainer);
+      }
+      if (mapInstance) setTimeout(() => mapInstance.resize(), 50);
+    }
+
+    // Step 2→3: zoom to fit the selected parcel
+    if (n === 3 && selectedParcelGeoJSON && mapInstance) {
+      const coords = selectedParcelGeoJSON.geometry.coordinates[0];
+      const bounds = coords.reduce(
+        (b, [lng, lat]) => { b[0][0] = Math.min(b[0][0], lng); b[0][1] = Math.min(b[0][1], lat); b[1][0] = Math.max(b[1][0], lng); b[1][1] = Math.max(b[1][1], lat); return b; },
+        [[Infinity, Infinity], [-Infinity, -Infinity]]
+      );
+      setTimeout(() => {
+        mapInstance.resize();
+        mapInstance.fitBounds(bounds, { padding: 40, duration: 800 });
+      }, 100);
+    }
+
+    // Step 2: lock north-up, disable rotation
+    if (n === 2 && mapInstance) {
+      mapInstance.setBearing(0);
+      mapInstance.dragRotate.disable();
+      mapInstance.touchZoomRotate.disableRotation();
+    }
+    // Step 3: unlock rotation for orientation
+    if (n === 3 && mapInstance) {
+      mapInstance.dragRotate.enable();
+      mapInstance.touchZoomRotate.enableRotation();
+    }
+
+    // Step 3→4 transition: rebuild grid from parcel
+    if (n === 4 && selectedParcelGeoJSON) {
+      rebuildGridForParcel(selectedParcelGeoJSON, parcelBearing);
+    }
+  }
+
+  // Step dot clicks (allow jumping to completed steps)
+  stepDots.forEach(dot => {
+    dot.addEventListener("click", () => {
+      const target = +dot.dataset.goto;
+      if (target <= currentStep) showStep(target);
+    });
+  });
+
+  // Back buttons
+  $$("#siteplan [data-back]").forEach(btn => {
+    btn.addEventListener("click", () => { if (currentStep > 1) showStep(currentStep - 1); });
+  });
+
+  // Step 1 Next — Info → Select (auto-geocodes the address)
+  $("#step1-next").addEventListener("click", () => {
+    const address = $("#property-address").value.trim();
+    if (!address) {
+      const s = $("#map-status");
+      s.textContent = "Please enter your property address first.";
+      s.className = "map-reference__status err";
+      return;
+    }
+    showStep(2);
+    if (!mapReady) initMap();
+    locateByAddress(address);
+  });
+
+  // Step 2 Next — Select → Orient (enabled after parcel selected)
+  $("#step2-next").addEventListener("click", () => showStep(3));
+
+  // Step 3 Next — Orient → Draw (always enabled, triggers grid rebuild)
+  $("#step3-next").addEventListener("click", () => showStep(4));
+
+  // Rotation slider — controls map camera bearing + stores parcelBearing
+  const mapRotate = $("#map-rotate");
+  const mapRotateValue = $("#map-rotate-value");
+
+  mapRotate.addEventListener("input", () => {
+    const deg = parseInt(mapRotate.value, 10);
+    parcelBearing = deg;
+    if (mapInstance) mapInstance.setBearing(deg);
+    mapRotateValue.innerHTML = deg + "&deg;";
   });
 
   /* ------------------------------------------------------
@@ -401,9 +967,8 @@
       if (el.type === "checkbox") { if (el.checked) done++; }
       else if (el.value && el.value.trim()) done++;
     });
-    // count the two main signatures as required-ish
-    let total = required.length + 2;
-    if (!sigPads.ownerInfoSignature.isEmpty()) done++;
+    // count the ack signature as required-ish
+    let total = required.length + 1;
     if (!sigPads.ownerAckSignature.isEmpty()) done++;
     const pct = Math.round((done / total) * 100);
     $("#progress-fill").style.width = pct + "%";
@@ -423,7 +988,6 @@
       propertyAddress: $("#property-address").value.trim(),
       ownerPhone: $("#owner-phone").value.trim(),
       ownerEmail: $("#owner-email").value.trim(),
-      ownerInfoSignature: sigPads.ownerInfoSignature.toDataURL(),
       submissions: {},
       proposal: proposal.value.trim(),
       neighbors: [],
@@ -431,6 +995,11 @@
       ackDate: $("#ack-date").value,
       ownerAckSignature: sigPads.ownerAckSignature.toDataURL(),
       plot: cellState,
+      plotMeta: {
+        cols: gridCols, rows: gridRows,
+        apn: selectedAPN, bearing: parcelBearing,
+        parcelCoords: selectedParcelGeoJSON?.geometry?.coordinates || null
+      },
       files: fileInput.files ? Array.from(fileInput.files).map(f => f.name) : []
     };
     $$("#submissions input[type=checkbox]").forEach(c => data.submissions[c.name] = c.checked);
@@ -489,9 +1058,18 @@
     }
     // signatures
     setTimeout(() => {
-      if (d.ownerInfoSignature) sigPads.ownerInfoSignature.fromDataURL(d.ownerInfoSignature);
       if (d.ownerAckSignature) sigPads.ownerAckSignature.fromDataURL(d.ownerAckSignature);
     }, 60);
+    // Restore parcel-shaped grid if saved
+    if (d.plotMeta && d.plotMeta.parcelCoords) {
+      const fakeFeature = { geometry: { coordinates: d.plotMeta.parcelCoords } };
+      parcelBearing = d.plotMeta.bearing || 0;
+      selectedAPN = d.plotMeta.apn || null;
+      rebuildGridForParcel(fakeFeature, parcelBearing);
+      // Restore rotation slider
+      const slider = $("#map-rotate");
+      if (slider) { slider.value = parcelBearing; $("#map-rotate-value").innerHTML = parcelBearing + "&deg;"; }
+    }
     applyPlotState(d.plot);
     setTimeout(updateProgress, 200);
     status("Draft restored from your last session.", "ok");
@@ -516,24 +1094,77 @@
     statusEl.className = "form-status" + (kind ? " " + kind : "");
   }
 
+  function clearFieldError(el) {
+    el.classList.remove("invalid");
+    const msg = el.parentElement.querySelector(".field__error");
+    if (msg) msg.remove();
+  }
+
+  function setFieldError(el, message) {
+    el.classList.add("invalid");
+    let msg = el.parentElement.querySelector(".field__error");
+    if (!msg) {
+      msg = document.createElement("span");
+      msg.className = "field__error";
+      el.parentElement.appendChild(msg);
+    }
+    msg.textContent = message;
+  }
+
+  // US phone: at least 10 digits, with optional formatting
+  const PHONE_RE = /^[\d\s().+-]{10,}$/;
+  const PHONE_DIGITS_RE = /\d/g;
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/;
+
   function validate() {
     let firstBad = null;
     $$("#arc-form [required]").forEach(el => {
+      clearFieldError(el);
       let bad = false;
-      if (el.type === "checkbox") bad = !el.checked;
-      else bad = !el.value || !el.value.trim();
-      if (el.type === "email" && el.value) bad = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(el.value);
-      el.classList.toggle("invalid", bad);
-      if (bad && !firstBad) firstBad = el;
+      let errorMsg = "This field is required.";
+
+      if (el.type === "checkbox") {
+        bad = !el.checked;
+      } else {
+        bad = !el.value || !el.value.trim();
+      }
+
+      // Email format check
+      if (el.type === "email" && el.value && el.value.trim()) {
+        if (!EMAIL_RE.test(el.value.trim())) {
+          bad = true;
+          errorMsg = "Please enter a valid email address.";
+        }
+      }
+
+      // Phone format check
+      if (el.type === "tel" && el.value && el.value.trim()) {
+        const digits = (el.value.match(PHONE_DIGITS_RE) || []).length;
+        if (digits < 10 || !PHONE_RE.test(el.value.trim())) {
+          bad = true;
+          errorMsg = "Please enter a valid phone number (at least 10 digits).";
+        }
+      }
+
+      if (bad) {
+        if (el.type !== "checkbox") setFieldError(el, errorMsg);
+        else el.classList.add("invalid");
+        if (!firstBad) firstBad = el;
+      }
     });
     // signatures
-    [["ownerInfoSignature", "#applicant"], ["ownerAckSignature", "#acknowledgments"]].forEach(([k]) => {
+    [["ownerAckSignature", "#acknowledgments"]].forEach(([k]) => {
       const empty = sigPads[k].isEmpty();
       sigPads[k].wrap.classList.toggle("invalid", empty);
       if (empty && !firstBad) firstBad = sigPads[k].wrap;
     });
     return firstBad;
   }
+
+  // Clear inline errors on input
+  form.addEventListener("input", e => {
+    if (e.target.matches("[required]")) clearFieldError(e.target);
+  });
 
   /* ------------------------------------------------------
      PREVIEW + PRINT
@@ -548,7 +1179,7 @@
   const SUB_LABELS = {
     req_plot: "Plot design with modification marked",
     req_sketches: "Sketches, dimensions, photos & materials",
-    req_key: "Color-coded plan / key",
+
     req_photos: "Full yard photos",
     req_neighbors: "Impacted neighbor signatures",
     req_fee: "Application fee"
@@ -580,7 +1211,6 @@
           <dt>Property Address</dt><dd>${esc(d.propertyAddress) || '<span class="no">—</span>'}</dd>
           <dt>Phone</dt><dd>${esc(d.ownerPhone) || '<span class="no">—</span>'}</dd>
           <dt>E-Mail</dt><dd>${esc(d.ownerEmail) || '<span class="no">—</span>'}</dd>
-          <dt>Signature</dt><dd>${sigImg(d.ownerInfoSignature)}</dd>
         </dl>
 
         <h3>Required Submissions</h3>
@@ -605,6 +1235,99 @@
       </div>`;
   }
 
+  /* Build a compact, single-page print layout */
+  function buildPrintHTML(d) {
+    const subs = Object.entries(SUB_LABELS).map(([k, label]) =>
+      `<tr><td style="width:18px;text-align:center;">${d.submissions[k] ? "&#9745;" : "&#9744;"}</td><td>${esc(label)}</td></tr>`).join("");
+
+    const neighborsRows = d.neighbors.map((nb, i) =>
+      `<tr>
+        <td>${esc(nb.name) || "—"}</td>
+        <td>${esc(nb.address) || "—"}</td>
+        <td>${nb.signature ? `<img src="${nb.signature}" style="height:28px;" />` : "—"}</td>
+        <td>${esc(nb.date) || "—"}</td>
+      </tr>`).join("") || '<tr><td colspan="4">No neighbors added.</td></tr>';
+
+    const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
+
+    return `
+      <div class="print-doc">
+        <!-- Header -->
+        <div class="print-header">
+          <div>
+            <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
+            <div class="print-title">Architectural Review Committee Application</div>
+          </div>
+          <div class="print-contact">
+            CarolMarie Taylor — Sr. Architectural Specialist<br>
+            951-801-4246 · carolmarie.taylor@fsresidential.com
+          </div>
+        </div>
+
+        <!-- Applicant row -->
+        <table class="print-table">
+          <tr>
+            <td class="print-label">Homeowner(s)</td>
+            <td>${esc(d.ownerName) || "—"}</td>
+            <td class="print-label">Property Address</td>
+            <td>${esc(d.propertyAddress) || "—"}</td>
+          </tr>
+          <tr>
+            <td class="print-label">Phone</td>
+            <td>${esc(d.ownerPhone) || "—"}</td>
+            <td class="print-label">Email</td>
+            <td>${esc(d.ownerEmail) || "—"}</td>
+          </tr>
+        </table>
+
+        <!-- Two-column middle -->
+        <div class="print-columns">
+          <div class="print-col">
+            <h4>Required Submissions</h4>
+            <table class="print-checklist">${subs}</table>
+
+            <h4>Description of Proposed Change</h4>
+            <div class="print-proposal">${esc(d.proposal) || "—"}</div>
+          </div>
+          <div class="print-col">
+            <h4>Site / Plot Plan</h4>
+            ${plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>'}
+          </div>
+        </div>
+
+        <!-- Neighbors -->
+        <h4>Adjacent Property Owners</h4>
+        <table class="print-table print-neighbors">
+          <thead><tr><th>Name</th><th>Address</th><th>Signature</th><th>Date</th></tr></thead>
+          <tbody>${neighborsRows}</tbody>
+        </table>
+
+        <!-- Acknowledgments -->
+        <h4>Owner Acknowledgments</h4>
+        <p class="print-ack-summary">${acksChecked
+          ? "All 8 acknowledgment items have been read and accepted."
+          : "⚠ Not all acknowledgment items were checked."}</p>
+
+        <!-- Signature block — printable lines -->
+        <div class="print-sig-block">
+          <div class="print-sig-row">
+            <div class="print-sig-field">
+              <div class="print-sig-ink">${d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" />` : ""}</div>
+              <div class="print-sig-line"></div>
+              <div class="print-sig-label">Homeowner(s) Signature</div>
+            </div>
+            <div class="print-sig-field print-sig-field--narrow">
+              <div class="print-sig-ink">${esc(d.ackDate)}</div>
+              <div class="print-sig-line"></div>
+              <div class="print-sig-label">Date</div>
+            </div>
+          </div>
+        </div>
+
+        <p class="print-footer-note">This application was generated from the Fairway Canyon HOA online form. The review process will not begin until both the full application and the fee are received.</p>
+      </div>`;
+  }
+
   function openModal() { modal.hidden = false; document.body.style.overflow = "hidden"; }
   function closeModal() { modal.hidden = true; document.body.style.overflow = ""; }
   $$("[data-close]", modal).forEach(el => el.addEventListener("click", closeModal));
@@ -626,32 +1349,93 @@
     openModal();
   });
 
-  $("#do-print").addEventListener("click", () => {
-    // Print just the preview document
-    const html = previewContent.innerHTML;
+  /* ----- SHARED: open a print window with compact 1-page layout ----- */
+  function printPreview() {
+    const d = collect();
+    const html = buildPrintHTML(d);
     const w = window.open("", "_blank");
     if (!w) { window.print(); return; }
     w.document.write(`<!DOCTYPE html><html><head><title>Fairway Canyon HOA — ARC Application</title>
       <meta charset="utf-8">
       <style>
-        @page { margin: 18mm; }
-        body { font-family: Georgia, 'Times New Roman', serif; color: #1d1a17; line-height: 1.5; }
-        h1 { font-size: 20px; border-bottom: 4px solid #a4111f; padding-bottom: 8px; }
-        h1 small { display:block; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color:#a4111f; font-weight:normal; }
-        h3 { color:#7d0d18; border-bottom: 2px solid #a4111f; padding-bottom: 3px; margin-top: 20px; font-size: 14px; }
-        dl { display: grid; grid-template-columns: 180px 1fr; gap: 4px 12px; }
-        dt { font-weight: bold; } dd { margin: 0; }
-        .doc-block { white-space: pre-wrap; background:#f7f4ee; padding:10px; border:1px solid #ddd; border-radius:6px; }
-        img.sig-img { height: 60px; border:1px solid #ccc; } img.plot-img { max-width: 100%; border:1px solid #aaa; }
-        .doc-list { padding-left: 18px; } .yes { color: #2f5d4a; } .no { color: #999; }
-        ul, dl { font-size: 13px; }
+        @page { margin: 12mm 14mm; size: letter; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.35; font-size: 11px; margin: 0; }
+        .print-doc { max-width: 100%; }
+        .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
+        .print-eyebrow { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
+        .print-title { font-family: Georgia, serif; font-size: 16px; font-weight: 600; line-height: 1.1; }
+        .print-contact { font-size: 9px; color: #555; text-align: right; }
+        h4 { font-size: 11px; color: #7d0d18; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 10px 0 4px; }
+        .print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
+        .print-table td, .print-table th { padding: 3px 6px; border: 1px solid #ddd; vertical-align: top; }
+        .print-label { font-weight: 600; color: #555; width: 100px; white-space: nowrap; background: #faf8f4; }
+        .print-checklist { border-collapse: collapse; font-size: 10px; }
+        .print-checklist td { padding: 1px 4px; border: none; vertical-align: top; }
+        .print-columns { display: flex; gap: 14px; }
+        .print-col { flex: 1; min-width: 0; }
+        .print-proposal { font-size: 10px; white-space: pre-wrap; background: #faf8f4; padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; max-height: 120px; overflow: hidden; }
+        .print-plot { width: 100%; border: 1px solid #ccc; }
+        .print-neighbors th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; }
+        .print-ack-summary { font-size: 10px; margin: 2px 0 6px; }
+        .print-sig-block { margin-top: 10px; }
+        .print-sig-row { display: flex; gap: 20px; }
+        .print-sig-field { flex: 1; }
+        .print-sig-field--narrow { flex: 0 0 160px; }
+        .print-sig-ink { min-height: 28px; display: flex; align-items: flex-end; }
+        .print-sig-line { border-bottom: 1px solid #333; margin-top: 2px; }
+        .print-sig-label { font-size: 9px; color: #777; margin-top: 2px; }
+        .print-footer-note { font-size: 8px; color: #999; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
       </style></head><body>
-      <h1><small>Fairway Canyon Homeowners Association</small>Architectural Review Committee Application</h1>
       ${html}
       </body></html>`);
     w.document.close();
     w.focus();
     setTimeout(() => { w.print(); }, 350);
+  }
+
+  $("#do-print").addEventListener("click", () => printPreview());
+
+  /* ----- EMAIL TO COMMITTEE ----- */
+  const EMAIL_TO = "carolmarie.taylor@fsresidential.com,steven@stevenbrown.design";
+
+  function openMailto(d) {
+    const subject = encodeURIComponent(
+      "ARC Application \u2013 " + (d.ownerName || "Applicant") + " \u2013 " + (d.propertyAddress || "")
+    );
+    const body = encodeURIComponent(
+      "Please find the attached Architectural Review Committee Application.\r\n\r\n" +
+      "Applicant: " + d.ownerName + "\r\n" +
+      "Property: " + d.propertyAddress + "\r\n" +
+      "Phone: " + d.ownerPhone + "\r\n" +
+      "Email: " + d.ownerEmail + "\r\n\r\n" +
+      "\u2014 Submitted via Fairway Canyon HOA Online Form"
+    );
+    window.location.href = "mailto:" + EMAIL_TO + "?subject=" + subject + "&body=" + body;
+  }
+
+  // Email button in the submit bar — validates, opens mailto (no print dialog)
+  $("#email-btn").addEventListener("click", () => {
+    const bad = validate();
+    if (bad) {
+      status("Please complete the highlighted required fields and signatures.", "err");
+      bad.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (bad.focus) bad.focus({ preventScroll: true });
+      return;
+    }
+    status("");
+    const d = collect();
+    saveDraft(true);
+    openMailto(d);
+    status("A pre-addressed email has been opened. Use Preview & Print to generate a PDF to attach.", "ok");
+  });
+
+  // Email button inside the preview modal
+  $("#do-email").addEventListener("click", () => {
+    const d = collect();
+    openMailto(d);
+    closeModal();
+    status("A pre-addressed email has been opened. Use Save as PDF to generate an attachment.", "ok");
   });
 
   /* ------------------------------------------------------
