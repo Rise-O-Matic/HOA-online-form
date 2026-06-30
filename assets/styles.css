@@ -554,6 +554,31 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--line);
 }
 
+/* Plan method choice (build vs. upload) */
+.plan-choice {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+  margin: .4rem 0 1rem;
+}
+.plan-choice__card {
+  display: flex; flex-direction: column; gap: .35rem; text-align: left;
+  padding: 1.1rem 1.2rem;
+  border: 1.5px solid var(--line-2); border-radius: var(--radius-sm);
+  background: var(--paper-2); cursor: pointer;
+  font-family: var(--font-ui);
+  transition: border-color .15s, box-shadow .18s, background .15s;
+}
+.plan-choice__card:hover { border-color: var(--ink-faint); }
+.plan-choice__card.is-selected {
+  border-color: var(--crimson); background: #fff;
+  box-shadow: 0 0 0 3px rgba(164,17,31,.12);
+}
+.plan-choice__title { font-weight: 700; font-size: 1rem; color: var(--ink); }
+.plan-choice__desc { font-size: .82rem; color: var(--ink-soft); line-height: 1.45; }
+.plan-upload { margin: 0 0 1rem; }
+.plot-choice-msg { margin: .4rem 0 0; font-size: .84rem; min-height: 1em; }
+.plot-choice-msg.err { color: var(--crimson); font-weight: 600; }
+@media (max-width: 620px) { .plan-choice { grid-template-columns: 1fr; } }
+
 /* ===================== MAP REFERENCE ===================== */
 .map-reference { margin-top: 1.2rem; }
 .map-reference__body { padding: 0 1.1rem 1rem; }
@@ -643,6 +668,12 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .neighbor__remove:hover { color: var(--crimson); }
 .neighbor .grid-2 { gap: .9rem 1.2rem; }
+.neighbor-form-actions {
+  display: flex; flex-wrap: wrap; gap: .8rem; align-items: center;
+  margin-top: 1.2rem; padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+}
+.neighbor-form-actions label.btn { cursor: pointer; }
 
 /* ===================== ACKNOWLEDGMENTS ===================== */
 .acks { list-style: none; counter-reset: ack; margin: 0; padding: 0; display: grid; gap: .6rem; }

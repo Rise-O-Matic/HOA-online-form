@@ -805,18 +805,66 @@
     btn.addEventListener("click", () => { if (currentStep > 1) showStep(currentStep - 1); });
   });
 
-  // Step 1 Next — Info → Select (auto-geocodes the address)
-  $("#step1-next").addEventListener("click", () => {
+  // Step 1 — choose between the interactive builder or uploading an existing plan
+  let planMode = null; // "build" | "upload"
+  const planChoiceCards = $$(".plan-choice__card");
+  const planUploadPanel = $("#plan-upload");
+  const planChoiceMsg = $("#plan-choice-msg");
+  const plotUploadInput = $("#plot-upload");
+  const plotUploadList = $("#plot-upload-list");
+  const buildOnlyDots = stepDots.filter(d => +d.dataset.goto > 1);
+
+  function setPlanMode(mode) {
+    planMode = mode;
+    const isUpload = mode === "upload";
+    planChoiceCards.forEach(c => {
+      const on = c.dataset.planMode === mode;
+      c.classList.toggle("is-selected", on);
+      c.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    planUploadPanel.hidden = !isUpload;
+    // The Select/Orient/Draw steps only apply to the builder.
+    // (Use inline display, not [hidden], because .plot-steps-nav__dot sets display:flex.)
+    buildOnlyDots.forEach(d => { d.style.display = isUpload ? "none" : ""; });
+    $("#step1-next").hidden = mode !== "build";
+  }
+
+  function startBuilder() {
     const address = $("#property-address").value.trim();
     if (!address) {
-      const s = $("#map-status");
-      s.textContent = "Please enter your property address first.";
-      s.className = "map-reference__status err";
+      planChoiceMsg.textContent = "Enter your property address in Applicant Information above so we can locate your parcel.";
+      planChoiceMsg.className = "plot-choice-msg err";
       return;
     }
+    planChoiceMsg.textContent = "";
+    planChoiceMsg.className = "plot-choice-msg";
     showStep(2);
     if (!mapReady) initMap();
     locateByAddress(address);
+  }
+
+  planChoiceCards.forEach(card => {
+    card.addEventListener("click", () => {
+      const mode = card.dataset.planMode;
+      setPlanMode(mode);
+      if (mode === "build") startBuilder();
+      else planChoiceMsg.textContent = "";
+    });
+  });
+
+  // Next button on step 1 (visible once "Build a plan" is chosen)
+  $("#step1-next").addEventListener("click", startBuilder);
+
+  // Uploaded plan file list
+  plotUploadInput.addEventListener("change", () => {
+    plotUploadList.innerHTML = "";
+    if (!plotUploadInput.files.length) { plotUploadList.hidden = true; return; }
+    plotUploadList.hidden = false;
+    Array.from(plotUploadInput.files).forEach(f => {
+      const li = document.createElement("li");
+      li.textContent = `${f.name} (${Math.round(f.size / 1024)} KB)`;
+      plotUploadList.appendChild(li);
+    });
   });
 
   // Step 2 Next — Select → Orient (enabled after parcel selected)
@@ -858,20 +906,6 @@
             <input type="text" name="nb_addr_${idx}" />
           </div>
         </div>
-        <div class="grid-2">
-          <div class="field field--sig">
-            <label>Signature</label>
-            <div class="sigpad" data-sigpad="nb_sig_${idx}">
-              <canvas></canvas>
-              <span class="sigpad__hint">Sign here</span>
-              <button type="button" class="sigpad__clear" aria-label="Clear signature">Clear</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>Date</label>
-            <input type="date" name="nb_date_${idx}" />
-          </div>
-        </div>
       </div>`;
   }
 
@@ -881,17 +915,27 @@
     wrap.innerHTML = neighborTemplate(neighborCount).trim();
     const node = wrap.firstChild;
     neighborList.appendChild(node);
-    const pad = $(".sigpad", node);
-    sigPads[pad.dataset.sigpad] = new SignaturePad(pad);
-    $(".neighbor__remove", node).addEventListener("click", () => {
-      delete sigPads[pad.dataset.sigpad];
-      node.remove();
-    });
+    $(".neighbor__remove", node).addEventListener("click", () => node.remove());
     return node;
   }
   $("#add-neighbor").addEventListener("click", () => addNeighbor());
   // start with two neighbor blocks
   addNeighbor(); addNeighbor();
+
+  // Signature form: print a physical form, then re-attach the signed copy
+  const neighborFormInput = $("#neighbor-form-file");
+  const neighborFileList = $("#neighbor-filelist");
+  $("#print-neighbor-form").addEventListener("click", () => printNeighborForm());
+  neighborFormInput.addEventListener("change", () => {
+    neighborFileList.innerHTML = "";
+    if (!neighborFormInput.files.length) { neighborFileList.hidden = true; return; }
+    neighborFileList.hidden = false;
+    Array.from(neighborFormInput.files).forEach(f => {
+      const li = document.createElement("li");
+      li.textContent = `${f.name} (${Math.round(f.size / 1024)} KB)`;
+      neighborFileList.appendChild(li);
+    });
+  });
 
   /* ------------------------------------------------------
      ACKNOWLEDGMENTS
@@ -994,22 +1038,23 @@
       acks: {},
       ackDate: $("#ack-date").value,
       ownerAckSignature: sigPads.ownerAckSignature.toDataURL(),
+      planMode: planMode,
       plot: cellState,
       plotMeta: {
         cols: gridCols, rows: gridRows,
         apn: selectedAPN, bearing: parcelBearing,
         parcelCoords: selectedParcelGeoJSON?.geometry?.coordinates || null
       },
-      files: fileInput.files ? Array.from(fileInput.files).map(f => f.name) : []
+      plotUpload: plotUploadInput.files ? Array.from(plotUploadInput.files).map(f => f.name) : [],
+      files: fileInput.files ? Array.from(fileInput.files).map(f => f.name) : [],
+      neighborForm: neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : []
     };
     $$("#submissions input[type=checkbox]").forEach(c => data.submissions[c.name] = c.checked);
     $$(".neighbor").forEach(node => {
       const idx = node.dataset.neighbor;
       data.neighbors.push({
         name: $(`[name=nb_name_${idx}]`, node)?.value.trim() || "",
-        address: $(`[name=nb_addr_${idx}]`, node)?.value.trim() || "",
-        date: $(`[name=nb_date_${idx}]`, node)?.value || "",
-        signature: sigPads[`nb_sig_${idx}`]?.toDataURL() || null
+        address: $(`[name=nb_addr_${idx}]`, node)?.value.trim() || ""
       });
     });
     $$("#acks input[type=checkbox]").forEach(c => data.acks[c.name] = c.checked);
@@ -1046,14 +1091,11 @@
     // neighbors
     if (Array.isArray(d.neighbors) && d.neighbors.length) {
       neighborList.innerHTML = ""; neighborCount = 0;
-      Object.keys(sigPads).forEach(k => { if (k.startsWith("nb_sig_")) delete sigPads[k]; });
       d.neighbors.forEach(nb => {
         const node = addNeighbor();
         const idx = node.dataset.neighbor;
         $(`[name=nb_name_${idx}]`, node).value = nb.name || "";
         $(`[name=nb_addr_${idx}]`, node).value = nb.address || "";
-        $(`[name=nb_date_${idx}]`, node).value = nb.date || "";
-        if (nb.signature) sigPads[`nb_sig_${idx}`].fromDataURL(nb.signature);
       });
     }
     // signatures
@@ -1071,6 +1113,7 @@
       if (slider) { slider.value = parcelBearing; $("#map-rotate-value").innerHTML = parcelBearing + "&deg;"; }
     }
     applyPlotState(d.plot);
+    if (d.planMode) setPlanMode(d.planMode);
     setTimeout(updateProgress, 200);
     status("Draft restored from your last session.", "ok");
   }
@@ -1198,10 +1241,11 @@
         <dl>
           <dt>Name</dt><dd>${esc(nb.name) || '<span class="no">—</span>'}</dd>
           <dt>Address</dt><dd>${esc(nb.address) || '<span class="no">—</span>'}</dd>
-          <dt>Date</dt><dd>${esc(nb.date) || '<span class="no">—</span>'}</dd>
-          <dt>Signature</dt><dd>${sigImg(nb.signature)}</dd>
         </dl>
       </div>`).join("") || '<p class="no">No neighbors added.</p>';
+    const neighborForm = d.neighborForm && d.neighborForm.length
+      ? `<span class="yes">✓ Attached</span> — ${d.neighborForm.map(esc).join(", ")}`
+      : '<span class="no">— signed form not attached</span>';
 
     return `
       <div class="doc">
@@ -1218,13 +1262,18 @@
         ${d.files.length ? `<p><strong>Attached files:</strong> ${d.files.map(esc).join(", ")}</p>` : ""}
 
         <h3>Site / Plot Plan</h3>
-        ${plotUsed() ? `<img class="plot-img" src="${renderPlotImage()}" alt="Site plan" />` : '<p class="no">No site plan drawn.</p>'}
+        ${d.planMode === "upload"
+          ? (d.plotUpload && d.plotUpload.length
+              ? `<p><span class="yes">✓ Uploaded</span> — ${d.plotUpload.map(esc).join(", ")}</p>`
+              : '<p class="no">Upload selected — no file attached yet.</p>')
+          : (plotUsed() ? `<img class="plot-img" src="${renderPlotImage()}" alt="Site plan" />` : '<p class="no">No site plan drawn.</p>')}
 
         <h3>Description of Proposed Change</h3>
         <div class="doc-block">${esc(d.proposal) || "—"}</div>
 
         <h3>Adjacent Property Owners</h3>
         ${neighbors}
+        <p style="margin-top:.6rem"><strong>Signed signature form:</strong> ${neighborForm}</p>
 
         <h3>Owner Acknowledgments</h3>
         <ul class="doc-list">${acks}</ul>
@@ -1244,9 +1293,11 @@
       `<tr>
         <td>${esc(nb.name) || "—"}</td>
         <td>${esc(nb.address) || "—"}</td>
-        <td>${nb.signature ? `<img src="${nb.signature}" style="height:28px;" />` : "—"}</td>
-        <td>${esc(nb.date) || "—"}</td>
-      </tr>`).join("") || '<tr><td colspan="4">No neighbors added.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="2">No neighbors added.</td></tr>';
+
+    const neighborFormNote = d.neighborForm && d.neighborForm.length
+      ? "Signed adjacent-owner signature form attached: " + d.neighborForm.map(esc).join(", ")
+      : "⚠ Signed adjacent-owner signature form not yet attached.";
 
     const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
 
@@ -1291,16 +1342,19 @@
           </div>
           <div class="print-col">
             <h4>Site / Plot Plan</h4>
-            ${plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>'}
+            ${d.planMode === "upload"
+              ? `<p style="font-size:11px;">${d.plotUpload && d.plotUpload.length ? "Plot plan uploaded separately: " + d.plotUpload.map(esc).join(", ") : "⚠ No plot plan attached."}</p>`
+              : (plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
           </div>
         </div>
 
         <!-- Neighbors -->
         <h4>Adjacent Property Owners</h4>
         <table class="print-table print-neighbors">
-          <thead><tr><th>Name</th><th>Address</th><th>Signature</th><th>Date</th></tr></thead>
+          <thead><tr><th>Name</th><th>Address</th></tr></thead>
           <tbody>${neighborsRows}</tbody>
         </table>
+        <p class="print-ack-summary">${neighborFormNote}</p>
 
         <!-- Acknowledgments -->
         <h4>Owner Acknowledgments</h4>
@@ -1395,6 +1449,88 @@
   }
 
   $("#do-print").addEventListener("click", () => printPreview());
+
+  /* ----- ADJACENT-OWNER SIGNATURE FORM (physical, print → sign → re-attach) ----- */
+  function buildNeighborFormHTML(d) {
+    const entered = d.neighbors.filter(nb => nb.name || nb.address);
+    const totalRows = Math.max(6, entered.length + 2);
+    let rows = "";
+    for (let i = 0; i < totalRows; i++) {
+      const nb = entered[i];
+      rows += `<tr>
+        <td class="nf-num">${i + 1}</td>
+        <td>${nb ? esc(nb.name) : ""}</td>
+        <td>${nb ? esc(nb.address) : ""}</td>
+        <td class="nf-sig"></td>
+        <td class="nf-date"></td>
+      </tr>`;
+    }
+    return `
+      <div class="nf-doc">
+        <div class="nf-header">
+          <div>
+            <div class="nf-eyebrow">Fairway Canyon Homeowners Association</div>
+            <div class="nf-title">Adjacent Property Owner Signature Form</div>
+          </div>
+          <div class="nf-contact">Architectural Review Committee<br>carolmarie.taylor@fsresidential.com</div>
+        </div>
+
+        <table class="nf-info">
+          <tr>
+            <td class="nf-label">Applicant</td><td>${esc(d.ownerName) || "&nbsp;"}</td>
+            <td class="nf-label">Property</td><td>${esc(d.propertyAddress) || "&nbsp;"}</td>
+          </tr>
+        </table>
+
+        <div class="nf-section">Proposed Change</div>
+        <div class="nf-proposal">${esc(d.proposal) || "&nbsp;"}</div>
+
+        <p class="nf-note">By signing below, I confirm that I am an adjacent property owner and that I have been made aware of the proposed change described above. <strong>My signature does not constitute approval or disapproval</strong> of the project &mdash; it confirms only that I was notified.</p>
+
+        <table class="nf-table">
+          <thead><tr><th class="nf-num">#</th><th>Adjacent Owner Name</th><th>Property Address</th><th>Signature</th><th>Date</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <p class="nf-footer">Scan or photograph this completed form and attach it to your Architectural Review Committee application packet.</p>
+      </div>`;
+  }
+
+  function printNeighborForm() {
+    const d = collect();
+    const html = buildNeighborFormHTML(d);
+    const w = window.open("", "_blank");
+    if (!w) { window.print(); return; }
+    w.document.write(`<!DOCTYPE html><html><head><title>Adjacent Property Owner Signature Form</title>
+      <meta charset="utf-8">
+      <style>
+        @page { margin: 16mm; size: letter; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; font-size: 12px; line-height: 1.4; margin: 0; }
+        .nf-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 8px; margin-bottom: 14px; }
+        .nf-eyebrow { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
+        .nf-title { font-family: Georgia, serif; font-size: 19px; font-weight: 600; line-height: 1.1; }
+        .nf-contact { font-size: 10px; color: #555; text-align: right; }
+        .nf-info { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+        .nf-info td { padding: 4px 8px; border: 1px solid #ddd; }
+        .nf-label { font-weight: 600; color: #555; background: #faf8f4; width: 88px; white-space: nowrap; }
+        .nf-section { font-size: 12px; color: #7d0d18; font-weight: 600; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 14px 0 4px; }
+        .nf-proposal { font-size: 11px; white-space: pre-wrap; background: #faf8f4; border: 1px solid #ddd; border-radius: 3px; padding: 6px 8px; min-height: 44px; }
+        .nf-note { font-size: 10.5px; margin: 12px 0; }
+        .nf-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+        .nf-table th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 5px 6px; border: 1px solid #ccc; }
+        .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 44px; vertical-align: bottom; }
+        .nf-num { width: 24px; text-align: center; color: #999; }
+        .nf-sig { width: 32%; }
+        .nf-date { width: 92px; }
+        .nf-footer { font-size: 9px; color: #999; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
+      </style></head><body>
+      ${html}
+      </body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 350);
+  }
 
   /* ----- EMAIL TO COMMITTEE ----- */
   const EMAIL_TO = "carolmarie.taylor@fsresidential.com,steven@stevenbrown.design";
