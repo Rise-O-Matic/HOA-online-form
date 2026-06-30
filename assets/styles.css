@@ -701,6 +701,12 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   box-shadow: 0 8px 20px -8px rgba(164,17,31,.6);
 }
 .btn--primary:hover { background: var(--crimson-dk); }
+.btn--primary:disabled {
+  background: var(--line-2);
+  color: var(--ink-faint);
+  box-shadow: none;
+  cursor: not-allowed;
+}
 .btn--ghost {
   background: transparent;
   border-color: var(--line-2);
