@@ -42,19 +42,76 @@
   <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Use <em>Email to Committee</em> to generate a PDF and open a pre-addressed email, or <em>Preview &amp; Print</em> to review first. Your work is saved locally in this browser.
 </div>
 
-<div class="layout">
+<!-- ===================== LANDING / BEFORE YOU BEGIN ===================== -->
+<section class="landing" id="landing" aria-label="Before you begin">
+  <div class="landing__inner">
+    <p class="landing__eyebrow">Before you begin</p>
+    <h2 class="landing__title">What you&rsquo;ll need to apply</h2>
+    <p class="landing__lead">The Architectural Review Committee can only review a <strong>complete</strong> packet. Gather these items before you start — you&rsquo;ll attach each one as you go. An application missing any required item is considered <strong>incomplete</strong>, and the 45-day review period does not begin until everything is provided.</p>
+
+    <div class="landing__grid">
+      <!-- Required submissions overview -->
+      <div class="landing__col">
+        <h3 class="landing__subhead">Required submissions</h3>
+        <ul class="checklist checklist--static">
+          <li><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Build one with our interactive tool or upload your own.</span></li>
+          <li><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></li>
+          <li><span><strong>Photos of your yard</strong> — we&rsquo;ll ask a few questions and tell you exactly which photos to take and how to frame each one.</span></li>
+          <li><span><strong>Signatures from all impacted neighbors</strong> — print the signature form, collect signatures in person, and attach the signed copy.</span></li>
+          <li><span><strong>Application fee</strong> — arranged with CarolMarie Taylor after submission.</span></li>
+        </ul>
+      </div>
+
+      <!-- Review dates -->
+      <div class="landing__col">
+        <h3 class="landing__subhead">Architectural review dates &mdash; 2026</h3>
+        <p class="ref-note">The completed ARC packet must be submitted by the deadline to make that month&rsquo;s board meeting. <strong>No exceptions.</strong> Dates subject to change.</p>
+        <table class="dates">
+          <thead><tr><th>Board Meeting</th><th>Application Deadline</th></tr></thead>
+          <tbody id="dates-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="landing__submit-info">
+      <div class="info-card">
+        <h3 class="ref-title">How to submit</h3>
+        <p>All applications must be submitted <strong>by email only</strong> to:</p>
+        <p class="info-card__email"><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></p>
+        <p>Incomplete applications will be returned and automatically denied — please read all instructions thoroughly before submitting.</p>
+      </div>
+      <div class="info-card">
+        <h3 class="ref-title">Assistance</h3>
+        <p><strong>CarolMarie Taylor</strong> — Sr. Architectural Specialist</p>
+        <ul class="tight">
+          <li>Hours: Tuesday – Saturday, 9:00 AM – 4:30 PM</li>
+          <li>Direct: <a href="tel:9518014246">951-801-4246</a></li>
+          <li>In-person meetings require an appointment.</li>
+        </ul>
+        <p class="ref-note">The review process will not begin until both the full application and the fee are received.</p>
+      </div>
+    </div>
+
+    <div class="landing__cta">
+      <button type="button" class="btn btn--primary btn--lg" id="start-application">Start application &rarr;</button>
+      <p class="landing__cta-note">Your progress is saved in this browser as you go.</p>
+    </div>
+  </div>
+</section>
+
+<div class="layout" id="form-layout" hidden>
 
   <!-- ===================== SIDE NAV ===================== -->
   <aside class="sidenav" aria-label="Application sections">
     <nav>
       <ol>
         <li><a href="#applicant" class="is-active">Applicant Information</a></li>
-        <li><a href="#submissions">Required Submissions</a></li>
         <li><a href="#siteplan">Site / Plot Plan</a></li>
         <li><a href="#description">Proposed Change</a></li>
         <li><a href="#neighbors">Adjacent Owners</a></li>
+        <li><a href="#photos-section">Photos</a></li>
+        <li><a href="#submissions">Required Submissions</a></li>
         <li><a href="#acknowledgments">Acknowledgments</a></li>
-        <li><a href="#reference">Dates &amp; Submission</a></li>
       </ol>
     </nav>
     <div class="sidenav__progress">
@@ -65,6 +122,7 @@
       <button type="button" class="btn btn--ghost btn--sm" id="save-draft">Save draft</button>
       <button type="button" class="btn btn--ghost btn--sm" id="clear-draft">Clear</button>
     </div>
+    <a class="sidenav__landing-link" href="#" id="view-landing">&larr; Requirements &amp; dates</a>
   </aside>
 
   <!-- ===================== FORM ===================== -->
@@ -100,55 +158,10 @@
         </div>
       </section>
 
-      <!-- ---------- REQUIRED SUBMISSIONS ---------- -->
-      <section class="card reveal" id="submissions">
-        <header class="card__head">
-          <span class="card__num">02</span>
-          <div>
-            <h2>Required Submissions</h2>
-            <p class="card__sub">An application missing any required item is considered <strong>incomplete</strong>. The 45-day review period does not begin until everything is provided.</p>
-          </div>
-        </header>
-
-        <p class="checklist__intro">Confirm each item is included with your packet:</p>
-        <ul class="checklist">
-          <li><label><input type="checkbox" name="req_plot" /><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Use a clean, legible, color-coded layout.</span></label></li>
-          <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></label></li>
-          <li><label><input type="checkbox" name="req_photos" /><span><strong>Full yard photos</strong> (see requirements below) — front and back, capturing the entire yard.</span></label></li>
-          <li><label><input type="checkbox" name="req_neighbors" /><span><strong>Signatures from all impacted neighbors</strong> — print the signature form in Section 05, collect signatures, and attach the signed copy.</span></label></li>
-          <li><label><input type="checkbox" name="req_fee" /><span><strong>Application fee</strong> — arranged with CarolMarie Taylor after submission.</span></label></li>
-        </ul>
-
-        <div class="callout callout--open">
-          <p class="callout__title">Photo requirements &mdash; specific angles required</p>
-          <div class="callout__body grid-2">
-            <div>
-              <h4>Front Yard — 3 photos</h4>
-              <ul>
-                <li>One from the middle of the street (safely), property line to property line, with no vehicles or people in frame.</li>
-                <li>One from the curb on <em>each</em> side of the yard.</li>
-              </ul>
-            </div>
-            <div>
-              <h4>Back Yard — 4 photos</h4>
-              <ul>
-                <li>One from the furthest point from the home, showing the full yard.</li>
-                <li>One from <em>each</em> side, capturing the entire yard.</li>
-              </ul>
-            </div>
-          </div>
-          <div class="field" style="margin-top:1rem">
-            <label for="photos">Attach photos &amp; documents <span class="muted">(demo — files stay in your browser)</span></label>
-            <input type="file" id="photos" name="photos" multiple accept="image/*,application/pdf" />
-            <ul class="filelist" id="filelist" hidden></ul>
-          </div>
-        </div>
-      </section>
-
       <!-- ---------- SITE PLAN (wizard) ---------- -->
       <section class="card reveal" id="siteplan">
         <header class="card__head">
-          <span class="card__num">03</span>
+          <span class="card__num">02</span>
           <div>
             <h2>Site / Plot Plan</h2>
             <p class="card__sub" id="step-subtitle">Build your plan with the interactive tool, or upload an existing plot plan.</p>
@@ -206,6 +219,10 @@
               <div class="map-reference__placeholder" id="map-placeholder">
                 Locating your property&hellip;
               </div>
+              <div class="map-orient-overlay" aria-hidden="true">
+                <span class="map-orient-overlay__half map-orient-overlay__half--top">Back Yard</span>
+                <span class="map-orient-overlay__half map-orient-overlay__half--bottom">Front Yard</span>
+              </div>
             </div>
           </div>
           <div class="plot-step__nav">
@@ -221,7 +238,12 @@
           <div class="map-reference" id="map-step3">
             <!-- map-container moves here via JS -->
           </div>
-          <div class="map-reference__rotate" id="map-rotate-wrap">
+          <div class="map-reference__rotate map-reference__rotate--centered" id="map-rotate-wrap">
+            <svg class="map-rotate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <polyline points="21 3 21 9 15 9" />
+            </svg>
             <label for="map-rotate">Rotate until the front of your property faces down</label>
             <div class="map-reference__rotate-row">
               <input type="range" id="map-rotate" min="0" max="360" value="0" step="1" />
@@ -258,7 +280,7 @@
       <!-- ---------- DESCRIPTION ---------- -->
       <section class="card reveal" id="description">
         <header class="card__head">
-          <span class="card__num">04</span>
+          <span class="card__num">03</span>
           <div>
             <h2>Description of Proposed Change</h2>
             <p class="card__sub">Please be specific — include colors, style, location, size, and materials to be used.</p>
@@ -276,7 +298,7 @@
       <!-- ---------- NEIGHBORS ---------- -->
       <section class="card reveal" id="neighbors">
         <header class="card__head">
-          <span class="card__num">05</span>
+          <span class="card__num">04</span>
           <div>
             <h2>Adjacent Property Owners</h2>
             <p class="card__sub">List the adjacent owners most affected by the change, then <strong>print the signature form</strong>, collect their signatures in person, and <strong>attach the signed form</strong> to your packet. <em>A neighbor's signature does not constitute approval or disapproval.</em></p>
@@ -294,10 +316,69 @@
         <ul class="filelist" id="neighbor-filelist" hidden></ul>
       </section>
 
+      <!-- ---------- PHOTOS ---------- -->
+      <section class="card reveal" id="photos-section">
+        <header class="card__head">
+          <span class="card__num">05</span>
+          <div>
+            <h2>Photos of Your Property</h2>
+            <p class="card__sub">Clear, complete photos help the committee review your request without a site visit. Answer the questions below and we&rsquo;ll tell you <strong>exactly which photos to take</strong> — with a framing example for each.</p>
+          </div>
+        </header>
+
+        <!-- Questionnaire: determines which photos are required -->
+        <fieldset class="photo-quiz">
+          <legend class="photo-quiz__legend">A few quick questions about your change</legend>
+
+          <div class="photo-quiz__q">
+            <p class="photo-quiz__label">Which area(s) of your property does the change affect? <span class="muted">(Select all that apply.)</span></p>
+            <div class="photo-quiz__options">
+              <label class="photo-quiz__opt"><input type="checkbox" name="area_front" data-area="front" /><span>Front yard</span></label>
+              <label class="photo-quiz__opt"><input type="checkbox" name="area_back" data-area="back" /><span>Back yard</span></label>
+              <label class="photo-quiz__opt"><input type="checkbox" name="area_side" data-area="side" /><span>Side yard</span></label>
+              <label class="photo-quiz__opt"><input type="checkbox" name="area_exterior" data-area="exterior" /><span>Exterior of the home <span class="muted">(paint, roof, walls)</span></span></label>
+            </div>
+          </div>
+
+          <div class="photo-quiz__q">
+            <p class="photo-quiz__label">Does your project introduce a new paint color or exterior material?</p>
+            <div class="photo-quiz__options photo-quiz__options--inline">
+              <label class="photo-quiz__opt"><input type="radio" name="photoMaterial" value="yes" /><span>Yes</span></label>
+              <label class="photo-quiz__opt"><input type="radio" name="photoMaterial" value="no" /><span>No</span></label>
+            </div>
+          </div>
+        </fieldset>
+
+        <p class="photo-empty" id="photo-empty">Answer the questions above and your required photos will appear here, each with instructions and a framing example.</p>
+
+        <!-- Generated photo requests (grouped by area) -->
+        <div class="photo-requests" id="photo-requests" hidden></div>
+      </section>
+
+      <!-- ---------- REQUIRED SUBMISSIONS (confirm & attach) ---------- -->
+      <section class="card reveal" id="submissions">
+        <header class="card__head">
+          <span class="card__num">06</span>
+          <div>
+            <h2>Required Submissions</h2>
+            <p class="card__sub">An application missing any required item is considered <strong>incomplete</strong>. The 45-day review period does not begin until everything is provided.</p>
+          </div>
+        </header>
+
+        <p class="checklist__intro">Confirm each item is included with your packet:</p>
+        <ul class="checklist">
+          <li><label><input type="checkbox" name="req_plot" /><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Use a clean, legible, color-coded layout.</span></label></li>
+          <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></label></li>
+          <li><label><input type="checkbox" name="req_photos" /><span><strong>Property photos</strong> — taken and attached in <strong>Section 05</strong>, following the instructions for each one.</span></label></li>
+          <li><label><input type="checkbox" name="req_neighbors" /><span><strong>Signatures from all impacted neighbors</strong> — print the signature form in <strong>Section 04</strong>, collect signatures, and attach the signed copy.</span></label></li>
+          <li><label><input type="checkbox" name="req_fee" /><span><strong>Application fee</strong> — arranged with CarolMarie Taylor after submission.</span></label></li>
+        </ul>
+      </section>
+
       <!-- ---------- ACKNOWLEDGMENTS ---------- -->
       <section class="card reveal" id="acknowledgments">
         <header class="card__head">
-          <span class="card__num">06</span>
+          <span class="card__num">07</span>
           <div>
             <h2>Owner Acknowledgments</h2>
             <p class="card__sub">Please read each statement and check to acknowledge. All are required.</p>
@@ -343,47 +424,6 @@
         <li><strong>Decision &amp; payment</strong> — If the application is approved, the committee will contact you to arrange payment of the application fee and provide written approval before any work may begin.</li>
       </ol>
     </div>
-
-    <!-- ---------- REFERENCE ---------- -->
-    <section class="card card--muted reveal" id="reference">
-      <header class="card__head">
-        <span class="card__num">i</span>
-        <div>
-          <h2>Review Dates &amp; Submission</h2>
-          <p class="card__sub">For reference only — no input required.</p>
-        </div>
-      </header>
-
-      <div class="reference-grid">
-        <div>
-          <h3 class="ref-title">Architectural Review Dates — 2026</h3>
-          <p class="ref-note">The completed ARC packet must be submitted by the deadline to make that month's board meeting. <strong>No exceptions.</strong> Dates subject to change.</p>
-          <table class="dates">
-            <thead><tr><th>Board Meeting</th><th>Application Deadline</th></tr></thead>
-            <tbody id="dates-body"></tbody>
-          </table>
-        </div>
-
-        <div>
-          <h3 class="ref-title">How to Submit Signature Forms</h3>
-          <div class="info-card">
-            <p>All applications must be submitted <strong>by email only</strong> to:</p>
-            <p class="info-card__email"><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></p>
-            <p>Incomplete applications will be returned and automatically denied — please read all instructions thoroughly before submitting.</p>
-          </div>
-          <h3 class="ref-title">Assistance</h3>
-          <div class="info-card">
-            <p><strong>CarolMarie Taylor</strong> — Sr. Architectural Specialist</p>
-            <ul class="tight">
-              <li>Hours: Tuesday – Saturday, 9:00 AM – 4:30 PM</li>
-              <li>Direct: <a href="tel:9518014246">951-801-4246</a></li>
-              <li>In-person meetings require an appointment.</li>
-            </ul>
-            <p class="ref-note">The review process will not begin until both the full application and the fee are received.</p>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <footer class="sitefoot">
       <p>Fairway Canyon HOA — Architectural Review Committee · Updated May 2026</p>

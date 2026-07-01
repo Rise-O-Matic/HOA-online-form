@@ -569,8 +569,9 @@
         mapInstance.setFilter("parcel-highlight", ["==", "APN", apn]);
         mapInstance.setFilter("parcel-highlight-line", ["==", "APN", apn]);
 
-        // Show popup with APN
-        new maplibregl.Popup({ offset: 4 })
+        // Show popup with APN (removed once we advance to the Orient step)
+        if (selectedPopup) selectedPopup.remove();
+        selectedPopup = new maplibregl.Popup({ offset: 4 })
           .setLngLat(e.lngLat)
           .setHTML("<strong>Selected parcel</strong><br>APN: " + esc(apn) + "<br><span style='font-size:.8em;color:#666;'>Click Apply to Plot Plan to shape your grid.</span>")
           .addTo(mapInstance);
@@ -599,6 +600,7 @@
   }
 
   let selectedAPN = null;
+  let selectedPopup = null; // the "Selected parcel" map callout, dismissed on Orient
   let pendingParcels = null; // queued GeoJSON if map isn't loaded yet
   let mapStyleLoaded = false;
 
@@ -759,6 +761,12 @@
         target.prepend(mapContainer);
       }
       if (mapInstance) setTimeout(() => mapInstance.resize(), 50);
+    }
+
+    // Entering Orient: dismiss the "Selected parcel" callout
+    if (n === 3 && selectedPopup) {
+      selectedPopup.remove();
+      selectedPopup = null;
     }
 
     // Step 2→3: zoom to fit the selected parcel
@@ -981,24 +989,183 @@
   $$(".reveal").forEach(el => revealer.observe(el));
 
   /* ------------------------------------------------------
-     CHAR COUNTER + FILE LIST
+     CHAR COUNTER
   ------------------------------------------------------ */
   const proposal = $("#proposal");
   const proposalCount = $("#proposal-count");
   proposal.addEventListener("input", () => { proposalCount.textContent = proposal.value.length; });
 
-  const fileInput = $("#photos");
-  const fileList = $("#filelist");
-  fileInput.addEventListener("change", () => {
-    fileList.innerHTML = "";
-    if (!fileInput.files.length) { fileList.hidden = true; return; }
-    fileList.hidden = false;
-    Array.from(fileInput.files).forEach(f => {
-      const li = document.createElement("li");
-      li.textContent = `${f.name} (${Math.round(f.size / 1024)} KB)`;
-      fileList.appendChild(li);
+  /* ------------------------------------------------------
+     PHOTOS — questionnaire-driven, per-photo requests
+  ------------------------------------------------------ */
+  // Each selected area unlocks a group of specific photo requests.
+  const PHOTO_SPECS = {
+    front: {
+      label: "Front yard",
+      shots: [
+        { id: "front_street", title: "From the center of the street",
+          instr: "Stand safely in the middle of the street and capture the full front of your property, property line to property line. No vehicles or people in the frame.",
+          good: "Whole front yard, taken straight on from the street.",
+          bad: "Too close, sharply angled, or with a car blocking the yard." },
+        { id: "front_left", title: "From the left curb",
+          instr: "From the curb at the left edge of your yard, capture the home and yard looking across the front.",
+          good: "Yard and house visible from the left corner.",
+          bad: "Only a slice of the yard, or shot from the porch." },
+        { id: "front_right", title: "From the right curb",
+          instr: "From the curb at the right edge of your yard, capture the home and yard looking across the front.",
+          good: "Yard and house visible from the right corner.",
+          bad: "Only a slice of the yard, or shot from the porch." }
+      ]
+    },
+    back: {
+      label: "Back yard",
+      shots: [
+        { id: "back_full", title: "Full yard from the farthest point",
+          instr: "Stand at the point farthest from the house and capture the entire back yard in one frame.",
+          good: "Entire back yard, fence to fence, in one shot.",
+          bad: "Standing near the house so half the yard is cut off." },
+        { id: "back_left", title: "From the left side",
+          instr: "From the left side of the yard, capture the entire space, property line to property line.",
+          good: "Full left-to-right view of the yard.",
+          bad: "Zoomed in on a single corner." },
+        { id: "back_right", title: "From the right side",
+          instr: "From the right side of the yard, capture the entire space, property line to property line.",
+          good: "Full right-to-left view of the yard.",
+          bad: "Zoomed in on a single corner." },
+        { id: "back_closeup", title: "Close-up of the work area",
+          instr: "A closer photo of the exact spot where the change will go, so existing conditions are clear.",
+          good: "Clear view of precisely where the change will be made.",
+          bad: "A wide shot where the spot can't be identified." }
+      ]
+    },
+    side: {
+      label: "Side yard",
+      shots: [
+        { id: "side_full", title: "Full length of the side yard",
+          instr: "Capture the full length of the affected side yard, fence line to fence line. Take one for each side if both are affected.",
+          good: "Whole side-yard run, visible end to end.",
+          bad: "A single fence panel or a cropped section." }
+      ]
+    },
+    exterior: {
+      label: "Home exterior",
+      shots: [
+        { id: "ext_elevation", title: "Affected wall or elevation",
+          instr: "Photograph the wall, roof section, or elevation of the home that the change affects, straight on and evenly lit.",
+          good: "The full affected face of the home, evenly lit.",
+          bad: "Sharp angle, deep shadow, or only part of the wall." }
+      ]
+    }
+  };
+  const PHOTO_MATERIAL = {
+    id: "material_sample", title: "Paint color / material sample",
+    instr: "Photograph the manufacturer's color chip or material sample, clearly showing the printed name and code.",
+    good: "Sample with the name/code legible.",
+    bad: "Blurry chip, or a screen photo without the code."
+  };
+  // id -> human label, for preview/print summaries
+  const PHOTO_TITLE = {};
+  Object.values(PHOTO_SPECS).forEach(spec => spec.shots.forEach(s => { PHOTO_TITLE[s.id] = spec.label + " — " + s.title; }));
+  PHOTO_TITLE[PHOTO_MATERIAL.id] = PHOTO_MATERIAL.title;
+  function photoTitle(id) { return PHOTO_TITLE[id] || id; }
+
+  const photoRequestsEl = $("#photo-requests");
+  const photoEmptyEl = $("#photo-empty");
+
+  function photoRequestBlock(shot) {
+    const block = document.createElement("div");
+    block.className = "photo-request";
+    block.dataset.photoId = shot.id;
+    block.innerHTML = `
+      <div class="photo-request__head">
+        <h4 class="photo-request__title">${shot.title}</h4>
+        <p class="photo-request__instr">${shot.instr}</p>
+      </div>
+      <div class="photo-examples" aria-hidden="true">
+        <figure class="photo-example photo-example--good">
+          <div class="photo-example__frame"><span class="photo-example__ph">Example image</span></div>
+          <figcaption><span class="photo-example__tag photo-example__tag--good">&#10003; Do this</span>${shot.good}</figcaption>
+        </figure>
+        <figure class="photo-example photo-example--bad">
+          <div class="photo-example__frame"><span class="photo-example__ph">Example image</span></div>
+          <figcaption><span class="photo-example__tag photo-example__tag--bad">&#10007; Not this</span>${shot.bad}</figcaption>
+        </figure>
+      </div>
+      <div class="photo-request__upload">
+        <label class="btn btn--ghost btn--sm" for="photo-${shot.id}">Attach this photo</label>
+        <input type="file" id="photo-${shot.id}" name="photo_${shot.id}" data-photo-input="${shot.id}" accept="image/*" hidden />
+        <span class="photo-request__status" data-photo-status="${shot.id}">No photo attached yet.</span>
+      </div>`;
+    return block;
+  }
+
+  function photoGroup(area, title, shots) {
+    const group = document.createElement("div");
+    group.className = "photo-group";
+    group.dataset.area = area;
+    group.hidden = true;
+    const h = document.createElement("h3");
+    h.className = "photo-group__title";
+    h.textContent = title;
+    group.appendChild(h);
+    shots.forEach(shot => group.appendChild(photoRequestBlock(shot)));
+    return group;
+  }
+
+  function buildPhotoRequests() {
+    photoRequestsEl.innerHTML = "";
+    Object.entries(PHOTO_SPECS).forEach(([area, spec]) => {
+      photoRequestsEl.appendChild(photoGroup(area, spec.label + " photos", spec.shots));
     });
-  });
+    photoRequestsEl.appendChild(photoGroup("material", "Color / material sample", [PHOTO_MATERIAL]));
+    $$("[data-photo-input]", photoRequestsEl).forEach(input => {
+      input.addEventListener("change", () => updatePhotoStatus(input.dataset.photoInput));
+    });
+  }
+
+  function updatePhotoStatus(id) {
+    const input = $(`[data-photo-input="${id}"]`, photoRequestsEl);
+    const statusEl = $(`[data-photo-status="${id}"]`, photoRequestsEl);
+    if (!input || !statusEl) return;
+    const block = input.closest(".photo-request");
+    statusEl.classList.remove("is-prior");
+    if (input.files && input.files.length) {
+      const f = input.files[0];
+      statusEl.textContent = `Attached: ${f.name} (${Math.round(f.size / 1024)} KB)`;
+      statusEl.classList.add("is-attached");
+      block && block.classList.add("is-attached");
+    } else {
+      statusEl.textContent = "No photo attached yet.";
+      statusEl.classList.remove("is-attached");
+      block && block.classList.remove("is-attached");
+    }
+  }
+
+  function selectedPhotoAreas() {
+    return $$(".photo-quiz [data-area]").filter(c => c.checked).map(c => c.dataset.area);
+  }
+  function selectedPhotoMaterial() {
+    const r = $(".photo-quiz [name=photoMaterial]:checked");
+    return r ? r.value : null;
+  }
+
+  function refreshPhotoGroups() {
+    const areas = selectedPhotoAreas();
+    const wantsMaterial = selectedPhotoMaterial() === "yes";
+    let anyShown = false;
+    $$(".photo-group", photoRequestsEl).forEach(group => {
+      const a = group.dataset.area;
+      const show = a === "material" ? wantsMaterial : areas.includes(a);
+      group.hidden = !show;
+      if (show) anyShown = true;
+    });
+    photoRequestsEl.hidden = !anyShown;
+    photoEmptyEl.hidden = anyShown;
+  }
+
+  buildPhotoRequests();
+  $$(".photo-quiz input").forEach(inp => inp.addEventListener("change", refreshPhotoGroups));
+  refreshPhotoGroups();
 
   /* ------------------------------------------------------
      PROGRESS METER
@@ -1046,9 +1213,19 @@
         parcelCoords: selectedParcelGeoJSON?.geometry?.coordinates || null
       },
       plotUpload: plotUploadInput.files ? Array.from(plotUploadInput.files).map(f => f.name) : [],
-      files: fileInput.files ? Array.from(fileInput.files).map(f => f.name) : [],
+      photoAreas: {},
+      photoMaterial: selectedPhotoMaterial(),
+      photos: {},
+      files: [],
       neighborForm: neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : []
     };
+    $$(".photo-quiz [data-area]").forEach(c => { data.photoAreas[c.dataset.area] = c.checked; });
+    $$("[data-photo-input]", photoRequestsEl).forEach(input => {
+      if (input.files && input.files.length) {
+        data.photos[input.dataset.photoInput] = input.files[0].name;
+        data.files.push(input.files[0].name);
+      }
+    });
     $$("#submissions input[type=checkbox]").forEach(c => data.submissions[c.name] = c.checked);
     $$(".neighbor").forEach(node => {
       const idx = node.dataset.neighbor;
@@ -1076,10 +1253,10 @@
 
   function restoreDraft() {
     let raw;
-    try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) { return; }
-    if (!raw) return;
+    try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) { return false; }
+    if (!raw) return false;
     let d;
-    try { d = JSON.parse(raw); } catch (e) { return; }
+    try { d = JSON.parse(raw); } catch (e) { return false; }
     $("#owner-name").value = d.ownerName || "";
     $("#property-address").value = d.propertyAddress || "";
     $("#owner-phone").value = d.ownerPhone || "";
@@ -1114,8 +1291,31 @@
     }
     applyPlotState(d.plot);
     if (d.planMode) setPlanMode(d.planMode);
+    // photos questionnaire + prior attachments
+    if (d.photoAreas) {
+      Object.entries(d.photoAreas).forEach(([area, on]) => {
+        const c = $(`.photo-quiz [data-area="${area}"]`);
+        if (c) c.checked = !!on;
+      });
+    }
+    if (d.photoMaterial) {
+      const r = $(`.photo-quiz [name=photoMaterial][value="${d.photoMaterial}"]`);
+      if (r) r.checked = true;
+    }
+    refreshPhotoGroups();
+    if (d.photos) {
+      Object.entries(d.photos).forEach(([id, name]) => {
+        const statusEl = $(`[data-photo-status="${id}"]`, photoRequestsEl);
+        if (statusEl && name) {
+          statusEl.textContent = `Previously attached: ${name} — re-attach to include it again.`;
+          statusEl.classList.add("is-prior");
+          statusEl.classList.remove("is-attached");
+        }
+      });
+    }
     setTimeout(updateProgress, 200);
     status("Draft restored from your last session.", "ok");
+    return true;
   }
 
   $("#save-draft").addEventListener("click", () => saveDraft(false));
@@ -1223,10 +1423,24 @@
     req_plot: "Plot design with modification marked",
     req_sketches: "Sketches, dimensions, photos & materials",
 
-    req_photos: "Full yard photos",
+    req_photos: "Property photos (Section 05)",
     req_neighbors: "Impacted neighbor signatures",
     req_fee: "Application fee"
   };
+
+  function photoPreviewHTML(d) {
+    const areas = Object.entries(d.photoAreas || {})
+      .filter(([, v]) => v)
+      .map(([k]) => PHOTO_SPECS[k] ? PHOTO_SPECS[k].label : k);
+    const areaLine = areas.length
+      ? `<p><strong>Areas affected:</strong> ${areas.map(esc).join(", ")}${d.photoMaterial === "yes" ? ", plus a new color/material sample" : ""}</p>`
+      : '<p class="no">No areas selected — no photos requested.</p>';
+    const attached = Object.entries(d.photos || {});
+    const list = attached.length
+      ? `<ul class="doc-list">${attached.map(([id, name]) => `<li>${esc(photoTitle(id))} — <span class="yes">✓ ${esc(name)}</span></li>`).join("")}</ul>`
+      : (areas.length ? '<p class="no">No photos attached yet.</p>' : "");
+    return areaLine + list;
+  }
 
   function buildPreview(d) {
     const subs = Object.entries(SUB_LABELS).map(([k, label]) =>
@@ -1259,7 +1473,6 @@
 
         <h3>Required Submissions</h3>
         <ul class="doc-list">${subs}</ul>
-        ${d.files.length ? `<p><strong>Attached files:</strong> ${d.files.map(esc).join(", ")}</p>` : ""}
 
         <h3>Site / Plot Plan</h3>
         ${d.planMode === "upload"
@@ -1267,6 +1480,9 @@
               ? `<p><span class="yes">✓ Uploaded</span> — ${d.plotUpload.map(esc).join(", ")}</p>`
               : '<p class="no">Upload selected — no file attached yet.</p>')
           : (plotUsed() ? `<img class="plot-img" src="${renderPlotImage()}" alt="Site plan" />` : '<p class="no">No site plan drawn.</p>')}
+
+        <h3>Photos</h3>
+        ${photoPreviewHTML(d)}
 
         <h3>Description of Proposed Change</h3>
         <div class="doc-block">${esc(d.proposal) || "—"}</div>
@@ -1300,6 +1516,14 @@
       : "⚠ Signed adjacent-owner signature form not yet attached.";
 
     const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
+
+    const photoAreasList = Object.entries(d.photoAreas || {})
+      .filter(([, v]) => v)
+      .map(([k]) => PHOTO_SPECS[k] ? PHOTO_SPECS[k].label : k);
+    const photoCount = Object.keys(d.photos || {}).length;
+    const photoNote = photoAreasList.length
+      ? `Areas: ${photoAreasList.join(", ")}${d.photoMaterial === "yes" ? ", color/material sample" : ""} — ${photoCount} photo${photoCount === 1 ? "" : "s"} attached.`
+      : "No photo areas indicated.";
 
     return `
       <div class="print-doc">
@@ -1347,6 +1571,10 @@
               : (plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
           </div>
         </div>
+
+        <!-- Photos -->
+        <h4>Photos</h4>
+        <p class="print-ack-summary">${esc(photoNote)}</p>
 
         <!-- Neighbors -->
         <h4>Adjacent Property Owners</h4>
@@ -1590,8 +1818,33 @@
   });
 
   /* ------------------------------------------------------
+     LANDING / FORM REVEAL
+  ------------------------------------------------------ */
+  const landingEl = $("#landing");
+  const layoutEl = $("#form-layout");
+
+  function enterForm() {
+    if (!landingEl || !layoutEl) return;
+    landingEl.hidden = true;
+    layoutEl.hidden = false;
+    window.scrollTo({ top: 0, behavior: "auto" });
+    if (mapInstance) setTimeout(() => mapInstance.resize(), 60);
+  }
+  function showLanding() {
+    if (!landingEl || !layoutEl) return;
+    layoutEl.hidden = true;
+    landingEl.hidden = false;
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  $("#start-application")?.addEventListener("click", enterForm);
+  $("#view-landing")?.addEventListener("click", e => { e.preventDefault(); showLanding(); });
+
+  /* ------------------------------------------------------
      INIT
   ------------------------------------------------------ */
-  restoreDraft();
+  // Returning users with a saved draft skip the landing and go straight to the form.
+  const hadDraft = restoreDraft();
+  if (hadDraft) enterForm();
   updateProgress();
 })();

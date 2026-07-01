@@ -2,7 +2,7 @@
 
 1. ~~Printable version of the signature form to replace built-in signature fields~~
 2. ~~Notice at the end explaining what happens next (committee reviews, contacts for payment if approved)~~
-3. Examples of good and bad photography (pending) — property-line-to-property-line, show entirety of side and backyards
+3. Examples of good and bad photography — **structure in place** (per-photo ✓/✗ placeholder frames in the Photos section, Section 05); real comparison images still pending
 4. ~~Signing their own name digitally is fine~~
 5. ~~Remove color-coded plan or key checkbox~~
 6. ~~Don't hide the photo requirements modal~~
@@ -17,4 +17,4 @@
 
 ## Pending
 
-- **#3** — Photography examples: good vs. bad. Content pending.
+- **#3** — Photography examples: good vs. bad. The Photos section (Section 05) now shows a ✓ Do this / ✗ Not this placeholder frame for each requested photo. Replace the placeholder frames with real comparison images.
