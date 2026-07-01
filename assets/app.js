@@ -129,6 +129,26 @@
       x: (p.x - bb.minX) / metersPerCell * CELL_SIZE,
       y: (p.y - bb.minY) / metersPerCell * CELL_SIZE
     }));
+
+    // Real parcels are rarely perfect rectangles square to the auto-aligned view
+    // (flag lots, notches, slight rotation slack), so the bbox above often has
+    // empty margin rows/cols the mask never touches. Crop to the tight bounding
+    // box of the "inside" cells (plus a 1-cell buffer) so the lot fills the grid.
+    let minR = rows, maxR = -1, minC = cols, maxC = -1;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!mask[r][c]) continue;
+        if (r < minR) minR = r; if (r > maxR) maxR = r;
+        if (c < minC) minC = c; if (c > maxC) maxC = c;
+      }
+    }
+    if (maxR >= minR && maxC >= minC) {
+      minR = Math.max(0, minR - 1); maxR = Math.min(rows - 1, maxR + 1);
+      minC = Math.max(0, minC - 1); maxC = Math.min(cols - 1, maxC + 1);
+      const trimmedMask = mask.slice(minR, maxR + 1).map(row => row.slice(minC, maxC + 1));
+      const trimmedPolyPx = polyPx.map(p => ({ x: p.x - minC * CELL_SIZE, y: p.y - minR * CELL_SIZE }));
+      return { cols: maxC - minC + 1, rows: maxR - minR + 1, mask: trimmedMask, polygonPx: trimmedPolyPx };
+    }
     return { cols, rows, mask, polygonPx: polyPx };
   }
 
@@ -1928,5 +1948,4 @@
   const hadDraft = restoreDraft();
   if (hadDraft) enterForm();
   updateProgress();
-
 })();
