@@ -536,6 +536,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   user-select: none;
 }
 .plot__cell {
+  position: relative; z-index: 2;
   width: 22px; height: 22px;
   border-right: 1px solid #e8e3d8;
   border-bottom: 1px solid #e8e3d8;
@@ -547,11 +548,18 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   pointer-events: none;
   cursor: default;
 }
+.plot__bg {
+  position: absolute; inset: 0; z-index: 1;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  opacity: .92;
+}
 .plot__parcel-overlay {
   position: absolute;
   top: 0; left: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
 }
 .plot__grid::after { content: none; }
 .plot__tools {
@@ -684,30 +692,105 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 /* Hide MapLibre control buttons (zoom/compass) during the Orient step */
 #map-step3 .maplibregl-ctrl-top-right { display: none; }
 
-/* Rotation slider */
-.map-reference__rotate {
-  max-width: 660px; margin: .8rem auto 0;
+/* Street/satellite imagery toggle — lives inside #map-container so it rides
+   along between the Select and Orient steps and stays visible on both. */
+.map-view-toggle {
+  position: absolute; top: .5rem; left: .5rem; z-index: 6;
+  display: flex; gap: .3rem;
+  padding: .25rem;
+  background: rgba(255,255,255,.9);
+  border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgba(30,26,20,.15);
 }
-.map-reference__rotate label {
-  display: block; font-size: .8rem; font-weight: 600;
-  color: var(--ink-soft); margin-bottom: .35rem;
+.map-view-toggle__btn {
+  padding: .35rem .6rem;
+  background: transparent; border: 1px solid transparent; border-radius: 5px;
+  font-family: var(--font-ui); font-size: .72rem; font-weight: 600;
+  color: var(--ink-soft); cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
 }
-.map-reference__rotate--centered { text-align: center; }
-.map-reference__rotate--centered label { margin-bottom: .55rem; }
-.map-rotate-icon {
-  display: block; width: 46px; height: 46px;
-  margin: .2rem auto .55rem; color: var(--crimson);
+.map-view-toggle__btn:hover { color: var(--crimson); }
+.map-view-toggle__btn.is-active {
+  background: var(--crimson); border-color: var(--crimson); color: #fff;
 }
-.map-reference__rotate-row {
-  display: flex; align-items: center; gap: .8rem;
+
+/* Rotation panel */
+.rotate-panel {
+  max-width: 660px; margin: 1.1rem auto 0;
+  padding: 1.1rem 1.2rem;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
-.map-reference__rotate-row input[type="range"] {
-  flex: 1; accent-color: var(--crimson);
-  height: 6px; cursor: pointer;
+.rotate-panel__top {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 1rem; margin-bottom: .8rem;
 }
-.map-reference__rotate-row span {
-  font-size: .82rem; font-variant-numeric: tabular-nums;
-  color: var(--ink-faint); min-width: 3.5em; text-align: right;
+.rotate-panel__title {
+  font-size: .82rem; font-weight: 600; color: var(--ink-soft);
+}
+.rotate-panel__readout { text-align: right; line-height: 1.1; }
+.rotate-panel__deg {
+  display: block; font-family: var(--font-disp); font-weight: 700;
+  font-size: 1.9rem; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rotate-panel__unit {
+  display: block; font-size: .72rem; color: var(--ink-faint);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.rotate-panel__slider-wrap { margin-bottom: 1rem; }
+.rotate-panel__slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px; border-radius: 999px; margin: 0;
+  background: linear-gradient(to right,
+    var(--crimson) 0%, var(--crimson) var(--pct, 0%),
+    var(--line-2) var(--pct, 0%), var(--line-2) 100%);
+  cursor: pointer;
+}
+.rotate-panel__slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--crimson);
+  box-shadow: 0 2px 6px rgba(30,26,20,.3);
+  cursor: pointer;
+}
+.rotate-panel__slider::-moz-range-track {
+  height: 6px; border-radius: 999px; background: var(--line-2);
+}
+.rotate-panel__slider::-moz-range-progress {
+  height: 6px; border-radius: 999px; background: var(--crimson);
+}
+.rotate-panel__slider::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--crimson);
+  box-shadow: 0 2px 6px rgba(30,26,20,.3);
+  cursor: pointer;
+}
+.rotate-panel__ticks {
+  display: flex; justify-content: space-between;
+  margin-top: .4rem; font-size: .72rem; color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.rotate-panel__actions {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem;
+}
+.rotate-panel__btn {
+  display: flex; flex-direction: column; align-items: center; gap: .35rem;
+  padding: .65rem .5rem;
+  background: #fff; border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  font-family: var(--font-ui); font-size: .74rem; font-weight: 600;
+  color: var(--ink-soft); text-align: center; cursor: pointer;
+  transition: border-color .15s, color .15s, box-shadow .15s;
+}
+.rotate-panel__btn svg { width: 19px; height: 19px; }
+.rotate-panel__btn:hover {
+  border-color: var(--crimson); color: var(--crimson);
+  box-shadow: 0 4px 14px -8px rgba(164,17,31,.4);
+}
+.rotate-panel__btn:active { transform: translateY(1px); }
+@media (max-width: 480px) {
+  .rotate-panel__actions { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* Apply to Plot Plan */
@@ -727,7 +810,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 
 @media (max-width: 620px) {
   #map-container { max-width: 100%; }
-  .map-reference__rotate { max-width: 100%; }
+  .rotate-panel { max-width: 100%; }
 }
 
 /* ===================== NEIGHBORS ===================== */

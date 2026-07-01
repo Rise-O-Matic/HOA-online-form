@@ -132,6 +132,24 @@
     return { cols, rows, mask, polygonPx: polyPx };
   }
 
+  function computeAutoAlignBearing(ring) {
+    if (!ring || ring.length < 3) return 0;
+    const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+    const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+    const local = geoToLocalMeters(ring, [cx, cy]);
+    // The longest boundary edge is usually a *side* lot line — lots are typically
+    // deeper (front-to-back) than they are wide — so square the view to make that
+    // edge vertical, not horizontal: add a quarter turn to the "make it horizontal" angle.
+    let best = { len: -1, angle: 0 };
+    for (let i = 0; i < local.length - 1; i++) {
+      const a = local[i], b = local[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len > best.len) best = { len, angle: Math.atan2(dy, dx) * 180 / Math.PI };
+    }
+    return (((-best.angle + 90) % 180) + 180) % 180;
+  }
+
   /* ------------------------------------------------------
      SIGNATURE PAD
   ------------------------------------------------------ */
@@ -208,10 +226,18 @@
   let painting = false;
   // model: cellState[r][c] = paletteId or null
   let cellState = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
+  let plotBgDataUrl = null; // aerial snapshot from the Orient step, shown behind the grid as a tracing aid
 
   function buildGrid() {
     gridEl.innerHTML = "";
     gridEl.style.gridTemplateColumns = `repeat(${gridCols}, ${CELL_SIZE}px)`;
+    if (plotBgDataUrl) {
+      const bg = document.createElement("img");
+      bg.className = "plot__bg";
+      bg.alt = "";
+      bg.src = plotBgDataUrl;
+      gridEl.appendChild(bg);
+    }
     const frag = document.createDocumentFragment();
     for (let r = 0; r < gridRows; r++) {
       for (let c = 0; c < gridCols; c++) {
@@ -485,6 +511,8 @@
   const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
   const ASSESSOR_TABLE_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/services/OpenData/Assessor/MapServer/50/query";
   const PARCEL_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/services/OpenData/Assessor/MapServer/40/query";
+  // County aerial imagery (2020 flight — resolution is plenty just to spot the roofline/driveway for orientation)
+  const AERIAL_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/services/Aerials_WGS/Riverside_County_2020_WM/ImageServer/exportImage";
   const HOA_CENTER = [-116.9770, 33.9295]; // [lng, lat] — Beaumont, CA
   const PROPERTY_ZOOM = 18;
   const PARCEL_RADIUS = 0.003; // ~300m bounding box around the address
@@ -505,7 +533,10 @@
       zoom: 15,
       scrollZoom: false,
       maxZoom: 20,
-      attributionControl: true
+      attributionControl: true,
+      // maplibre-gl 5.x nests this under canvasContextAttributes (not a top-level option) —
+      // needed so map.getCanvas().toDataURL() (the Draw step's backdrop snapshot) isn't blank.
+      canvasContextAttributes: { preserveDrawingBuffer: true }
     });
 
     mapInstance.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false }), "top-right");
@@ -515,6 +546,18 @@
       ["building", "building-3d"].forEach(id => {
         if (mapInstance.getLayer(id)) mapInstance.setLayoutProperty(id, "visibility", "none");
       });
+
+      // Aerial imagery, toggled on in the Orient step to help spot the front/back of the lot.
+      // Inserted below every other style layer so parcel outlines/labels still draw on top of it.
+      mapInstance.addSource("satellite", {
+        type: "raster",
+        tiles: [AERIAL_URL + "?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&f=image"],
+        tileSize: 256
+      });
+      mapInstance.addLayer(
+        { id: "satellite-layer", type: "raster", source: "satellite", layout: { visibility: "none" } },
+        mapInstance.getStyle().layers[0].id
+      );
 
       // Add empty parcel source — populated after geocoding
       mapInstance.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -566,6 +609,7 @@
         selectedAPN = apn;
         // Store full GeoJSON from original data (not simplified render)
         selectedParcelGeoJSON = parcelsData?.features?.find(f => f.properties.APN === apn) || e.features[0];
+        autoAlignedForParcel = false; // (re)selecting a parcel earns a fresh auto-align on next Orient entry
         mapInstance.setFilter("parcel-highlight", ["==", "APN", apn]);
         mapInstance.setFilter("parcel-highlight-line", ["==", "APN", apn]);
 
@@ -594,6 +638,8 @@
         mapInstance.getSource("parcels").setData(pendingParcels);
         pendingParcels = null;
       }
+
+      setSatelliteView(true); // satellite is the default view on both the Select and Orient steps
     });
 
     mapReady = true;
@@ -603,6 +649,7 @@
   let selectedPopup = null; // the "Selected parcel" map callout, dismissed on Orient
   let pendingParcels = null; // queued GeoJSON if map isn't loaded yet
   let mapStyleLoaded = false;
+  let autoAlignedForParcel = false; // true once auto-align has run for the currently selected parcel
 
   async function loadParcels(lng, lat) {
     const bbox = [lng - PARCEL_RADIUS, lat - PARCEL_RADIUS, lng + PARCEL_RADIUS, lat + PARCEL_RADIUS].join(",");
@@ -745,6 +792,11 @@
   const mapContainer = $("#map-container");
 
   function showStep(n) {
+    // Snapshot the oriented map BEFORE its pane goes display:none below — a hidden
+    // canvas can't be captured (toDataURL comes back solid black once painting stops).
+    if (n === 4 && currentStep === 3 && mapInstance && selectedParcelGeoJSON) {
+      try { plotBgDataUrl = mapInstance.getCanvas().toDataURL("image/jpeg", 0.9); } catch (e) { plotBgDataUrl = null; }
+    }
     currentStep = n;
     $$(".plot-step").forEach(el => el.classList.toggle("is-active", +el.dataset.step === n));
     stepDots.forEach(dot => {
@@ -769,10 +821,15 @@
       selectedPopup = null;
     }
 
-    // Step 2→3: zoom to fit the selected parcel
+    // Step 2→3: zoom to fit the selected parcel, and auto-align the very first time
+    // we reach Orient for this parcel — never touch orientation on the way back.
     if (n === 3 && selectedParcelGeoJSON && mapInstance) {
-      const coords = selectedParcelGeoJSON.geometry.coordinates[0];
-      const bounds = coords.reduce(
+      const ring = selectedParcelGeoJSON.geometry.coordinates[0];
+      if (!autoAlignedForParcel) {
+        setRotation(computeAutoAlignBearing(ring));
+        autoAlignedForParcel = true;
+      }
+      const bounds = ring.reduce(
         (b, [lng, lat]) => { b[0][0] = Math.min(b[0][0], lng); b[0][1] = Math.min(b[0][1], lat); b[1][0] = Math.max(b[1][0], lng); b[1][1] = Math.max(b[1][1], lat); return b; },
         [[Infinity, Infinity], [-Infinity, -Infinity]]
       );
@@ -782,9 +839,9 @@
       }, 100);
     }
 
-    // Step 2: lock north-up, disable rotation
+    // Step 2: disable rotation gestures (parcel picking is easier without them);
+    // orientation itself is left untouched, including when navigating back from Orient.
     if (n === 2 && mapInstance) {
-      mapInstance.setBearing(0);
       mapInstance.dragRotate.disable();
       mapInstance.touchZoomRotate.disableRotation();
     }
@@ -794,7 +851,7 @@
       mapInstance.touchZoomRotate.enableRotation();
     }
 
-    // Step 3→4 transition: rebuild grid from parcel
+    // Step 3→4 transition: rebuild grid from parcel (backdrop was already snapshotted above)
     if (n === 4 && selectedParcelGeoJSON) {
       rebuildGridForParcel(selectedParcelGeoJSON, parcelBearing);
     }
@@ -881,16 +938,41 @@
   // Step 3 Next — Orient → Draw (always enabled, triggers grid rebuild)
   $("#step3-next").addEventListener("click", () => showStep(4));
 
-  // Rotation slider — controls map camera bearing + stores parcelBearing
+  // Rotation panel — slider + quick-adjust buttons, all drive parcelBearing
   const mapRotate = $("#map-rotate");
   const mapRotateValue = $("#map-rotate-value");
 
-  mapRotate.addEventListener("input", () => {
-    const deg = parseInt(mapRotate.value, 10);
+  function setRotation(deg) {
+    deg = ((Math.round(deg) % 360) + 360) % 360;
     parcelBearing = deg;
+    mapRotate.value = deg;
+    mapRotate.style.setProperty("--pct", (deg / 360 * 100) + "%");
+    mapRotateValue.textContent = deg;
     if (mapInstance) mapInstance.setBearing(deg);
-    mapRotateValue.innerHTML = deg + "&deg;";
+  }
+
+  mapRotate.addEventListener("input", () => setRotation(parseInt(mapRotate.value, 10)));
+  $("#rotate-minus15").addEventListener("click", () => setRotation(parcelBearing - 15));
+  $("#rotate-plus15").addEventListener("click", () => setRotation(parcelBearing + 15));
+  $("#rotate-reset").addEventListener("click", () => setRotation(0));
+  $("#rotate-auto").addEventListener("click", () => {
+    if (!selectedParcelGeoJSON) return;
+    setRotation(computeAutoAlignBearing(selectedParcelGeoJSON.geometry.coordinates[0]));
   });
+
+  // Street/satellite imagery toggle — lets the user spot the roofline/driveway to judge orientation
+  function setSatelliteView(on) {
+    if (!mapInstance || !mapReady) return;
+    mapInstance.getStyle().layers.forEach(({ id }) => {
+      if (id === "satellite-layer" || id.startsWith("parcel-")) return;
+      mapInstance.setLayoutProperty(id, "visibility", on ? "none" : "visible");
+    });
+    mapInstance.setLayoutProperty("satellite-layer", "visibility", on ? "visible" : "none");
+    $("#view-street").classList.toggle("is-active", !on);
+    $("#view-satellite").classList.toggle("is-active", on);
+  }
+  $("#view-street").addEventListener("click", () => setSatelliteView(false));
+  $("#view-satellite").addEventListener("click", () => setSatelliteView(true));
 
   /* ------------------------------------------------------
      NEIGHBORS
@@ -1285,9 +1367,8 @@
       parcelBearing = d.plotMeta.bearing || 0;
       selectedAPN = d.plotMeta.apn || null;
       rebuildGridForParcel(fakeFeature, parcelBearing);
-      // Restore rotation slider
-      const slider = $("#map-rotate");
-      if (slider) { slider.value = parcelBearing; $("#map-rotate-value").innerHTML = parcelBearing + "&deg;"; }
+      // Restore rotation panel
+      setRotation(parcelBearing);
     }
     applyPlotState(d.plot);
     if (d.planMode) setPlanMode(d.planMode);
@@ -1847,4 +1928,5 @@
   const hadDraft = restoreDraft();
   if (hadDraft) enterForm();
   updateProgress();
+
 })();
