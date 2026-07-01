@@ -486,35 +486,8 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid rgba(0,0,0,.18);
   flex-shrink: 0;
 }
-.palette .swatch--erase {
-  background:
-    linear-gradient(45deg, #fff 45%, #d33 45%, #d33 55%, #fff 55%);
-}
-.palette .swatch--move {
-  background: #fff;
-  position: relative;
-  cursor: move;
-}
-.palette .swatch--move::after {
-  content: "✥";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: .7rem;
-  color: #555;
-}
-.plot__cell.is-move-source {
-  outline: 2px dashed var(--crimson);
-  outline-offset: -2px;
-  opacity: .5;
-}
-.plot__cell.is-move-preview {
-  outline: 2px solid var(--green);
-  outline-offset: -2px;
-}
 
-.plot__stage { position: relative; padding: 1.4rem 0; }
+.plot__stage { position: relative; padding: 1.1rem 0; }
 .plot__edge {
   position: absolute; left: 0; right: 0;
   text-align: center;
@@ -524,54 +497,43 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .plot__edge--top { top: 0; }
 .plot__edge--bottom { bottom: 0; }
-.plot__grid-wrap { overflow-x: auto; padding-bottom: .3rem; }
-.plot__grid {
-  display: grid;
-  gap: 0;
-  border: 1px solid var(--ink-faint);
-  width: max-content;
+.plot__grid-wrap { position: relative; overflow-x: auto; padding-bottom: .3rem; }
+.plot__konva-host {
   margin: 0 auto;
+  border: 1px solid var(--ink-faint);
   background: #fff;
-  position: relative;
   user-select: none;
+  line-height: 0; /* Konva's <canvas> is inline by default and picks up a few px of text baseline gap otherwise */
 }
-.plot__cell {
-  position: relative; z-index: 2;
-  width: 22px; height: 22px;
-  border-right: 1px solid #e8e3d8;
-  border-bottom: 1px solid #e8e3d8;
-  cursor: pointer;
+.plot__polygon-hud {
+  position: absolute; top: .6rem; right: .6rem; z-index: 5;
+  display: flex; gap: .4rem;
+  padding: .35rem;
+  background: rgba(255,255,255,.95);
+  border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgba(30,26,20,.15);
 }
-.plot__cell.is-outside {
-  background: transparent !important;
-  border-color: transparent !important;
-  pointer-events: none;
-  cursor: default;
-}
-.plot__bg {
-  position: absolute; inset: 0; z-index: 1;
-  width: 100%; height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-  opacity: .92;
-}
-.plot__parcel-overlay {
-  position: absolute;
-  top: 0; left: 0;
-  pointer-events: none;
-  z-index: 3;
-}
-.plot__grid::after { content: none; }
 .plot__tools {
   display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
   margin-top: 1rem;
 }
 .plot__hint { font-size: .78rem; color: var(--ink-faint); }
+.plot__notice {
+  margin: 0 0 .9rem;
+  padding: .65rem .9rem;
+  font-size: .84rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+}
+.plot__notice--err { color: var(--crimson); border-color: rgba(164,17,31,.3); }
+.plot__notice--err .btn { margin-top: .5rem; }
 
 /* ===================== WIZARD STEPS ===================== */
 .plot-steps-nav {
-  display: flex; gap: .4rem; margin-bottom: 1.4rem;
-  border-bottom: 1px solid var(--line); padding-bottom: 1rem;
+  display: flex; gap: .4rem; margin-bottom: 1rem;
+  border-bottom: 1px solid var(--line); padding-bottom: .8rem;
 }
 .plot-steps-nav__dot {
   display: flex; align-items: center; gap: .4rem;
@@ -606,11 +568,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   margin: 0 0 .3rem; color: var(--ink);
 }
 .plot-step__desc {
-  font-size: .88rem; color: var(--ink-soft); margin: 0 0 1rem;
+  font-size: .88rem; color: var(--ink-soft); margin: 0 0 .8rem;
 }
 .plot-step__nav {
   display: flex; justify-content: space-between; align-items: center;
-  margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line);
 }
 
 /* Plan method choice (build vs. upload) */
@@ -639,7 +601,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 @media (max-width: 620px) { .plan-choice { grid-template-columns: 1fr; } }
 
 /* ===================== MAP REFERENCE ===================== */
-.map-reference { margin-top: 1.2rem; }
+.map-reference { margin-top: .8rem; }
 .map-reference__body { padding: 0 1.1rem 1rem; }
 .map-reference__controls {
   display: flex; align-items: center; gap: .8rem;
@@ -650,7 +612,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .map-reference__status.ok  { color: var(--green); font-weight: 500; }
 
 #map-container {
-  width: 100%; max-width: 500px;
+  width: 100%; max-width: 400px;
   aspect-ratio: 1 / 1;
   margin: 0 auto;
   border: 1px solid var(--line-2);
@@ -658,6 +620,22 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   overflow: hidden;
   background: var(--paper);
   position: relative;
+}
+
+/* Orient step: map and rotation panel sit side by side so the step fits
+   without stacking two ~400px blocks vertically (was a major source of
+   the up/down scrolling the wizard required per-step). */
+.orient-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 400px) 1fr;
+  gap: 1.2rem;
+  align-items: start;
+  margin-top: .8rem;
+}
+.orient-layout .map-reference { margin-top: 0; }
+.orient-layout .rotate-panel { margin: 0; max-width: none; }
+@media (max-width: 760px) {
+  .orient-layout { grid-template-columns: 1fr; }
 }
 .map-reference__placeholder {
   position: absolute; inset: 0;
@@ -717,14 +695,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 /* Rotation panel */
 .rotate-panel {
   max-width: 660px; margin: 1.1rem auto 0;
-  padding: 1.1rem 1.2rem;
+  padding: 1rem 1.1rem;
   background: var(--paper-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
 .rotate-panel__top {
   display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 1rem; margin-bottom: .8rem;
+  gap: 1rem; margin-bottom: .6rem;
 }
 .rotate-panel__title {
   font-size: .82rem; font-weight: 600; color: var(--ink-soft);
@@ -739,7 +717,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: block; font-size: .72rem; color: var(--ink-faint);
   text-transform: uppercase; letter-spacing: .08em;
 }
-.rotate-panel__slider-wrap { margin-bottom: 1rem; }
+.rotate-panel__slider-wrap { margin-bottom: .8rem; }
 .rotate-panel__slider {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 6px; border-radius: 999px; margin: 0;
@@ -776,8 +754,8 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem;
 }
 .rotate-panel__btn {
-  display: flex; flex-direction: column; align-items: center; gap: .35rem;
-  padding: .65rem .5rem;
+  display: flex; flex-direction: column; align-items: center; gap: .3rem;
+  padding: .5rem .5rem;
   background: #fff; border: 1px solid var(--line-2); border-radius: var(--radius-sm);
   font-family: var(--font-ui); font-size: .74rem; font-weight: 600;
   color: var(--ink-soft); text-align: center; cursor: pointer;

@@ -7,7 +7,8 @@
 
   const $  = (s, c = document) => c.querySelector(s);
   const $$ = (s, c = document) => Array.from(c.querySelectorAll(s));
-  const DRAFT_KEY = "fairwayCanyonArcDraft.v2";
+  const DRAFT_KEY = "fairwayCanyonArcDraft.v3";
+  const LEGACY_DRAFT_KEY = "fairwayCanyonArcDraft.v2"; // pre-Konva cell-grid format — read once for a one-time non-destructive migration
 
   /* ------------------------------------------------------
      DATA: acknowledgments, palette, review dates
@@ -33,11 +34,23 @@
     { id: "shed",      label: "Shed",            color: "#e2473b" },
     { id: "tree",      label: "Tree",            color: "#2e6b35" },
     { id: "light",     label: "Yard Light",      color: "#f4c430" },
-    { id: "camera",    label: "Camera",          color: "#6a4bb0" },
-    { id: "erase",     label: "Erase",           color: null      },
-    { id: "move",      label: "Move",            color: null      }
+    { id: "camera",    label: "Camera",          color: "#6a4bb0" }
   ];
   const PALETTE_MAP = Object.fromEntries(PALETTE.map(p => [p.id, p]));
+
+  const TOOL_MODES = [
+    { id: "select",   label: "Select" },
+    { id: "rect",     label: "Rectangle" },
+    { id: "circle",   label: "Circle" },
+    { id: "line",     label: "Line" },
+    { id: "curve",    label: "Curve" },
+    { id: "polygon",  label: "Polygon" },
+    { id: "freehand", label: "Freehand" },
+    { id: "fill",     label: "Fill" },
+    { id: "callout",  label: "Callout" },
+    { id: "measure",  label: "Measure" },
+    { id: "erase",    label: "Erase" }
+  ];
 
   const DATES = [
     ["January 29", "January 20"], ["February 26", "February 17"],
@@ -52,14 +65,13 @@
 
   const CELL_SIZE = 22;
   const TARGET_MAX_DIM = 30; // longest parcel dimension maps to this many cells
-  let gridCols = 30;
-  let gridRows = 18;
-  let parcelMask = null;        // 2D bool array [r][c] — true = inside parcel
-  let parcelPolygonPx = null;   // polygon vertices in pixel coords for SVG overlay
+  let gridCols = 30;         // stage width, in CELL_SIZE units (drives Konva stage px size)
+  let gridRows = 18;         // stage height, in CELL_SIZE units
+  let parcelPolygonPx = null;   // polygon vertices in pixel coords, traced as a Konva.Line overlay
   let selectedParcelGeoJSON = null;
   let parcelBearing = 0;
   let parcelsData = null;       // raw GeoJSON from county query
-  const isOutside = (c, r) => parcelMask !== null && !parcelMask[r]?.[c];
+  let scaleFeetPerPixel = 3 / CELL_SIZE; // real-world scale for the Measure tool; refined once a parcel is selected
 
   /* --- Geometry: parcel polygon → grid projection --- */
   function geoToLocalMeters(ring, center) {
@@ -147,9 +159,9 @@
       minC = Math.max(0, minC - 1); maxC = Math.min(cols - 1, maxC + 1);
       const trimmedMask = mask.slice(minR, maxR + 1).map(row => row.slice(minC, maxC + 1));
       const trimmedPolyPx = polyPx.map(p => ({ x: p.x - minC * CELL_SIZE, y: p.y - minR * CELL_SIZE }));
-      return { cols: maxC - minC + 1, rows: maxR - minR + 1, mask: trimmedMask, polygonPx: trimmedPolyPx };
+      return { cols: maxC - minC + 1, rows: maxR - minR + 1, mask: trimmedMask, polygonPx: trimmedPolyPx, metersPerCell };
     }
-    return { cols, rows, mask, polygonPx: polyPx };
+    return { cols, rows, mask, polygonPx: polyPx, metersPerCell };
   }
 
   function computeAutoAlignBearing(ring) {
@@ -239,291 +251,572 @@
   $$(".sigpad").forEach(w => { sigPads[w.dataset.sigpad] = new SignaturePad(w); });
 
   /* ------------------------------------------------------
-     PLOT GRID
+     PLOT / DRAWING SURFACE (Konva.js)
   ------------------------------------------------------ */
-  const gridEl = $("#plot-grid");
-  let activeTool = "turf";
-  let painting = false;
-  // model: cellState[r][c] = paletteId or null
-  let cellState = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
-  let plotBgDataUrl = null; // aerial snapshot from the Orient step, shown behind the grid as a tracing aid
+  const KONVA_AVAILABLE = typeof Konva !== "undefined";
+  const plotHost = $("#plot-konva-host");
+  let plotBgDataUrl = null; // aerial snapshot from the Orient step, shown behind the drawing as a tracing aid
 
-  function buildGrid() {
-    gridEl.innerHTML = "";
-    gridEl.style.gridTemplateColumns = `repeat(${gridCols}, ${CELL_SIZE}px)`;
+  let stage = null, bgLayer = null, drawLayer = null, overlayLayer = null;
+  let stageReady = false;
+  let activeMaterial = "turf";
+  let activeMode = "rect";
+  let transformer = null;
+  let selectedNode = null;
+  let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in rebuildGridForParcel
+
+  let dragOrigin = null, ghostNode = null;         // drag-to-draw: rect/circle/line/measure
+  let freehandPoints = null, freehandNode = null;  // freehand/curve
+  let polygonPoints = null, polygonNode = null, polygonHud = null; // polygon
+  let calloutDraft = null, calloutGhost = null;    // callout
+
+  let undoStack = [], redoStack = [], restoringHistory = false;
+
+  function formatFeet(feet) {
+    return `${feet.toFixed(1)} ft`;
+  }
+
+  /* --- Stage setup --- */
+  function initPlotStage() {
+    if (!KONVA_AVAILABLE) {
+      const msg = $("#plot-fallback-msg");
+      if (msg) msg.hidden = false;
+      return;
+    }
+    stage = new Konva.Stage({ container: "plot-konva-host", width: gridCols * CELL_SIZE, height: gridRows * CELL_SIZE });
+    bgLayer = new Konva.Layer({ listening: false });
+    drawLayer = new Konva.Layer();
+    overlayLayer = new Konva.Layer();
+    stage.add(bgLayer, drawLayer, overlayLayer);
+    if (plotHost) plotHost.style.touchAction = "none";
+    stage.on("pointerdown", onStagePointerDown);
+    stage.on("pointermove", onStagePointerMove);
+    stage.on("pointerup", onStagePointerUp);
+    stage.on("click tap", e => { if (activeMode === "select" && e.target === stage) clearSelection(); });
+    // A drag/click-to-vertex gesture that RELEASES past the canvas edge never fires the
+    // stage's own pointerup (native events only reach elements the pointer is still over) —
+    // without this, an in-progress shape/callout/measurement is silently abandoned instead
+    // of committed. onStagePointerUp is idempotent (it no-ops once state is already clear),
+    // so double-binding alongside the stage's own listener is safe.
+    window.addEventListener("pointerup", onStagePointerUp);
+    stageReady = true;
+    fitStageToContainer();
+    window.addEventListener("resize", fitStageToContainer);
+  }
+
+  function fitStageToContainer() {
+    if (!stageReady) return;
+    const wrap = plotHost.parentElement;
+    const naturalW = gridCols * CELL_SIZE, naturalH = gridRows * CELL_SIZE;
+    const availW = wrap ? wrap.clientWidth : naturalW;
+    const scale = Math.max(0.2, Math.min(1, availW / naturalW));
+    stage.width(naturalW * scale);
+    stage.height(naturalH * scale);
+    stage.scale({ x: scale, y: scale });
+  }
+
+  function rebuildBgLayer() {
+    if (!stageReady) return;
+    bgLayer.destroyChildren();
     if (plotBgDataUrl) {
-      const bg = document.createElement("img");
-      bg.className = "plot__bg";
-      bg.alt = "";
-      bg.src = plotBgDataUrl;
-      gridEl.appendChild(bg);
+      const img = new Image();
+      img.onload = () => {
+        if (!stageReady) return;
+        const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+        const scale = Math.max(w / img.width, h / img.height);
+        const node = new Konva.Image({
+          image: img,
+          width: img.width * scale, height: img.height * scale,
+          x: (w - img.width * scale) / 2, y: (h - img.height * scale) / 2,
+          opacity: 0.92
+        });
+        bgLayer.add(node);
+        node.moveToBottom();
+        bgLayer.batchDraw();
+      };
+      img.src = plotBgDataUrl;
     }
-    const frag = document.createDocumentFragment();
-    for (let r = 0; r < gridRows; r++) {
-      for (let c = 0; c < gridCols; c++) {
-        const cell = document.createElement("div");
-        cell.className = "plot__cell";
-        cell.dataset.r = r; cell.dataset.c = c;
-        if (isOutside(c, r)) cell.classList.add("is-outside");
-        frag.appendChild(cell);
-      }
+    if (parcelPolygonPx && parcelPolygonPx.length) {
+      bgLayer.add(new Konva.Line({
+        points: parcelPolygonPx.flatMap(p => [p.x, p.y]),
+        closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3], listening: false
+      }));
     }
-    gridEl.appendChild(frag);
-    // SVG parcel outline overlay
-    if (parcelPolygonPx) {
-      const svgNS = "http://www.w3.org/2000/svg";
-      const svgW = gridCols * CELL_SIZE, svgH = gridRows * CELL_SIZE;
-      const svg = document.createElementNS(svgNS, "svg");
-      svg.setAttribute("width", svgW);
-      svg.setAttribute("height", svgH);
-      svg.setAttribute("class", "plot__parcel-overlay");
-      const poly = document.createElementNS(svgNS, "polygon");
-      poly.setAttribute("points", parcelPolygonPx.map(p => `${p.x},${p.y}`).join(" "));
-      poly.setAttribute("fill", "none");
-      poly.setAttribute("stroke", "#a4111f");
-      poly.setAttribute("stroke-width", "2");
-      poly.setAttribute("stroke-dasharray", "6 3");
-      svg.appendChild(poly);
-      gridEl.appendChild(svg);
-    }
+    bgLayer.batchDraw();
   }
 
-  function paint(cell) {
-    const r = +cell.dataset.r, c = +cell.dataset.c;
-    if (isOutside(c, r)) return; // protect house
-    if (activeTool === "erase") {
-      cellState[r][c] = null;
-      cell.style.background = "";
-    } else {
-      cellState[r][c] = activeTool;
-      cell.style.background = PALETTE_MAP[activeTool].color;
-    }
-  }
-
+  /* --- Toolbars --- */
   function buildPalette() {
     const pal = $("#palette");
     PALETTE.forEach(p => {
       const b = document.createElement("button");
       b.type = "button";
-      b.dataset.tool = p.id;
-      if (p.id === activeTool) b.classList.add("is-active");
+      b.dataset.material = p.id;
+      if (p.id === activeMaterial) b.classList.add("is-active");
       const sw = document.createElement("span");
-      sw.className = "swatch" + (p.id === "erase" ? " swatch--erase" : "") + (p.id === "move" ? " swatch--move" : "");
-      if (p.color) sw.style.background = p.color;
+      sw.className = "swatch";
+      sw.style.background = p.color;
       b.append(sw, document.createTextNode(p.label));
       b.addEventListener("click", () => {
-        activeTool = p.id;
+        activeMaterial = p.id;
         $$("#palette button").forEach(x => x.classList.toggle("is-active", x === b));
       });
       pal.appendChild(b);
     });
   }
 
-  /* --- Move tool state --- */
-  let moveRegion = null;  // { cells: [{r,c,id}], anchorR, anchorC }
-  let moveStartR = 0, moveStartC = 0;
+  function buildToolbar() {
+    const pal = $("#tool-palette");
+    TOOL_MODES.forEach(t => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.mode = t.id;
+      if (t.id === activeMode) b.classList.add("is-active");
+      b.textContent = t.label;
+      b.addEventListener("click", () => setActiveMode(t.id));
+      pal.appendChild(b);
+    });
+  }
 
-  function floodFill(r, c) {
-    const target = cellState[r][c];
-    if (!target) return [];
-    const visited = new Set();
-    const result = [];
-    const stack = [[r, c]];
-    while (stack.length) {
-      const [cr, cc] = stack.pop();
-      const key = cr + "," + cc;
-      if (visited.has(key)) continue;
-      if (cr < 0 || cr >= gridRows || cc < 0 || cc >= gridCols) continue;
-      if (isOutside(cc, cr)) continue;
-      if (cellState[cr][cc] !== target) continue;
-      visited.add(key);
-      result.push({ r: cr, c: cc, id: target });
-      stack.push([cr - 1, cc], [cr + 1, cc], [cr, cc - 1], [cr, cc + 1]);
+  function setActiveMode(mode) {
+    if (activeMode === "polygon" && mode !== "polygon") cancelPolygonDraft();
+    if (calloutDraft && mode !== "callout") {
+      calloutDraft = null;
+      if (calloutGhost) { calloutGhost.destroy(); calloutGhost = null; overlayLayer?.batchDraw(); }
     }
-    return result;
+    if (activeMode === "select" && mode !== "select") clearSelection();
+    activeMode = mode;
+    $$("#tool-palette button").forEach(x => x.classList.toggle("is-active", x.dataset.mode === mode));
+    if (drawLayer) drawLayer.getChildren().forEach(n => n.draggable(mode === "select"));
+    if (plotHost) plotHost.style.cursor = (mode === "select" || mode === "fill" || mode === "erase") ? "pointer" : "crosshair";
   }
 
-  function refreshCell(r, c) {
-    const cell = gridEl.querySelector(`.plot__cell[data-r="${r}"][data-c="${c}"]`);
-    if (!cell || cell.classList.contains("is-outside")) return;
-    const v = cellState[r][c];
-    cell.style.background = v ? PALETTE_MAP[v]?.color || "" : "";
-    cell.classList.remove("is-move-source", "is-move-preview");
-  }
-
-  function showMovePreview(dr, dc) {
-    // clear old previews
-    $$(".is-move-preview", gridEl).forEach(el => {
-      el.classList.remove("is-move-preview");
-      const rr = +el.dataset.r, cc = +el.dataset.c;
-      const v = cellState[rr][cc];
-      el.style.background = v ? PALETTE_MAP[v]?.color || "" : "";
-    });
-    // show new preview
-    moveRegion.cells.forEach(({ r, c, id }) => {
-      const nr = r + dr, nc = c + dc;
-      if (nr < 0 || nr >= gridRows || nc < 0 || nc >= gridCols) return;
-      if (isOutside(nc, nr)) return;
-      const cell = gridEl.querySelector(`.plot__cell[data-r="${nr}"][data-c="${nc}"]`);
-      if (cell) {
-        cell.style.background = PALETTE_MAP[id]?.color || "";
-        cell.classList.add("is-move-preview");
-      }
-    });
-  }
-
-  function commitMove(dr, dc) {
-    if (!moveRegion) return;
-    // erase source
-    moveRegion.cells.forEach(({ r, c }) => {
-      if (!isOutside(c, r)) cellState[r][c] = null;
-    });
-    // place at destination
-    moveRegion.cells.forEach(({ r, c, id }) => {
-      const nr = r + dr, nc = c + dc;
-      if (nr < 0 || nr >= gridRows || nc < 0 || nc >= gridCols) return;
-      if (isOutside(nc, nr)) return;
-      cellState[nr][nc] = id;
-    });
-    // refresh all affected cells
-    const allCells = new Set();
-    moveRegion.cells.forEach(({ r, c }) => { allCells.add(r + "," + c); allCells.add((r + dr) + "," + (c + dc)); });
-    allCells.forEach(key => { const [rr, cc] = key.split(",").map(Number); refreshCell(rr, cc); });
-    // clear highlight
-    $$(".is-move-source, .is-move-preview", gridEl).forEach(el => el.classList.remove("is-move-source", "is-move-preview"));
-    moveRegion = null;
-  }
-
-  function bindGrid() {
-    gridEl.addEventListener("pointerdown", e => {
-      const cell = e.target.closest(".plot__cell");
-      if (!cell) return;
-
-      if (activeTool === "move") {
-        const r = +cell.dataset.r, c = +cell.dataset.c;
-        if (isOutside(c, r) || !cellState[r][c]) return;
-        // flood-fill to find the contiguous region
-        moveRegion = { cells: floodFill(r, c), anchorR: r, anchorC: c };
-        moveStartR = r; moveStartC = c;
-        // highlight source cells
-        moveRegion.cells.forEach(({ r: rr, c: cc }) => {
-          const el = gridEl.querySelector(`.plot__cell[data-r="${rr}"][data-c="${cc}"]`);
-          if (el) el.classList.add("is-move-source");
-        });
-        gridEl.setPointerCapture?.(e.pointerId);
-        return;
-      }
-
-      painting = true; paint(cell);
-      gridEl.setPointerCapture?.(e.pointerId);
-    });
-
-    gridEl.addEventListener("pointermove", e => {
-      if (moveRegion) {
-        const rect = gridEl.getBoundingClientRect();
-        const x = e.clientX - rect.left, y = e.clientY - rect.top;
-        const c = Math.floor(x / 22), r = Math.floor(y / 22);
-        const dr = r - moveStartR, dc = c - moveStartC;
-        showMovePreview(dr, dc);
-        moveRegion._lastDR = dr; moveRegion._lastDC = dc;
-        return;
-      }
-      if (!painting) return;
-      const cell = e.target.closest(".plot__cell");
-      if (cell) paint(cell);
-    });
-
-    window.addEventListener("pointerup", () => {
-      if (moveRegion) {
-        const dr = moveRegion._lastDR || 0, dc = moveRegion._lastDC || 0;
-        if (dr !== 0 || dc !== 0) commitMove(dr, dc);
-        else {
-          // no movement — just clear highlight
-          $$(".is-move-source, .is-move-preview", gridEl).forEach(el => el.classList.remove("is-move-source", "is-move-preview"));
-          moveRegion = null;
+  /* --- Shared shape interactions: fill / select / erase / undo hooks --- */
+  function attachShapeInteractions(node) {
+    node.draggable(activeMode === "select");
+    node.on("click tap", () => {
+      if (activeMode === "fill") {
+        if (node.className === "Line" && !node.closed()) node.closed(true);
+        if (typeof node.fill === "function") {
+          recordUndoPoint();
+          node.fill(PALETTE_MAP[activeMaterial]?.color || "#7cb342");
+          drawLayer.batchDraw();
+          scheduleAutosave();
         }
+      } else if (activeMode === "erase") {
+        recordUndoPoint();
+        if (node === selectedNode) clearSelection();
+        node.destroy();
+        drawLayer.batchDraw();
+        scheduleAutosave();
+      } else if (activeMode === "select") {
+        selectShape(node);
       }
-      painting = false;
     });
-
-    // prevent native drag of grid
-    gridEl.addEventListener("dragstart", e => e.preventDefault());
+    node.on("dragstart transformstart", recordUndoPoint);
+    node.on("dragend transformend", scheduleAutosave);
   }
 
+  function selectShape(node) {
+    if (!transformer) {
+      transformer = new Konva.Transformer({ rotateEnabled: true, flipEnabled: false });
+      overlayLayer.add(transformer);
+    }
+    selectedNode = node;
+    transformer.nodes([node]);
+    overlayLayer.batchDraw();
+  }
+
+  function clearSelection() {
+    selectedNode = null;
+    if (transformer) { transformer.nodes([]); overlayLayer.batchDraw(); }
+  }
+
+  /* --- Undo / redo --- */
+  function recordUndoPoint() {
+    if (restoringHistory || !drawLayer) return;
+    undoStack.push(JSON.stringify(drawLayer.toObject().children || []));
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    const undoBtn = $("#plot-undo"), redoBtn = $("#plot-redo");
+    if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+    if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+  }
+
+  function applyHistorySnapshot(json) {
+    restoringHistory = true;
+    clearSelection();
+    drawLayer.destroyChildren();
+    hydrateShapesInto(drawLayer, JSON.parse(json));
+    drawLayer.batchDraw();
+    restoringHistory = false;
+  }
+
+  function undo() {
+    if (!undoStack.length || !drawLayer) return;
+    redoStack.push(JSON.stringify(drawLayer.toObject().children || []));
+    applyHistorySnapshot(undoStack.pop());
+    updateUndoRedoButtons();
+    scheduleAutosave();
+  }
+
+  function redo() {
+    if (!redoStack.length || !drawLayer) return;
+    undoStack.push(JSON.stringify(drawLayer.toObject().children || []));
+    applyHistorySnapshot(redoStack.pop());
+    updateUndoRedoButtons();
+    scheduleAutosave();
+  }
+
+  // Rebuilds shapes from serialized JSON (draft restore, undo/redo) and re-wires
+  // interactions — Konva's serialized JSON carries no event listeners.
+  function hydrateShapesInto(layer, shapes) {
+    (shapes || []).forEach(obj => {
+      try {
+        const node = Konva.Node.create(obj);
+        layer.add(node);
+        attachShapeInteractions(node);
+      } catch (e) { /* skip a shape that fails to reconstruct rather than aborting the whole restore */ }
+    });
+  }
+
+  /* --- Drag-to-draw: rect / circle / line / measure --- */
+  function ghostStyle() {
+    return { stroke: "#a4111f", strokeWidth: 1.5, dash: [4, 3], fill: "rgba(164,17,31,0.08)", listening: false };
+  }
+
+  function makeGhost(mode, a) {
+    if (mode === "rect") return new Konva.Rect({ x: a.x, y: a.y, width: 0, height: 0, ...ghostStyle() });
+    if (mode === "circle") return new Konva.Circle({ x: a.x, y: a.y, radius: 0, ...ghostStyle() });
+    if (mode === "measure") return new Konva.Arrow({ points: [a.x, a.y, a.x, a.y], stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2, pointerAtBeginning: true, pointerAtEnding: true, listening: false });
+    return new Konva.Line({ points: [a.x, a.y, a.x, a.y], stroke: "#a4111f", strokeWidth: 2, dash: [4, 3], listening: false });
+  }
+
+  function updateGhost(mode, ghost, a, b) {
+    if (mode === "rect") {
+      ghost.position({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) });
+      ghost.size({ width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) });
+    } else if (mode === "circle") {
+      ghost.radius(Math.hypot(b.x - a.x, b.y - a.y));
+    } else {
+      ghost.points([a.x, a.y, b.x, b.y]);
+    }
+  }
+
+  function commitShape(mode, a, b) {
+    const color = PALETTE_MAP[activeMaterial]?.color || "#7cb342";
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    if (mode === "rect") {
+      const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+      if (w < 4 || h < 4) return null;
+      return new Konva.Rect({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: w, height: h, fill: color, stroke: "rgba(0,0,0,.2)", strokeWidth: 1 });
+    }
+    if (mode === "circle") {
+      if (dist < 4) return null;
+      return new Konva.Circle({ x: a.x, y: a.y, radius: dist, fill: color, stroke: "rgba(0,0,0,.2)", strokeWidth: 1 });
+    }
+    if (mode === "line") {
+      if (dist < 4) return null;
+      return new Konva.Line({ points: [a.x, a.y, b.x, b.y], stroke: color, strokeWidth: 3, lineCap: "round" });
+    }
+    if (mode === "measure") {
+      if (dist < 4) return null;
+      return buildMeasurementGroup(a, b);
+    }
+    return null;
+  }
+
+  function buildMeasurementGroup(a, b) {
+    const group = new Konva.Group();
+    group.setAttr("kind", "measurement");
+    const arrow = new Konva.Arrow({
+      points: [a.x, a.y, b.x, b.y],
+      stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2,
+      pointerAtBeginning: true, pointerAtEnding: true, pointerLength: 7, pointerWidth: 7
+    });
+    const feet = Math.hypot(b.x - a.x, b.y - a.y) * scaleFeetPerPixel;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const label = new Konva.Text({
+      x: mid.x, y: mid.y - 16, text: formatFeet(feet),
+      fontFamily: "sans-serif", fontSize: 12, fontStyle: "bold", fill: "#2b6cb0", padding: 2
+    });
+    label.offsetX(label.width() / 2);
+    group.add(arrow, label);
+    return group;
+  }
+
+  /* --- Freehand / curve --- */
+  function startFreehand(mode, pos) {
+    freehandPoints = [pos.x, pos.y];
+    freehandNode = new Konva.Line({
+      points: freehandPoints,
+      stroke: PALETTE_MAP[activeMaterial]?.color || "#7cb342",
+      strokeWidth: 3, lineCap: "round", lineJoin: "round",
+      tension: mode === "curve" ? 0.4 : 0
+    });
+    overlayLayer.add(freehandNode);
+  }
+
+  function extendFreehand(pos) {
+    if (!freehandNode) return;
+    freehandPoints.push(pos.x, pos.y);
+    freehandNode.points(freehandPoints);
+    overlayLayer.batchDraw();
+  }
+
+  function commitFreehand() {
+    if (!freehandNode) return;
+    const points = freehandPoints, tension = freehandNode.tension();
+    freehandNode.destroy();
+    freehandNode = null; freehandPoints = null;
+    overlayLayer.batchDraw();
+    if (points.length < 4) return;
+    const first = { x: points[0], y: points[1] };
+    const last = { x: points[points.length - 2], y: points[points.length - 1] };
+    const closed = points.length >= 6 && Math.hypot(last.x - first.x, last.y - first.y) < 16;
+    const node = new Konva.Line({
+      points, tension, closed,
+      stroke: PALETTE_MAP[activeMaterial]?.color || "#7cb342",
+      strokeWidth: 3, lineCap: "round", lineJoin: "round"
+    });
+    recordUndoPoint();
+    drawLayer.add(node);
+    attachShapeInteractions(node);
+    drawLayer.batchDraw();
+    scheduleAutosave();
+  }
+
+  /* --- Polygon (click-to-vertex, touch-friendly Finish/Cancel HUD) --- */
+  function polygonClick(pos) {
+    if (!polygonPoints) {
+      polygonPoints = [pos.x, pos.y];
+      polygonNode = new Konva.Line({ points: polygonPoints, stroke: "#a4111f", strokeWidth: 2, dash: [4, 3], listening: false });
+      overlayLayer.add(polygonNode);
+      showPolygonHud();
+    } else {
+      polygonPoints.push(pos.x, pos.y);
+      polygonNode.points(polygonPoints);
+    }
+    overlayLayer.batchDraw();
+  }
+
+  function finishPolygon() {
+    const points = polygonPoints;
+    cancelPolygonDraft();
+    if (!points || points.length < 6) return;
+    const node = new Konva.Line({
+      points, closed: true,
+      fill: PALETTE_MAP[activeMaterial]?.color || "#7cb342",
+      stroke: "rgba(0,0,0,.2)", strokeWidth: 1
+    });
+    recordUndoPoint();
+    drawLayer.add(node);
+    attachShapeInteractions(node);
+    drawLayer.batchDraw();
+    scheduleAutosave();
+  }
+
+  function cancelPolygonDraft() {
+    if (polygonNode) polygonNode.destroy();
+    polygonNode = null; polygonPoints = null;
+    hidePolygonHud();
+    overlayLayer?.batchDraw();
+  }
+
+  function showPolygonHud() {
+    if (!polygonHud) {
+      polygonHud = document.createElement("div");
+      polygonHud.className = "plot__polygon-hud";
+      const finishBtn = document.createElement("button");
+      finishBtn.type = "button"; finishBtn.className = "btn btn--primary btn--sm";
+      finishBtn.textContent = "✓ Finish";
+      finishBtn.addEventListener("click", finishPolygon);
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button"; cancelBtn.className = "btn btn--ghost btn--sm";
+      cancelBtn.textContent = "✕ Cancel";
+      cancelBtn.addEventListener("click", cancelPolygonDraft);
+      polygonHud.append(finishBtn, cancelBtn);
+      plotHost.parentElement?.appendChild(polygonHud);
+    }
+    polygonHud.hidden = false;
+  }
+
+  function hidePolygonHud() {
+    if (polygonHud) polygonHud.hidden = true;
+  }
+
+  /* --- Callout (leader line + text box, free-angle) --- */
+  function startCallout(pos) {
+    calloutDraft = { tip: pos };
+    calloutGhost = new Konva.Arrow({
+      points: [pos.x, pos.y, pos.x, pos.y],
+      stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2, pointerAtEnding: true, listening: false
+    });
+    overlayLayer.add(calloutGhost);
+  }
+
+  function updateCalloutGhost(pos) {
+    if (!calloutGhost || !calloutDraft) return;
+    calloutGhost.points([calloutDraft.tip.x, calloutDraft.tip.y, pos.x, pos.y]);
+    overlayLayer.batchDraw();
+  }
+
+  function commitCallout(pos) {
+    if (!calloutDraft) return;
+    const tip = calloutDraft.tip;
+    calloutDraft = null;
+    if (calloutGhost) { calloutGhost.destroy(); calloutGhost = null; }
+    overlayLayer.batchDraw();
+    const labelPos = (pos && Math.hypot(pos.x - tip.x, pos.y - tip.y) > 10) ? pos : { x: tip.x + 60, y: tip.y - 40 };
+    const text = window.prompt("Callout text:");
+    if (!text || !text.trim()) return;
+    const group = buildCalloutGroup(tip, labelPos, text.trim());
+    recordUndoPoint();
+    drawLayer.add(group);
+    attachShapeInteractions(group);
+    drawLayer.batchDraw();
+    scheduleAutosave();
+  }
+
+  function buildCalloutGroup(tip, labelPos, text) {
+    const group = new Konva.Group();
+    group.setAttr("kind", "callout");
+    const arrow = new Konva.Arrow({
+      points: [labelPos.x, labelPos.y, tip.x, tip.y],
+      stroke: "#a4111f", fill: "#a4111f", strokeWidth: 1.5,
+      pointerLength: 8, pointerWidth: 8, pointerAtEnding: true
+    });
+    const label = new Konva.Label({ x: labelPos.x, y: labelPos.y });
+    label.add(new Konva.Tag({ fill: "#fff9f2", stroke: "#a4111f", strokeWidth: 1.5, cornerRadius: 4, shadowColor: "#000", shadowOpacity: .15, shadowBlur: 4, shadowOffset: { x: 0, y: 2 } }));
+    label.add(new Konva.Text({ text, fontFamily: "sans-serif", fontSize: 13, padding: 6, fill: "#1e1a14" }));
+    group.add(arrow, label);
+    return group;
+  }
+
+  /* --- Stage-level pointer dispatch --- */
+  function onStagePointerDown() {
+    if (!stageReady) return;
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    if (activeMode === "select" || activeMode === "fill" || activeMode === "erase") return; // handled per-shape
+    if (activeMode === "polygon") { polygonClick(pos); return; }
+    if (activeMode === "freehand" || activeMode === "curve") { startFreehand(activeMode, pos); return; }
+    if (activeMode === "callout") { startCallout(pos); return; }
+    dragOrigin = pos;
+    ghostNode = makeGhost(activeMode, pos);
+    overlayLayer.add(ghostNode);
+  }
+
+  function onStagePointerMove() {
+    if (!stageReady) return;
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    if (dragOrigin && ghostNode) { updateGhost(activeMode, ghostNode, dragOrigin, pos); overlayLayer.batchDraw(); return; }
+    if (freehandNode) { extendFreehand(pos); return; }
+    if (calloutDraft) { updateCalloutGhost(pos); }
+  }
+
+  function onStagePointerUp() {
+    if (!stageReady) return;
+    const pos = stage.getPointerPosition() || dragOrigin;
+    if (dragOrigin && ghostNode) {
+      const shape = commitShape(activeMode, dragOrigin, pos);
+      ghostNode.destroy(); ghostNode = null; dragOrigin = null;
+      overlayLayer.batchDraw();
+      if (shape) {
+        recordUndoPoint();
+        drawLayer.add(shape);
+        attachShapeInteractions(shape);
+        drawLayer.batchDraw();
+        scheduleAutosave();
+      }
+      return;
+    }
+    if (freehandNode) { commitFreehand(); return; }
+    if (calloutDraft) commitCallout(pos);
+  }
+
+  /* --- Clear / parcel rebuild / print export --- */
   function clearPlot() {
-    for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) {
-      if (isOutside(c, r)) continue;
-      cellState[r][c] = null;
-    }
-    $$(".plot__cell", gridEl).forEach(cell => {
-      if (!cell.classList.contains("is-outside")) cell.style.background = "";
-    });
-  }
-
-  function applyPlotState(state) {
-    if (!Array.isArray(state)) return;
-    for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) {
-      const v = state?.[r]?.[c] || null;
-      if (isOutside(c, r)) continue;
-      cellState[r][c] = v;
-      const cell = gridEl.querySelector(`.plot__cell[data-r="${r}"][data-c="${c}"]`);
-      if (cell) cell.style.background = v ? PALETTE_MAP[v]?.color || "" : "";
-    }
-  }
-
-  // Render the grid model to a PNG for the preview/print
-  function renderPlotImage() {
-    const cs = 18, w = gridCols * cs, h = gridRows * cs;
-    const cv = document.createElement("canvas");
-    cv.width = w; cv.height = h;
-    const ctx = cv.getContext("2d");
-    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
-    for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) {
-      if (isOutside(c, r)) continue; // skip outside cells
-      const x = c * cs, y = r * cs;
-      const v = cellState[r][c];
-      if (v) { ctx.fillStyle = PALETTE_MAP[v].color; ctx.fillRect(x, y, cs, cs); }
-    }
-    // grid lines (inside cells only)
-    ctx.strokeStyle = "#e3ddd0"; ctx.lineWidth = 1;
-    for (let c = 0; c <= gridCols; c++) { ctx.beginPath(); ctx.moveTo(c * cs, 0); ctx.lineTo(c * cs, h); ctx.stroke(); }
-    for (let r = 0; r <= gridRows; r++) { ctx.beginPath(); ctx.moveTo(0, r * cs); ctx.lineTo(w, r * cs); ctx.stroke(); }
-    ctx.strokeStyle = "#888"; ctx.strokeRect(.5, .5, w - 1, h - 1);
-    // Parcel outline
-    if (parcelPolygonPx) {
-      const scale = cs / CELL_SIZE;
-      ctx.strokeStyle = "#a4111f"; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
-      ctx.beginPath();
-      parcelPolygonPx.forEach((p, i) => {
-        const px = p.x * scale, py = p.y * scale;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      });
-      ctx.closePath(); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    return cv.toDataURL("image/png");
+    if (!drawLayer || !drawLayer.getChildren().length) return;
+    if (!confirm("Clear your drawn site plan? This can't be undone.")) return;
+    recordUndoPoint();
+    clearSelection();
+    drawLayer.destroyChildren();
+    drawLayer.batchDraw();
+    scheduleAutosave();
   }
 
   function plotUsed() {
-    return cellState.some(row => row.some(v => v));
+    return !!(drawLayer && drawLayer.getChildren().length > 0);
   }
 
   function rebuildGridForParcel(feature, bearing) {
     const ring = feature.geometry.coordinates[0];
     const result = buildParcelGrid(ring, bearing);
+    const parcelChanged = selectedAPN !== lastPlotAPN || bearing !== lastPlotBearing;
+    if (plotUsed() && parcelChanged) {
+      if (!confirm("Changing the parcel or orientation will clear your drawn site plan. Continue?")) return;
+    }
     gridCols = result.cols;
     gridRows = result.rows;
-    parcelMask = result.mask;
     parcelPolygonPx = result.polygonPx;
-    cellState = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
-    buildGrid();
+    scaleFeetPerPixel = (result.metersPerCell * 3.28084) / CELL_SIZE;
+    lastPlotAPN = selectedAPN;
+    lastPlotBearing = bearing;
+    if (!stageReady) initPlotStage();
+    if (stageReady) {
+      stage.width(gridCols * CELL_SIZE);
+      stage.height(gridRows * CELL_SIZE);
+      fitStageToContainer();
+      rebuildBgLayer();
+      clearSelection();
+      drawLayer.destroyChildren();
+      drawLayer.batchDraw();
+      undoStack = []; redoStack = [];
+      updateUndoRedoButtons();
+    }
     updateProgress();
   }
 
-  buildGrid();
+  // Renders the drawing to a PNG for the preview modal / print output. Built on a
+  // throwaway offscreen Stage (never the live one) so Transformer handles / in-progress
+  // ghost shapes — which only ever live on overlayLayer — can't leak into the output.
+  function renderPlotImage() {
+    if (!KONVA_AVAILABLE || !drawLayer) return "";
+    const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+    const exportStage = new Konva.Stage({ container: document.createElement("div"), width: w, height: h });
+    const layer = new Konva.Layer();
+    exportStage.add(layer);
+    layer.add(new Konva.Rect({ x: 0, y: 0, width: w, height: h, fill: "#fff" }));
+    if (parcelPolygonPx && parcelPolygonPx.length) {
+      layer.add(new Konva.Line({
+        points: parcelPolygonPx.flatMap(p => [p.x, p.y]),
+        closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3]
+      }));
+    }
+    const shapes = JSON.parse(drawLayer.toJSON()).children || [];
+    shapes.forEach(obj => {
+      try { layer.add(Konva.Node.create(obj)); } catch (e) { /* skip a shape that fails to reconstruct */ }
+    });
+    layer.draw();
+    const dataUrl = exportStage.toDataURL({ pixelRatio: 2, mimeType: "image/png" });
+    exportStage.destroy();
+    return dataUrl;
+  }
+
   buildPalette();
-  bindGrid();
+  buildToolbar();
+  initPlotStage();
   $("#plot-clear").addEventListener("click", clearPlot);
+  $("#plot-undo").addEventListener("click", undo);
+  $("#plot-redo").addEventListener("click", redo);
+  $("#plot-use-upload")?.addEventListener("click", () => setPlanMode("upload"));
+  updateUndoRedoButtons();
 
   /* ------------------------------------------------------
      MAP REFERENCE (MapLibre GL JS + OpenFreeMap + County Parcels)
@@ -627,8 +920,6 @@
         if (!e.features || !e.features.length) return;
         const apn = e.features[0].properties.APN;
         selectedAPN = apn;
-        // Store full GeoJSON from original data (not simplified render)
-        selectedParcelGeoJSON = parcelsData?.features?.find(f => f.properties.APN === apn) || e.features[0];
         autoAlignedForParcel = false; // (re)selecting a parcel earns a fresh auto-align on next Orient entry
         mapInstance.setFilter("parcel-highlight", ["==", "APN", apn]);
         mapInstance.setFilter("parcel-highlight-line", ["==", "APN", apn]);
@@ -640,12 +931,29 @@
           .setHTML("<strong>Selected parcel</strong><br>APN: " + esc(apn) + "<br><span style='font-size:.8em;color:#666;'>Click Apply to Plot Plan to shape your grid.</span>")
           .addTo(mapInstance);
 
-        // Enable Step 2 Next button (Select → Orient)
-        const step2Next = $("#step2-next");
-        if (step2Next) step2Next.disabled = false;
+        $("#map-status").textContent = "Parcel " + apn + " selected — loading boundary…";
+        $("#map-status").className = "map-reference__status";
 
-        $("#map-status").textContent = "Parcel " + apn + " selected — click Next to orient.";
-        $("#map-status").className = "map-reference__status ok";
+        // Full-precision geometry only ever comes from parcelsData (the raw GeoJSON the app
+        // fetched from the county); e.features[0].geometry is geojson-vt-simplified for
+        // rendering and can meaningfully undercount the parcel's true footprint, which was
+        // shrinking the Draw-step grid — never build the plot grid from it. Re-fetch by APN
+        // when it's missing from parcelsData instead of silently falling back.
+        const cached = parcelsData?.features?.find(f => f.properties.APN === apn);
+        const resolveFeature = cached ? Promise.resolve(cached) : fetchParcelGeometryByAPN(apn);
+        resolveFeature.then(feature => {
+          if (selectedAPN !== apn) return; // a different parcel was selected while this was in flight
+          if (!feature) {
+            $("#map-status").textContent = "Could not load the full parcel boundary for " + apn + ". Try selecting it again.";
+            $("#map-status").className = "map-reference__status err";
+            return;
+          }
+          selectedParcelGeoJSON = feature;
+          const step2Next = $("#step2-next");
+          if (step2Next) step2Next.disabled = false;
+          $("#map-status").textContent = "Parcel " + apn + " selected — click Next to orient.";
+          $("#map-status").className = "map-reference__status ok";
+        });
       });
 
       // Cursor change on parcel hover
@@ -659,7 +967,7 @@
         pendingParcels = null;
       }
 
-      setSatelliteView(true); // satellite is the default view on both the Select and Orient steps
+      applyDefaultViewIfFirstVisit(currentStep);
     });
 
     mapReady = true;
@@ -670,6 +978,26 @@
   let pendingParcels = null; // queued GeoJSON if map isn't loaded yet
   let mapStyleLoaded = false;
   let autoAlignedForParcel = false; // true once auto-align has run for the currently selected parcel
+  let step2ViewInitialized = false; // true once Select has been shown once (locks in its one-time default view)
+  let step3ViewInitialized = false; // true once Orient has been shown once (locks in its one-time default view)
+
+  async function fetchParcelGeometryByAPN(apn) {
+    try {
+      const params = new URLSearchParams({
+        where: "APN='" + apn + "'",
+        outSR: "4326",
+        outFields: "APN",
+        f: "geojson",
+        returnGeometry: "true"
+      });
+      const res = await fetch(PARCEL_URL + "?" + params);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.features?.[0] || null;
+    } catch (e) {
+      return null;
+    }
+  }
 
   async function loadParcels(lng, lat) {
     const bbox = [lng - PARCEL_RADIUS, lat - PARCEL_RADIUS, lng + PARCEL_RADIUS, lat + PARCEL_RADIUS].join(",");
@@ -772,25 +1100,16 @@
       const situs = addrData.features[0].attributes.SITUS_STREET;
 
       // Step 2: Get the parcel polygon for this APN
-      const parcelParams = new URLSearchParams({
-        where: "APN='" + apn + "'",
-        outSR: "4326",
-        outFields: "APN",
-        f: "geojson",
-        returnGeometry: "true"
-      });
-      const parcelRes = await fetch(PARCEL_URL + "?" + parcelParams);
-      if (!parcelRes.ok) throw new Error("Network error");
-      const parcelData = await parcelRes.json();
+      const parcelFeature = await fetchParcelGeometryByAPN(apn);
 
-      if (!parcelData.features || !parcelData.features.length) {
+      if (!parcelFeature) {
         mapStatus.textContent = "Found APN " + apn + " but could not load its parcel geometry.";
         mapStatus.className = "map-reference__status err";
         return;
       }
 
       // Get centroid of the matched parcel
-      const coords = parcelData.features[0].geometry.coordinates[0];
+      const coords = parcelFeature.geometry.coordinates[0];
       const cLng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
       const cLat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
 
@@ -835,18 +1154,27 @@
       if (mapInstance) setTimeout(() => mapInstance.resize(), 50);
     }
 
+    // One-time default imagery per step: street map the first time we ever reach Select,
+    // satellite the first time we ever reach Orient. Later visits leave the user's own
+    // street/satellite toggle choice alone.
+    applyDefaultViewIfFirstVisit(n);
+
     // Entering Orient: dismiss the "Selected parcel" callout
     if (n === 3 && selectedPopup) {
       selectedPopup.remove();
       selectedPopup = null;
     }
 
-    // Step 2→3: zoom to fit the selected parcel, and auto-align the very first time
-    // we reach Orient for this parcel — never touch orientation on the way back.
+    // Step 2→3: zoom to fit the selected parcel, and auto-align the very first time we
+    // reach Orient for this parcel — never touch orientation on the way back. The rotation
+    // is folded into the SAME fitBounds() animation rather than a separate easeTo(): MapLibre
+    // only runs one camera animation at a time, so a standalone rotate easeTo() here gets cut
+    // off the moment fitBounds() starts a beat later, snapping the bearing back to 0.
     if (n === 3 && selectedParcelGeoJSON && mapInstance) {
       const ring = selectedParcelGeoJSON.geometry.coordinates[0];
-      if (!autoAlignedForParcel) {
-        setRotation(computeAutoAlignBearing(ring));
+      const isFirstAutoAlign = !autoAlignedForParcel;
+      if (isFirstAutoAlign) {
+        parcelBearing = ((Math.round(computeAutoAlignBearing(ring)) % 360) + 360) % 360;
         autoAlignedForParcel = true;
       }
       const bounds = ring.reduce(
@@ -855,7 +1183,12 @@
       );
       setTimeout(() => {
         mapInstance.resize();
-        mapInstance.fitBounds(bounds, { padding: 40, duration: 800 });
+        if (isFirstAutoAlign) {
+          const onRotate = () => syncRotationReadout(mapInstance.getBearing());
+          mapInstance.on("rotate", onRotate);
+          mapInstance.once("moveend", () => { mapInstance.off("rotate", onRotate); syncRotationReadout(parcelBearing); });
+        }
+        mapInstance.fitBounds(bounds, { padding: 40, duration: 800, bearing: parcelBearing });
       }, 100);
     }
 
@@ -962,13 +1295,27 @@
   const mapRotate = $("#map-rotate");
   const mapRotateValue = $("#map-rotate-value");
 
-  function setRotation(deg) {
+  function syncRotationReadout(deg) {
+    const d = Math.round(((deg % 360) + 360) % 360);
+    mapRotate.value = d;
+    mapRotate.style.setProperty("--pct", (d / 360 * 100) + "%");
+    mapRotateValue.textContent = d;
+  }
+
+  function setRotation(deg, opts) {
     deg = ((Math.round(deg) % 360) + 360) % 360;
     parcelBearing = deg;
-    mapRotate.value = deg;
-    mapRotate.style.setProperty("--pct", (deg / 360 * 100) + "%");
-    mapRotateValue.textContent = deg;
-    if (mapInstance) mapInstance.setBearing(deg);
+    if (mapInstance && opts && opts.animate) {
+      // Smoothly ease to the target bearing (used for auto-align) instead of snapping,
+      // and keep the slider/readout in sync with the map as it turns.
+      const onRotate = () => syncRotationReadout(mapInstance.getBearing());
+      mapInstance.on("rotate", onRotate);
+      mapInstance.once("moveend", () => mapInstance.off("rotate", onRotate));
+      mapInstance.easeTo({ bearing: deg, duration: 900 });
+    } else {
+      if (mapInstance) mapInstance.setBearing(deg);
+      syncRotationReadout(deg);
+    }
   }
 
   mapRotate.addEventListener("input", () => setRotation(parseInt(mapRotate.value, 10)));
@@ -977,7 +1324,7 @@
   $("#rotate-reset").addEventListener("click", () => setRotation(0));
   $("#rotate-auto").addEventListener("click", () => {
     if (!selectedParcelGeoJSON) return;
-    setRotation(computeAutoAlignBearing(selectedParcelGeoJSON.geometry.coordinates[0]));
+    setRotation(computeAutoAlignBearing(selectedParcelGeoJSON.geometry.coordinates[0]), { animate: true });
   });
 
   // Street/satellite imagery toggle — lets the user spot the roofline/driveway to judge orientation
@@ -993,6 +1340,20 @@
   }
   $("#view-street").addEventListener("click", () => setSatelliteView(false));
   $("#view-satellite").addEventListener("click", () => setSatelliteView(true));
+
+  // One-time-per-step default imagery (see showStep and the map "load" handler for call
+  // sites — both are needed since the map may finish loading before or after the step
+  // transition that first requests it).
+  function applyDefaultViewIfFirstVisit(step) {
+    if (!mapStyleLoaded) return;
+    if (step === 2 && !step2ViewInitialized) {
+      step2ViewInitialized = true;
+      setSatelliteView(false);
+    } else if (step === 3 && !step3ViewInitialized) {
+      step3ViewInitialized = true;
+      setSatelliteView(true);
+    }
+  }
 
   /* ------------------------------------------------------
      NEIGHBORS
@@ -1308,7 +1669,7 @@
       ackDate: $("#ack-date").value,
       ownerAckSignature: sigPads.ownerAckSignature.toDataURL(),
       planMode: planMode,
-      plot: cellState,
+      plot: { version: 2, shapes: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || [] },
       plotMeta: {
         cols: gridCols, rows: gridRows,
         apn: selectedAPN, bearing: parcelBearing,
@@ -1354,11 +1715,19 @@
   }
 
   function restoreDraft() {
-    let raw;
+    let raw, migratedFromLegacy = false;
     try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) { return false; }
-    if (!raw) return false;
+    if (!raw) {
+      // No .v3 draft yet — fall back to a pre-Konva .v2 draft once. Every field except the
+      // plot drawing itself carries over losslessly; the drawing can't be vectorized from the
+      // old cell-grid format, so it's left empty with a one-time notice instead of guessed at.
+      try { raw = localStorage.getItem(LEGACY_DRAFT_KEY); } catch (e) { raw = null; }
+      if (!raw) return false;
+      migratedFromLegacy = true;
+    }
     let d;
     try { d = JSON.parse(raw); } catch (e) { return false; }
+    if (migratedFromLegacy) d.plot = null; // old cellState array — not convertible, don't try
     $("#owner-name").value = d.ownerName || "";
     $("#property-address").value = d.propertyAddress || "";
     $("#owner-phone").value = d.ownerPhone || "";
@@ -1390,7 +1759,11 @@
       // Restore rotation panel
       setRotation(parcelBearing);
     }
-    applyPlotState(d.plot);
+    if (d.plot && Array.isArray(d.plot.shapes) && drawLayer) {
+      hydrateShapesInto(drawLayer, d.plot.shapes);
+      drawLayer.batchDraw();
+      undoStack = []; redoStack = []; updateUndoRedoButtons();
+    }
     if (d.planMode) setPlanMode(d.planMode);
     // photos questionnaire + prior attachments
     if (d.photoAreas) {
@@ -1414,6 +1787,11 @@
         }
       });
     }
+    if (migratedFromLegacy) {
+      const notice = $("#plot-migration-notice");
+      if (notice) notice.hidden = false;
+      saveDraft(true); // persist the migrated fields under the new key so this only runs once
+    }
     setTimeout(updateProgress, 200);
     status("Draft restored from your last session.", "ok");
     return true;
@@ -1425,9 +1803,13 @@
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
     location.reload();
   });
-  // autosave
+  // autosave — also called directly from the Konva drawing tools' commit handlers,
+  // since canvas gestures never fire the native "input" event this was originally
+  // built around (form.addEventListener("input", ...) alone would silently miss
+  // every shape drawn/edited/erased on the plot).
   let saveTimer;
-  form.addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveDraft(true), 1200); });
+  function scheduleAutosave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveDraft(true), 1200); }
+  form.addEventListener("input", scheduleAutosave);
 
   /* ------------------------------------------------------
      VALIDATION + STATUS
