@@ -12,17 +12,17 @@ Distilled from a full-project critique (2026-07-02): architecture, robustness, a
 - [x] Rewrite `README.md` (~10 lines): live branch is `master`, feature list still describes the pre-map-wizard plot painter. Remove the need for CLAUDE.md's "distrust the README" disclaimer.
 - [x] Move `416603fe-...pdf` to `docs/source-form.pdf` (nothing in the code references it; update the mention in CLAUDE.md).
 
-## Sprint 1 — Packet assembly & the submission ending (highest impact)
+## Sprint 1 — Packet assembly & the submission ending (highest impact) ✅ 2026-07-02
 
 The submit bar's primary-styled "Email to Committee" opens an *empty* email; the successful path (Preview → Save as PDF → find file → reopen email → manually attach PDF + photos + neighbor form) is ~8 steps across 3 apps that the UI never states, and `validate()` doesn't require a plot, photos, or the neighbor form even though the copy threatens auto-denial for incomplete packets.
 
-- [ ] **Packet review screen** — a final "Your packet" step/panel listing every artifact with live ✓/✗ status: form PDF, plot plan (drawn `plotUsed()` or uploaded `#plot-upload`), each requested photo by name, signed neighbor form (`#neighbor-form-file`), sketches. `collect()` already knows all of it.
-- [ ] **Guided two-step finish** — "1. Save your PDF → 2. Open pre-addressed email," replacing three coequal buttons. Sequence matters: PDF must exist before the email opens.
-- [ ] **Soft-gate submission** — "Email to Committee" warns with a list of missing packet items and allows explicit override; don't hard-block.
-- [ ] **Attachment manifest in the mailto body** — enumerate exactly which files to attach (from `collect()`'s filename data) so applicant and reviewer can both verify completeness.
-- [ ] **Derive Section 06 from app state** — the self-attestation checkboxes duplicate what the app knows (photos attached? plot drawn/uploaded? neighbor form present?). Auto-check or cross-check with warnings; turn the section into a live completeness dashboard.
-- [ ] Move "Download data (JSON)" out of the primary submit bar (tuck into sidenav or remove).
-- [ ] Fix inconsistency: preview-modal `#do-email` skips `validate()`; the submit-bar `#email-btn` doesn't.
+- [x] **Packet review screen** — new Section 08 "Review & Submit" (`#packet`) with a live "Your packet" list: form PDF, plot plan (drawn `plotUsed()` or uploaded `#plot-upload`), each requested photo by name, signed neighbor form (`#neighbor-form-file`), sketches.
+- [x] **Guided two-step finish** — "1. Save your PDF → 2. Open pre-addressed email," replacing the three coequal submit-bar buttons (submit bar removed).
+- [x] **Soft-gate submission** — the email flow opens `#packet-gate-modal` listing missing packet items, with an explicit "Open the email anyway" override; not hard-blocked.
+- [x] **Attachment manifest in the mailto body** — `openMailto()` enumerates every file to attach (plus a "still outstanding" list when overridden).
+- [x] **Derive Section 06 from app state** — plot/photos/neighbor-form rows are now live status rows (`.reqstat`), auto-derived; only sketches + fee remain manual checkboxes. `collect()` derives `req_plot`/`req_photos`/`req_neighbors` from real state.
+- [x] Move "Download data (JSON)" out of the primary submit bar → "Export JSON" in the sidenav actions.
+- [x] Fix inconsistency: `#do-email` and `#email-btn` now share one `startEmailFlow()` that always validates.
 
 ## Sprint 2 — Workflow temporality & friction
 

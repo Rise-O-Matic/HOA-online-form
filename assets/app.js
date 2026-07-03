@@ -2005,6 +2005,7 @@
     // (Use inline display, not [hidden], because .plot-steps-nav__dot sets display:flex.)
     buildOnlyDots.forEach(d => { d.style.display = isUpload ? "none" : ""; });
     $("#step1-next").hidden = mode !== "build";
+    refreshPacketUI(); // switching build/upload changes what the packet expects
   }
 
   function startBuilder() {
@@ -2426,11 +2427,226 @@
     const pct = Math.round((done / total) * 100);
     $("#progress-fill").style.width = pct + "%";
     $("#progress-text").textContent = pct + "% complete";
+    refreshPacketUI();
   }
   form.addEventListener("input", updateProgress);
   form.addEventListener("change", updateProgress);
   // also refresh after signing
   ["pointerup"].forEach(ev => document.addEventListener(ev, () => setTimeout(updateProgress, 50)));
+
+  /* ------------------------------------------------------
+     PACKET STATUS
+     One source of truth for "what's in the packet": the plot
+     plan, every requested photo, the signed neighbor form, and
+     the sketches attestation. Feeds the Section 06 live rows,
+     the Review & Submit packet list, the email soft-gate, and
+     the mailto attachment manifest.
+  ------------------------------------------------------ */
+  let pdfSaved = false; // flips once the print/save-PDF view is opened this session
+
+  function plotProvided() {
+    const names = plotUploadInput.files ? Array.from(plotUploadInput.files).map(f => f.name) : [];
+    if (planMode === "upload") return { mode: "upload", ok: names.length > 0, names };
+    return { mode: "build", ok: plotUsed(), names: [] };
+  }
+
+  // Every photo the questionnaire currently requests, with the attached filename (or null)
+  function photoChecklist() {
+    const rows = [];
+    selectedPhotoAreas().forEach(area => {
+      const spec = PHOTO_SPECS[area];
+      if (spec) spec.shots.forEach(s => rows.push({ id: s.id, title: spec.label + " — " + s.title }));
+    });
+    if (selectedPhotoMaterial() === "yes") rows.push({ id: PHOTO_MATERIAL.id, title: PHOTO_MATERIAL.title });
+    rows.forEach(r => {
+      const input = $(`[data-photo-input="${r.id}"]`, photoRequestsEl);
+      r.file = (input && input.files && input.files.length) ? input.files[0].name : null;
+    });
+    return rows;
+  }
+
+  function neighborFormFiles() {
+    return neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : [];
+  }
+
+  function sketchesConfirmed() {
+    const c = $("#submissions [name=req_sketches]");
+    return !!(c && c.checked);
+  }
+
+  // Human-readable list of what's still missing, for the soft-gate modal and
+  // the mailto manifest. includePdf: whether the not-yet-saved form PDF counts
+  // (the gate cares; the email body lists the PDF in the attach checklist anyway).
+  function packetMissingList(includePdf) {
+    const missing = [];
+    if (includePdf && !pdfSaved) missing.push("The application form PDF — save it in Step 1 first");
+    const plot = plotProvided();
+    if (!plot.ok) missing.push(plot.mode === "upload"
+      ? "Plot plan file (upload chosen, but nothing attached in Section 02)"
+      : "Plot plan (nothing drawn yet in Section 02)");
+    const photos = photoChecklist();
+    if (!photos.length) missing.push("Property photos — the questionnaire in Section 05 hasn't been answered");
+    else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
+    if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 04)");
+    if (!sketchesConfirmed()) missing.push("Sketches, dimensions & material examples (confirm in Section 06)");
+    return missing;
+  }
+
+  /* ----- packet list rendering (Review & Submit card) ----- */
+  const packetListEl = $("#packet-list");
+
+  function packetItemNode(item) {
+    const li = document.createElement("li");
+    li.className = "packet-item" + (item.ok ? " is-ok" : "");
+    const icon = document.createElement("span");
+    icon.className = "packet-item__icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = item.ok ? "✓" : "✗";
+    li.appendChild(icon);
+    const body = document.createElement("div");
+    body.className = "packet-item__body";
+    const label = document.createElement("strong");
+    label.textContent = item.label;
+    body.appendChild(label);
+    if (item.note) {
+      const note = document.createElement("span");
+      note.className = "packet-item__note";
+      note.textContent = item.note;
+      body.appendChild(note);
+    }
+    if (item.subs) {
+      const ul = document.createElement("ul");
+      ul.className = "packet-sublist";
+      item.subs.forEach(s => {
+        const sli = document.createElement("li");
+        sli.className = "packet-sub" + (s.ok ? " is-ok" : "");
+        const si = document.createElement("span");
+        si.className = "packet-sub__icon";
+        si.setAttribute("aria-hidden", "true");
+        si.textContent = s.ok ? "✓" : "✗";
+        sli.appendChild(si);
+        const st = document.createElement("span");
+        st.textContent = s.label + (s.note ? " — " + s.note : "");
+        sli.appendChild(st);
+        ul.appendChild(sli);
+      });
+      body.appendChild(ul);
+    }
+    li.appendChild(body);
+    if (item.href && !item.ok) {
+      const a = document.createElement("a");
+      a.className = "packet-item__link";
+      a.href = item.href;
+      a.textContent = "Open section";
+      li.appendChild(a);
+    }
+    return li;
+  }
+
+  function renderPacket() {
+    if (!packetListEl) return;
+    const plot = plotProvided();
+    const photos = photoChecklist();
+    const nf = neighborFormFiles();
+    const items = [];
+    items.push({
+      label: "Application form (PDF)",
+      ok: pdfSaved,
+      note: pdfSaved
+        ? "Saved this session — attach the PDF file to your email."
+        : "Not saved yet — Step 1 below creates it."
+    });
+    if (plot.mode === "upload") {
+      items.push({
+        label: "Plot plan (uploaded)",
+        ok: plot.ok,
+        note: plot.ok
+          ? plot.names.join(", ") + " — attach this file to your email."
+          : "Upload chosen, but no file attached yet.",
+        href: "#siteplan"
+      });
+    } else {
+      items.push({
+        label: "Plot plan (drawn)",
+        ok: plot.ok,
+        note: plot.ok
+          ? "Included automatically in the form PDF — nothing extra to attach."
+          : "Nothing drawn yet.",
+        href: "#siteplan"
+      });
+    }
+    if (!photos.length) {
+      items.push({
+        label: "Property photos",
+        ok: false,
+        note: "Answer the questionnaire in Section 05 to see which photos are needed.",
+        href: "#photos-section"
+      });
+    } else {
+      const attached = photos.filter(p => p.file).length;
+      items.push({
+        label: `Property photos — ${attached} of ${photos.length} attached`,
+        ok: attached === photos.length,
+        note: "Attach each photo file to your email.",
+        href: "#photos-section",
+        subs: photos.map(p => ({ label: p.title, ok: !!p.file, note: p.file }))
+      });
+    }
+    items.push({
+      label: "Signed neighbor signature form",
+      ok: nf.length > 0,
+      note: nf.length
+        ? nf.join(", ") + " — attach to your email."
+        : "Print it in Section 04, collect signatures, then attach the scan.",
+      href: "#neighbors"
+    });
+    items.push({
+      label: "Sketches, dimensions & materials",
+      ok: sketchesConfirmed(),
+      note: sketchesConfirmed()
+        ? "Confirmed — attach your files to the email."
+        : "Gather your files, then confirm in Section 06.",
+      href: "#submissions"
+    });
+    packetListEl.textContent = "";
+    items.forEach(item => packetListEl.appendChild(packetItemNode(item)));
+  }
+
+  /* ----- Section 06 live rows ----- */
+  function setReqRow(key, ok, note) {
+    const row = $(`.reqstat[data-req="${key}"]`);
+    if (!row) return;
+    row.classList.toggle("is-ok", ok);
+    const noteEl = $("[data-req-note]", row);
+    if (noteEl) noteEl.textContent = note;
+  }
+
+  function refreshRequirementRows() {
+    const plot = plotProvided();
+    setReqRow("plot", plot.ok, plot.mode === "upload"
+      ? (plot.ok ? "Uploaded: " + plot.names.join(", ") : "Upload chosen — no file attached yet.")
+      : (plot.ok ? "Drawn with the plot tool — included in your application PDF." : "Not provided yet — build or upload it in Section 02."));
+    const photos = photoChecklist();
+    setReqRow("photos",
+      photos.length > 0 && photos.every(p => p.file),
+      photos.length
+        ? `${photos.filter(p => p.file).length} of ${photos.length} requested photos attached.`
+        : "Answer the questionnaire in Section 05 to see which photos are needed.");
+    const nf = neighborFormFiles();
+    setReqRow("neighbors", nf.length > 0,
+      nf.length ? "Signed form attached: " + nf.join(", ") : "Not attached yet.");
+  }
+
+  function refreshFinishSteps() {
+    const s1 = $("#finish-step-1");
+    if (s1) s1.classList.toggle("is-done", pdfSaved);
+  }
+
+  function refreshPacketUI() {
+    renderPacket();
+    refreshRequirementRows();
+    refreshFinishSteps();
+  }
 
   /* ------------------------------------------------------
      COLLECT DATA
@@ -2475,6 +2691,12 @@
       }
     });
     $$("#submissions input[type=checkbox]").forEach(c => data.submissions[c.name] = c.checked);
+    // req_plot / req_photos / req_neighbors are derived from real app state,
+    // not self-attestation checkboxes (those rows are live status in Section 06).
+    data.submissions.req_plot = plotProvided().ok;
+    const reqPhotos = photoChecklist();
+    data.submissions.req_photos = reqPhotos.length > 0 && reqPhotos.every(p => p.file);
+    data.submissions.req_neighbors = neighborFormFiles().length > 0;
     $$(".neighbor").forEach(node => {
       const idx = node.dataset.neighbor;
       data.neighbors.push({
@@ -2679,6 +2901,17 @@
     return firstBad;
   }
 
+  // Validate and, on failure, paint the status line and scroll to the first bad
+  // field. Shared by the preview, save-PDF, and email paths so they can't drift.
+  function validateOrFocus() {
+    const bad = validate();
+    if (!bad) return true;
+    status("Please complete the highlighted required fields and signatures.", "err");
+    bad.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (bad.focus) bad.focus({ preventScroll: true });
+    return false;
+  }
+
   // Clear inline errors on input
   form.addEventListener("input", e => {
     if (e.target.matches("[required]")) clearFieldError(e.target);
@@ -2718,8 +2951,10 @@
   }
 
   function buildPreview(d) {
+    // Submission items are derived/attested state, not checkboxes — "missing" reads better than "not checked"
+    const subYn = b => b ? '<span class="yes">✓ Included</span>' : '<span class="no">— missing</span>';
     const subs = Object.entries(SUB_LABELS).map(([k, label]) =>
-      `<li>${esc(label)} — ${yn(d.submissions[k])}</li>`).join("");
+      `<li>${esc(label)} — ${subYn(d.submissions[k])}</li>`).join("");
     const acks = ACKS.map((_, i) => {
       const k = "ack_" + (i + 1);
       return `<li>Item ${i + 1} — ${yn(d.acks[k])}</li>`;
@@ -2888,17 +3123,15 @@
   function openModal() { modal.hidden = false; document.body.style.overflow = "hidden"; }
   function closeModal() { modal.hidden = true; document.body.style.overflow = ""; }
   $$("[data-close]", modal).forEach(el => el.addEventListener("click", closeModal));
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    if (!gateModal.hidden) closeGateModal();
+    else if (!modal.hidden) closeModal();
+  });
 
   form.addEventListener("submit", e => {
     e.preventDefault();
-    const bad = validate();
-    if (bad) {
-      status("Please complete the highlighted required fields and signatures.", "err");
-      bad.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (bad.focus) bad.focus({ preventScroll: true });
-      return;
-    }
+    if (!validateOrFocus()) return;
     status("");
     const d = collect();
     saveDraft(true);
@@ -2910,6 +3143,10 @@
   function printPreview() {
     const d = collect();
     const html = buildPrintHTML(d);
+    // The finish flow treats "opened the print/save view" as Step 1 done —
+    // we can't observe whether the user actually saved the PDF from here.
+    pdfSaved = true;
+    refreshPacketUI();
     const w = window.open("", "_blank");
     if (!w) { window.print(); return; }
     w.document.write(`<!DOCTYPE html><html><head><title>Fairway Canyon HOA — ARC Application</title>
@@ -2952,6 +3189,14 @@
   }
 
   $("#do-print").addEventListener("click", () => printPreview());
+
+  // Finish Step 1 — validate, then open the print/save-PDF view directly
+  $("#finish-pdf-btn")?.addEventListener("click", () => {
+    if (!validateOrFocus()) return;
+    saveDraft(true);
+    printPreview();
+    status("Print view opened — choose “Save as PDF” and note where the file is saved.", "ok");
+  });
 
   /* ----- ADJACENT-OWNER SIGNATURE FORM (physical, print → sign → re-attach) ----- */
   function buildNeighborFormHTML(d) {
@@ -3042,40 +3287,78 @@
     const subject = encodeURIComponent(
       "ARC Application \u2013 " + (d.ownerName || "Applicant") + " \u2013 " + (d.propertyAddress || "")
     );
-    const body = encodeURIComponent(
-      "Please find the attached Architectural Review Committee Application.\r\n\r\n" +
+    // Attachment manifest \u2014 enumerate exactly which files belong on this email,
+    // so both the applicant and the reviewer can verify the packet is complete.
+    const plot = plotProvided();
+    const photos = photoChecklist();
+    const nf = neighborFormFiles();
+    const attach = [
+      "ARC application form PDF (saved from the online form" +
+      (plot.mode !== "upload" && plot.ok ? "; includes the drawn plot plan" : "") + ")"
+    ];
+    if (plot.mode === "upload" && plot.names.length) attach.push("Plot plan: " + plot.names.join(", "));
+    photos.filter(p => p.file).forEach(p => attach.push("Photo \u2014 " + p.title + ": " + p.file));
+    if (nf.length) attach.push("Signed neighbor signature form: " + nf.join(", "));
+    if (sketchesConfirmed()) attach.push("Sketches, dimensions & material examples for the proposed change");
+    const missing = packetMissingList(false);
+    let bodyText =
+      "Please find attached my Architectural Review Committee application packet.\r\n\r\n" +
       "Applicant: " + d.ownerName + "\r\n" +
       "Property: " + d.propertyAddress + "\r\n" +
       "Phone: " + d.ownerPhone + "\r\n" +
       "Email: " + d.ownerEmail + "\r\n\r\n" +
-      "\u2014 Submitted via Fairway Canyon HOA Online Form"
-    );
-    window.location.href = "mailto:" + EMAIL_TO + "?subject=" + subject + "&body=" + body;
+      "Attachment checklist \u2014 each of these should be attached to this email:\r\n" +
+      attach.map((a, i) => "  " + (i + 1) + ". " + a).join("\r\n") + "\r\n";
+    if (missing.length) {
+      bodyText +=
+        "\r\nStill outstanding (to follow separately):\r\n" +
+        missing.map(m => "  - " + m).join("\r\n") + "\r\n";
+    }
+    bodyText += "\r\n\u2014 Submitted via the Fairway Canyon HOA online form";
+    window.location.href = "mailto:" + EMAIL_TO + "?subject=" + subject + "&body=" + encodeURIComponent(bodyText);
   }
 
-  // Email button in the submit bar — validates, opens mailto (no print dialog)
-  $("#email-btn").addEventListener("click", () => {
-    const bad = validate();
-    if (bad) {
-      status("Please complete the highlighted required fields and signatures.", "err");
-      bad.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (bad.focus) bad.focus({ preventScroll: true });
-      return;
-    }
+  /* ----- soft-gate: warn about missing packet items, allow explicit override ----- */
+  const gateModal = $("#packet-gate-modal");
+  const gateMissingEl = $("#gate-missing");
+
+  function openGateModal(missing) {
+    gateMissingEl.textContent = "";
+    missing.forEach(m => {
+      const li = document.createElement("li");
+      li.textContent = m;
+      gateMissingEl.appendChild(li);
+    });
+    gateModal.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+  function closeGateModal() {
+    gateModal.hidden = true;
+    document.body.style.overflow = "";
+  }
+  $$("[data-close]", gateModal).forEach(el => el.addEventListener("click", closeGateModal));
+
+  // Shared email flow — both email buttons validate (they used to disagree),
+  // then soft-gate on packet completeness before opening the mailto.
+  function startEmailFlow() {
+    if (!modal.hidden) closeModal();
+    if (!validateOrFocus()) return;
     status("");
+    const missing = packetMissingList(true);
+    if (missing.length) { openGateModal(missing); return; }
+    finishEmail();
+  }
+
+  function finishEmail() {
     const d = collect();
     saveDraft(true);
     openMailto(d);
-    status("A pre-addressed email has been opened. Use Preview & Print to generate a PDF to attach.", "ok");
-  });
+    status("A pre-addressed email has been opened — attach each file in its checklist before sending.", "ok");
+  }
 
-  // Email button inside the preview modal
-  $("#do-email").addEventListener("click", () => {
-    const d = collect();
-    openMailto(d);
-    closeModal();
-    status("A pre-addressed email has been opened. Use Save as PDF to generate an attachment.", "ok");
-  });
+  $("#email-btn").addEventListener("click", startEmailFlow);
+  $("#do-email").addEventListener("click", startEmailFlow);
+  $("#gate-send-anyway").addEventListener("click", () => { closeGateModal(); finishEmail(); });
 
   /* ------------------------------------------------------
      DOWNLOAD JSON

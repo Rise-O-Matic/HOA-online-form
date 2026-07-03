@@ -39,7 +39,7 @@
 
 <!-- mockup notice -->
 <div class="mockup-banner" role="note">
-  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Use <em>Email to Committee</em> to generate a PDF and open a pre-addressed email, or <em>Preview &amp; Print</em> to review first. Your work is saved locally in this browser.
+  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Finish in <em>Review &amp; Submit</em>: save your application as a PDF, then open a pre-addressed email that lists every file to attach. Your work is saved locally in this browser.
 </div>
 
 <!-- ===================== LANDING / BEFORE YOU BEGIN ===================== -->
@@ -112,6 +112,7 @@
         <li><a href="#photos-section">Photos</a></li>
         <li><a href="#submissions">Required Submissions</a></li>
         <li><a href="#acknowledgments">Acknowledgments</a></li>
+        <li><a href="#packet">Review &amp; Submit</a></li>
       </ol>
     </nav>
     <div class="sidenav__progress">
@@ -121,6 +122,7 @@
     <div class="sidenav__actions">
       <button type="button" class="btn btn--ghost btn--sm" id="save-draft">Save draft</button>
       <button type="button" class="btn btn--ghost btn--sm" id="clear-draft">Clear</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="download-json">Export JSON</button>
     </div>
     <a class="sidenav__landing-link" href="#" id="view-landing">&larr; Requirements &amp; dates</a>
   </aside>
@@ -441,12 +443,37 @@
           </div>
         </header>
 
-        <p class="checklist__intro">Confirm each item is included with your packet:</p>
+        <p class="checklist__intro">These update automatically as you work through the form:</p>
+        <ul class="checklist checklist--live">
+          <li class="reqstat" data-req="plot">
+            <span class="reqstat__icon" aria-hidden="true"></span>
+            <div class="reqstat__body">
+              <strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked.
+              <span class="reqstat__note" data-req-note></span>
+            </div>
+            <a class="reqstat__link" href="#siteplan">Section 02</a>
+          </li>
+          <li class="reqstat" data-req="photos">
+            <span class="reqstat__icon" aria-hidden="true"></span>
+            <div class="reqstat__body">
+              <strong>Property photos</strong> — taken and attached following the instructions for each requested shot.
+              <span class="reqstat__note" data-req-note></span>
+            </div>
+            <a class="reqstat__link" href="#photos-section">Section 05</a>
+          </li>
+          <li class="reqstat" data-req="neighbors">
+            <span class="reqstat__icon" aria-hidden="true"></span>
+            <div class="reqstat__body">
+              <strong>Signatures from all impacted neighbors</strong> — print the signature form, collect signatures in person, and attach the signed copy.
+              <span class="reqstat__note" data-req-note></span>
+            </div>
+            <a class="reqstat__link" href="#neighbors">Section 04</a>
+          </li>
+        </ul>
+
+        <p class="checklist__intro checklist__intro--follow">Confirm the rest yourself:</p>
         <ul class="checklist">
-          <li><label><input type="checkbox" name="req_plot" /><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Use a clean, legible, color-coded layout.</span></label></li>
-          <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></label></li>
-          <li><label><input type="checkbox" name="req_photos" /><span><strong>Property photos</strong> — taken and attached in <strong>Section 05</strong>, following the instructions for each one.</span></label></li>
-          <li><label><input type="checkbox" name="req_neighbors" /><span><strong>Signatures from all impacted neighbors</strong> — print the signature form in <strong>Section 04</strong>, collect signatures, and attach the signed copy.</span></label></li>
+          <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications — gather these files now; you&rsquo;ll attach them to your submission email.</span></label></li>
           <li><label><input type="checkbox" name="req_fee" /><span><strong>Application fee</strong> — arranged with CarolMarie Taylor after submission.</span></label></li>
         </ul>
       </section>
@@ -479,15 +506,45 @@
         </div>
       </section>
 
-      <!-- ---------- SUBMIT BAR ---------- -->
-      <div class="submitbar">
-        <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
-        <div class="submitbar__btns">
-          <button type="button" class="btn btn--ghost" id="download-json">Download data (JSON)</button>
-          <button type="submit" class="btn btn--ghost">Preview &amp; Print</button>
-          <button type="button" class="btn btn--primary" id="email-btn">Email to Committee</button>
+      <!-- ---------- REVIEW & SUBMIT ---------- -->
+      <section class="card reveal" id="packet">
+        <header class="card__head">
+          <span class="card__num">08</span>
+          <div>
+            <h2>Review &amp; Submit</h2>
+            <p class="card__sub">Your packet at a glance, then two steps to finish: save the PDF, and email it with your attachments.</p>
+          </div>
+        </header>
+
+        <h3 class="packet__subhead">Your packet</h3>
+        <ul class="packet-list" id="packet-list"></ul>
+
+        <div class="finish-steps">
+          <div class="finish-step" id="finish-step-1">
+            <span class="finish-step__num" aria-hidden="true">1</span>
+            <div class="finish-step__body">
+              <h4 class="finish-step__title">Save your application as a PDF</h4>
+              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved. Your drawn plot plan and signature are included automatically.</p>
+              <div class="finish-step__actions">
+                <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save application PDF</button>
+                <button type="submit" class="btn btn--ghost">Preview first</button>
+              </div>
+            </div>
+          </div>
+          <div class="finish-step" id="finish-step-2">
+            <span class="finish-step__num" aria-hidden="true">2</span>
+            <div class="finish-step__body">
+              <h4 class="finish-step__title">Email your packet to the committee</h4>
+              <p class="finish-step__desc">Opens a pre-addressed email whose body lists every file to attach — the PDF you just saved, your photos, the signed neighbor form, and any plan or sketch files.</p>
+              <div class="finish-step__actions">
+                <button type="button" class="btn btn--primary" id="email-btn">Open pre-addressed email</button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+
+        <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
+      </section>
 
     </form>
 
@@ -521,6 +578,25 @@
       <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
       <button type="button" class="btn btn--ghost" id="do-print">Save as PDF</button>
       <button type="button" class="btn btn--primary" id="do-email">Email to Committee</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ===================== PACKET GATE MODAL (soft-gate before email) ===================== -->
+<div class="modal" id="packet-gate-modal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__panel modal__panel--sm" role="dialog" aria-modal="true" aria-labelledby="gate-title">
+    <header class="modal__head">
+      <h2 id="gate-title">Your packet looks incomplete</h2>
+      <button type="button" class="modal__x" data-close aria-label="Close">&times;</button>
+    </header>
+    <div class="modal__scroll">
+      <p class="gate-lead">An incomplete application is returned and <strong>automatically denied</strong>, and the 45-day review period doesn&rsquo;t start until everything is received. These items are still missing:</p>
+      <ul class="gate-missing" id="gate-missing"></ul>
+    </div>
+    <footer class="modal__foot">
+      <button type="button" class="btn btn--ghost" data-close>Keep working</button>
+      <button type="button" class="btn btn--primary" id="gate-send-anyway">Open the email anyway</button>
     </footer>
   </div>
 </div>
