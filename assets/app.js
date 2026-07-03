@@ -8,6 +8,7 @@
   const $  = (s, c = document) => c.querySelector(s);
   const $$ = (s, c = document) => Array.from(c.querySelectorAll(s));
   const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
+  const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
   const LEGACY_DRAFT_KEYS = ["fairwayCanyonArcDraft.v3", "fairwayCanyonArcDraft.v2"]; // pre-grid-painter formats — read once for a one-time non-destructive migration (all non-plot fields carry over; the drawing itself is left to be redrawn)
 
   /* ------------------------------------------------------
@@ -1678,9 +1679,11 @@
           if (!feature) {
             $("#map-status").textContent = "Could not load the full parcel boundary for " + apn + ". Try selecting it again.";
             $("#map-status").className = "map-reference__status err";
+            showGisFallback();
             return;
           }
           selectedParcelGeoJSON = feature;
+          hideGisFallback(); // a retry after a failed attempt succeeded — clear the outage notice
           // Auto-align disabled — orientation is now a manual drag-to-rotate. The nearest-street
           // lookup that fed the front-yard-down flip is commented out (kept for easy revival).
           // const ring = feature.geometry?.coordinates?.[0];
@@ -1732,6 +1735,20 @@
   let step2ViewInitialized = false; // true once Select has been shown once (locks in its one-time default view)
   let step3ViewInitialized = false; // true once Orient has been shown once (locks in its one-time default view)
 
+  // County-GIS failure story: every ArcGIS request goes through a bounded fetch (a dead
+  // endpoint would otherwise hang the wizard on the browser's multi-minute default), and
+  // hard failures surface #gis-fallback-msg — a friendly notice with a route to the
+  // upload path — instead of leaving the user stuck at "Looking up address…".
+  const GIS_TIMEOUT_MS = 10000;
+  function gisFetch(url) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), GIS_TIMEOUT_MS);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+  }
+  const gisFallbackEl = $("#gis-fallback-msg");
+  function showGisFallback() { if (gisFallbackEl) gisFallbackEl.hidden = false; }
+  function hideGisFallback() { if (gisFallbackEl) gisFallbackEl.hidden = true; }
+
   async function fetchParcelGeometryByAPN(apn) {
     try {
       const params = new URLSearchParams({
@@ -1741,7 +1758,7 @@
         f: "geojson",
         returnGeometry: "true"
       });
-      const res = await fetch(PARCEL_URL + "?" + params);
+      const res = await gisFetch(PARCEL_URL + "?" + params);
       if (!res.ok) return null;
       const data = await res.json();
       return data.features?.[0] || null;
@@ -1763,7 +1780,7 @@
       returnGeometry: "true"
     });
     try {
-      const res = await fetch(PARCEL_URL + "?" + params);
+      const res = await gisFetch(PARCEL_URL + "?" + params);
       if (!res.ok) return;
       const geojson = await res.json();
       if (!geojson.features) return;
@@ -1780,7 +1797,7 @@
             returnGeometry: "false",
             resultRecordCount: "2000"
           });
-          const addrRes = await fetch(ASSESSOR_TABLE_URL + "?" + addrParams);
+          const addrRes = await gisFetch(ASSESSOR_TABLE_URL + "?" + addrParams);
           if (addrRes.ok) {
             const addrData = await addrRes.json();
             const addrMap = {};
@@ -1806,6 +1823,7 @@
       const s = $("#map-status");
       s.textContent = "Could not load parcel boundaries. Check your connection and try again.";
       s.className = "map-reference__status err";
+      showGisFallback();
     }
   }
 
@@ -1820,6 +1838,7 @@
     const mapStatus = $("#map-status");
     mapStatus.textContent = "Looking up address\u2026";
     mapStatus.className = "map-reference__status";
+    hideGisFallback(); // fresh attempt \u2014 don't leave a stale outage notice up
 
     const parsed = parseAddress(address);
     if (!parsed) {
@@ -1837,7 +1856,7 @@
         returnGeometry: "false",
         resultRecordCount: "1"
       });
-      const addrRes = await fetch(ASSESSOR_TABLE_URL + "?" + addrParams);
+      const addrRes = await gisFetch(ASSESSOR_TABLE_URL + "?" + addrParams);
       if (!addrRes.ok) throw new Error("Network error");
       const addrData = await addrRes.json();
 
@@ -1854,8 +1873,10 @@
       const parcelFeature = await fetchParcelGeometryByAPN(apn);
 
       if (!parcelFeature) {
+        // The assessor answered but the parcel layer didn't — endpoint down or changed.
         mapStatus.textContent = "Found APN " + apn + " but could not load its parcel geometry.";
         mapStatus.className = "map-reference__status err";
+        showGisFallback();
         return;
       }
 
@@ -1873,6 +1894,7 @@
     } catch (err) {
       mapStatus.textContent = "Could not reach Riverside County records. Check your connection.";
       mapStatus.className = "map-reference__status err";
+      showGisFallback();
     }
   }
 
@@ -2029,6 +2051,16 @@
   }
 
   function startBuilder() {
+    if (typeof maplibregl === "undefined") {
+      // The vendored MapLibre script failed to load (or was blocked) — the builder can't
+      // run at all, so route straight to the upload path like [data-switch-upload] does.
+      setPlanMode("upload");
+      planChoiceMsg.textContent = "The map tools failed to load, so the plan builder isn't available. Attach a plan file below instead — or reload the page to try the builder again.";
+      planChoiceMsg.className = "plot-choice-msg err";
+      planUploadPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+      plotUploadInput.focus({ preventScroll: true });
+      return;
+    }
     const addressEl = $("#property-address");
     const address = addressEl.value.trim();
     if (!address) {
@@ -2712,7 +2744,7 @@
       ownerAckSignature: sigPads.ownerAckSignature.toDataURL(),
       planMode: planMode,
       plot: {
-        version: 3,
+        version: PLOT_VERSION,
         cell: CELL_SIZE,
         cols: gridCols, rows: gridRows,
         cells: cellState ? [...cellState] : [],
@@ -2758,14 +2790,31 @@
   /* ------------------------------------------------------
      DRAFT PERSISTENCE
   ------------------------------------------------------ */
+  const saveWarningEl = $("#save-warning");
   function saveDraft(silent) {
     const d = collect();
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+      // A prior failure may have been transient (quota freed, permission granted) —
+      // clear the persistent warning the moment a save goes through again.
+      if (saveWarningEl) saveWarningEl.hidden = true;
       if (!silent) status("Draft saved in this browser.", "ok");
     } catch (e) {
+      // Signature PNGs + the plot grid can push a draft toward the ~5 MB localStorage
+      // quota. Autosave calls this silently, so without the sidenav warning a failure
+      // here would mean quietly losing everything typed since the last good save.
+      if (saveWarningEl) saveWarningEl.hidden = false;
       if (!silent) status("Could not save draft (storage full or blocked).", "err");
     }
+  }
+
+  // Remove the current draft AND the legacy-format drafts — leaving the legacy keys
+  // behind would let restoreDraft()'s one-time migration resurrect a stale draft on
+  // the next load after the user explicitly deleted their data.
+  function deleteDraft() {
+    [DRAFT_KEY, ...LEGACY_DRAFT_KEYS].forEach(key => {
+      try { localStorage.removeItem(key); } catch (e) {}
+    });
   }
 
   function restoreDraft() {
@@ -2816,7 +2865,7 @@
       // Restore rotation panel
       setRotation(parcelBearing);
     }
-    if (!migratedFromLegacy && d.plot && d.plot.version === 3 && stageReady) {
+    if (!migratedFromLegacy && d.plot && d.plot.version >= 3 && d.plot.version <= PLOT_VERSION && stageReady) {
       loadCells(d.plot.cells);
       gridLayer.batchDraw();
       if (Array.isArray(d.plot.annotations)) {
@@ -2861,7 +2910,14 @@
   $("#save-draft").addEventListener("click", () => saveDraft(false));
   $("#clear-draft").addEventListener("click", () => {
     if (!confirm("Clear all fields and delete the saved draft?")) return;
-    try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+    deleteDraft();
+    location.reload();
+  });
+  // Post-submission cleanup — same action, offered in context once the email step has
+  // run (the draft holds PII including the signature image; see finishEmail()).
+  $("#post-submit-clear")?.addEventListener("click", () => {
+    if (!confirm("Delete the saved application draft (including your signature) from this browser?")) return;
+    deleteDraft();
     location.reload();
   });
   // autosave — also called directly from the Konva drawing tools' commit handlers,
@@ -3400,6 +3456,12 @@
     const d = collect();
     saveDraft(true);
     openMailto(d);
+    // The draft (PII incl. the signature image) has served its purpose once the email
+    // is sent — surface the delete offer here, in context, rather than nagging earlier.
+    // Not automatic: we can't observe whether the mail was actually sent, and the user
+    // may still need the draft to revise and resubmit.
+    const cleanup = $("#post-submit-cleanup");
+    if (cleanup) cleanup.hidden = false;
     status("A pre-addressed email has been opened — attach each file in its checklist before sending.", "ok");
   }
 

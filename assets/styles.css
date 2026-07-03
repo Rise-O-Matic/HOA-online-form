@@ -246,6 +246,18 @@ address { font-style: normal; }
   font-variant-numeric: tabular-nums;
 }
 .sidenav__actions { display: flex; gap: .4rem; padding: 0 .65rem; flex-wrap: wrap; }
+/* Persistent autosave-failure indicator (quota exceeded / storage blocked) */
+.sidenav__save-warning {
+  margin: .8rem .65rem 0;
+  padding: .6rem .75rem;
+  font-size: .78rem;
+  line-height: 1.5;
+  color: var(--crimson);
+  background: rgba(164,17,31,.06);
+  border: 1px solid rgba(164,17,31,.3);
+  border-radius: var(--radius-sm);
+}
+.sidenav__save-warning strong { display: block; }
 .sidenav__landing-link {
   display: inline-block; margin: .8rem .65rem 0;
   font-size: .78rem; color: var(--ink-faint); text-decoration: none;
@@ -1117,6 +1129,18 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .finish-step__title { margin: 0 0 .3rem; font-size: 1rem; font-family: var(--font-disp); }
 .finish-step__desc { margin: 0 0 .8rem; font-size: .86rem; color: var(--ink-soft); }
 .finish-step__actions { display: flex; gap: .8rem; flex-wrap: wrap; }
+
+/* Post-submission draft cleanup (revealed once the email step has run) */
+.post-submit {
+  margin-top: 1.2rem;
+  padding: .9rem 1.1rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius-sm);
+}
+.post-submit h4 { margin: 0 0 .3rem; font-size: .95rem; font-family: var(--font-disp); }
+.post-submit p { margin: 0 0 .7rem; font-size: .84rem; color: var(--ink-soft); }
 
 .form-status { margin: .9rem 0 0; font-size: .86rem; min-height: 1.2em; }
 .form-status.err { color: var(--crimson); font-weight: 600; }

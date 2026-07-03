@@ -36,14 +36,14 @@ The form looks single-sitting but embeds multi-day loops (neighbor wet signature
 - [x] Graceful build→upload bail-out — "Upload an existing plan instead" links on wizard steps 2–4 (and the Konva-failure notice) share one `data-switch-upload` handler: switches to the upload path back on step 1, preserving parcel selection and drawn state for a switch back.
 - [ ] ISSUES #3 — replace the ✓/✗ photo placeholder frames with real comparison images (content task; **needs images from the user** — the one Sprint 2 item left open).
 
-## Sprint 3 — Robustness & external-dependency hardening
+## Sprint 3 — Robustness & external-dependency hardening ✅ 2026-07-03
 
 Five external services, unpinned or unguaranteed, sit under a public form.
 
-- [ ] **Vendor Konva + MapLibre into `assets/vendor/`** (or at minimum pin `konva@10` to an exact version + add SRI hashes). `konva@10` is a floating major tag — production behavior can change without a commit.
-- [ ] **Visible autosave failure** — `saveDraft(true)` swallows quota errors; add a persistent "draft not saving" indicator (signature PNGs + plot state can approach the ~5 MB localStorage quota).
-- [ ] **County GIS failure story** — friendly error + route to the upload path when the Riverside ArcGIS endpoints are down/changed (currently only Konva-load failure has a fallback).
-- [ ] **Draft lifecycle** — offer to clear the draft (PII incl. signature image) after successful submission; reconcile the version drift (`DRAFT_KEY` is v4, `plot.version` is 3).
+- [x] **Vendor Konva + MapLibre into `assets/vendor/`** — exact pinned builds (`konva-10.3.0.min.js`, `maplibre-gl-5.23.0.js/.css`, version in the filename) replace the unpkg tags; the floating `konva@10` major tag is gone. Google Fonts stays on CDN (degrades gracefully to system fonts).
+- [x] **Visible autosave failure** — `saveDraft()` now toggles a persistent `#save-warning` sidenav indicator on quota/blocked errors (clears on the next successful save), pointing at Export JSON as the backup.
+- [x] **County GIS failure story** — all ArcGIS requests go through `gisFetch()` (10s `AbortController` timeout); hard failures surface `#gis-fallback-msg` in wizard step 2 with a route to the upload path; `startBuilder()` also guards against MapLibre itself failing to load (routes to upload, mirroring the Konva fallback).
+- [x] **Draft lifecycle** — `finishEmail()` reveals a post-submit cleanup panel (Section 08) offering to delete the saved draft (PII incl. signature image); `deleteDraft()` also removes the legacy `.v3`/`.v2` keys so clearing can't resurrect an old draft via the one-time migration; version drift reconciled (`PLOT_VERSION = 4` in lockstep with `DRAFT_KEY`, restore accepts plot versions 3–4).
 
 ## Sprint 4 — Code health
 

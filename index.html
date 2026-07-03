@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Libre+Franklin:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.css" />
+<link rel="stylesheet" href="assets/vendor/maplibre-gl-5.23.0.css" />
 <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
@@ -124,6 +124,9 @@
       <button type="button" class="btn btn--ghost btn--sm" id="clear-draft">Clear</button>
       <button type="button" class="btn btn--ghost btn--sm" id="download-json">Export JSON</button>
     </div>
+    <p class="sidenav__save-warning" id="save-warning" role="alert" hidden>
+      <strong>Draft not saving.</strong> Browser storage is full or blocked, so recent changes will be lost if you close this page. Use <em>Export JSON</em> above to keep a backup.
+    </p>
     <a class="sidenav__landing-link" href="#" id="view-landing">&larr; Requirements &amp; dates</a>
   </aside>
 
@@ -216,6 +219,10 @@
           <h3 class="plot-step__title">Select Your Parcel</h3>
           <p class="plot-step__desc">Click on your lot to select it. The parcel boundaries are from Riverside County records.</p>
           <span class="map-reference__status" id="map-status"></span>
+          <p class="plot__notice plot__notice--err" id="gis-fallback-msg" hidden>
+            Riverside County's parcel records aren't responding right now, so the builder can't look up your lot. You can try again in a few minutes &mdash; or skip the builder entirely and attach a plan file.
+            <button type="button" class="btn btn--ghost btn--sm" data-switch-upload>Upload a plot plan instead</button>
+          </p>
           <div class="map-reference">
             <div id="map-container">
               <div class="map-reference__placeholder" id="map-placeholder">
@@ -561,6 +568,12 @@
           </div>
         </div>
 
+        <div class="post-submit" id="post-submit-cleanup" hidden>
+          <h4>Sent your email?</h4>
+          <p>This browser still holds a full copy of your application &mdash; including your signature image. Once your packet has been emailed, you can delete the saved draft. (Keep it if you might need to revise and resubmit.)</p>
+          <button type="button" class="btn btn--ghost btn--sm" id="post-submit-clear">Delete my saved draft from this browser</button>
+        </div>
+
         <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
       </section>
 
@@ -619,8 +632,11 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/konva@10/konva.min.js"></script>
+<!-- Vendored libraries (exact pinned versions — see ROADMAP Sprint 3). To upgrade:
+     download the new dist file into assets/vendor/ with the version in the filename,
+     update these tags, and commit both together. -->
+<script src="assets/vendor/maplibre-gl-5.23.0.js"></script>
+<script src="assets/vendor/konva-10.3.0.min.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>
