@@ -45,13 +45,13 @@ Five external services, unpinned or unguaranteed, sit under a public form.
 - [x] **County GIS failure story** — all ArcGIS requests go through `gisFetch()` (10s `AbortController` timeout); hard failures surface `#gis-fallback-msg` in wizard step 2 with a route to the upload path; `startBuilder()` also guards against MapLibre itself failing to load (routes to upload, mirroring the Konva fallback).
 - [x] **Draft lifecycle** — `finishEmail()` reveals a post-submit cleanup panel (Section 08) offering to delete the saved draft (PII incl. signature image); `deleteDraft()` also removes the legacy `.v3`/`.v2` keys so clearing can't resurrect an old draft via the one-time migration; version drift reconciled (`PLOT_VERSION = 4` in lockstep with `DRAFT_KEY`, restore accepts plot versions 3–4).
 
-## Sprint 4 — Code health
+## Sprint 4 — Code health ✅ 2026-07-03
 
-`app.js` is a 3,100-line IIFE mixing ~1,400 lines of computational geometry with form plumbing; zero tests over the riskiest code.
+`app.js` was a 3,100-line IIFE mixing ~1,400 lines of computational geometry with form plumbing; zero tests over the riskiest code.
 
-- [ ] **Extract pure geometry + unit tests** — `floodFill` helpers, `segmentsIntersect`, `connectorBlocked`, `buildParcelGrid`, `fitSimilarity`, `computeAutoAlignBearing` are deterministic and pure; test with `node:test` (Node already required for `tools/fetch-streets.mjs`). This is the cheapest insurance against silent geometry regressions that `node --check` can't catch.
-- [ ] **ES-module split** — `<script type="module">` works on GitHub Pages with no build step. Target: geometry / plot editor / map wizard / form+persistence. Do this *after* tests exist, not before.
-- [ ] Update CLAUDE.md architecture section to match the new file layout (part of the sprint, not an afterthought).
+- [x] **Extract pure geometry + unit tests** — `assets/geometry.js` (ES module) now holds the projection/fill core (`buildParcelGrid`, `fitSimilarity`, `computeAutoAlignBearing` — road dir is a parameter now — `segmentsIntersect`, `connectorBlocked`, `computeFloodFill`, …) with 29 `node:test` cases in `tests/geometry.test.js` (`node --test`). Dead `pointInPolygon` deleted. Minimal `package.json` (`"type":"module"` only) added for Node tooling.
+- [x] **ES-module split** — `utils.js` / `geometry.js` / `plot-editor.js` / `map-wizard.js` / `app.js` (entry: form+persistence), loaded natively; no build step. Found & fixed along the way: restore never re-set `selectedParcelGeoJSON`, so the first post-restore autosave dropped `parcelCoords` and the grid failed to rebuild on the *next* reload.
+- [x] Update CLAUDE.md architecture section to match the new file layout (module map, cycle rules, test command).
 
 ## Sprint 5 — Accessibility & mobile
 

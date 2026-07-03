@@ -5,12 +5,14 @@ the printed PDF as a web form for GitHub Pages. **There is no backend** — draf
 to `localStorage`, "submitting" opens a printable preview or a pre-addressed `mailto:`,
 and data can be exported as JSON.
 
-Plain HTML/CSS/JS in three files (`index.html`, `assets/styles.css`, `assets/app.js`) —
-no build step, no npm dependencies. Maps come from MapLibre GL + Riverside County GIS;
-the plot-plan drawing surface is Konva.js (both loaded from CDNs).
+Plain HTML/CSS/JS — no build step, no npm dependencies. Behavior is native ES modules
+under `assets/` (entry `app.js`; pure geometry in `geometry.js` is unit-tested with
+`node --test`). Maps come from MapLibre GL + Riverside County GIS; the plot-plan drawing
+surface is Konva.js (both vendored as pinned builds in `assets/vendor/`).
 
 - **Run locally:** `python -m http.server 8000`, then visit `http://localhost:8000`
-  (a real http origin is required — county GIS calls and map tiles don't work over `file://`).
+  (a real http origin is required — ES modules, county GIS calls and map tiles don't work over `file://`).
+- **Tests:** `node --test`
 - **Deploy:** GitHub Pages serves the repo root from the **`master`** branch.
 - **Docs:** `CLAUDE.md` covers architecture and gotchas; `ROADMAP.md` is the plan of record.
 
