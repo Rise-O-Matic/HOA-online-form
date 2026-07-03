@@ -52,7 +52,7 @@ const ICON = {
 // (replaces the old wall-of-text intro paragraph). Edit the copy here, not the DOM.
 const TOOL_MODES = [
   { id: "paint",    label: "Paint",    icon: ICON.paint,
-    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; set the brush width above. Right-click erases from any tool." },
+    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; the brush width control is here in this bar. Right-click erases from any tool." },
   { id: "rect",     label: "Rectangle", icon: ICON.rect,
     hint: "Drag diagonally to fill a solid block with the selected material." },
   { id: "erase",    label: "Erase",    icon: ICON.erase,
@@ -189,6 +189,20 @@ function initPlotStage() {
   applyStageSize();
   fitView();
   window.addEventListener("resize", onViewportResize);
+  // Keyboard undo/redo while the Draw step is on screen: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or
+  // Ctrl/Cmd+Y. Never while typing (inputs/textareas keep the browser's own text undo —
+  // e.g. editing callout text), and only when the plot host is actually rendered
+  // (offsetParent is null whenever the landing gate or another wizard step hides it).
+  window.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k !== "z" && k !== "y") return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (!plotHost || plotHost.offsetParent === null) return;
+    e.preventDefault();
+    if (k === "y" || e.shiftKey) redo(); else undo();
+  });
 }
 
 /* --- Middle-mouse / hand-tool panning (adjusts native scroll) --- */
@@ -578,6 +592,8 @@ function buildPalette() {
   });
 }
 
+// Icon-only buttons for the vertical tool rail beside the canvas — the tool's NAME is
+// carried by title/aria-label here and led into the status-strip hint by updateToolHint().
 function buildToolbar() {
   const pal = $("#tool-palette");
   TOOL_MODES.forEach(t => {
@@ -585,8 +601,10 @@ function buildToolbar() {
     b.type = "button";
     b.dataset.mode = t.id;
     if (t.id === activeMode) b.classList.add("is-active");
-    b.innerHTML = (t.icon || "") + '<span>' + t.label + '</span>';
+    b.innerHTML = t.icon || "";
     b.title = t.label;
+    b.setAttribute("aria-label", t.label);
+    b.setAttribute("aria-pressed", t.id === activeMode ? "true" : "false");
     b.addEventListener("click", () => setActiveMode(t.id));
     pal.appendChild(b);
   });
@@ -614,7 +632,14 @@ function setActiveMode(mode) {
   if (mode !== "select") clearSelection();
   activeMode = mode;
   updateToolHint(mode);
-  $$("#tool-palette button").forEach(x => x.classList.toggle("is-active", x.dataset.mode === mode));
+  $$("#tool-palette button").forEach(x => {
+    const on = x.dataset.mode === mode;
+    x.classList.toggle("is-active", on);
+    x.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  // The brush width control lives in the status strip and only applies to Paint.
+  const brushControl = $("#brush-control");
+  if (brushControl) brushControl.hidden = mode !== "paint";
   // Annotations intercept pointer events in Erase (click removes) and Select (click/drag to
   // move) modes, and are draggable only in Select; otherwise they're inert so a paint stroke
   // passes straight through to the grid underneath.
@@ -708,6 +733,7 @@ function undo() {
   redoStack.push(snapshotState());
   applyHistorySnapshot(undoStack.pop());
   updateUndoRedoButtons();
+  updateProgress(); // keyboard undo fires no pointerup, so the packet/Done UI needs this
   scheduleAutosave();
 }
 
@@ -716,6 +742,7 @@ function redo() {
   undoStack.push(snapshotState());
   applyHistorySnapshot(redoStack.pop());
   updateUndoRedoButtons();
+  updateProgress();
   scheduleAutosave();
 }
 
@@ -1029,10 +1056,28 @@ function onStagePointerUp() {
   if (calloutDraft) commitCallout(contentPos());
 }
 
+/* --- Explicit completion: the Draw step's "Done — use this plan" flag ---
+   Completion is DECLARED, not inferred from a first stroke: build-mode plotProvided()
+   (app.js) is plotUsed() && isPlotConfirmed(). Cleared by Clear plan and by a real
+   parcel/orientation rebuild; deliberately KEPT across further edits — adding detail
+   to a finished plan shouldn't un-complete it. Persisted through serializePlot()/
+   restorePlot() (additive to the .v4 draft). */
+let plotConfirmedFlag = false;
+
+export function isPlotConfirmed() { return plotConfirmedFlag; }
+
+export function setPlotConfirmed(v) {
+  v = !!v;
+  if (v === plotConfirmedFlag) return;
+  plotConfirmedFlag = v;
+  updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, Section 06 row, packet list
+  scheduleAutosave();
+}
+
 /* --- Clear / parcel rebuild / print export --- */
 function clearPlot() {
   if (!plotUsed()) return;
-  if (!confirm("Clear your drawn site plan? This can't be undone.")) return;
+  if (!confirm("Clear your drawn site plan? (You can bring it back with Undo.)")) return;
   recordUndoPoint();
   clearSelection();
   cellState = new Map();
@@ -1040,6 +1085,7 @@ function clearPlot() {
   gridLayer.batchDraw();
   drawLayer.destroyChildren();
   drawLayer.batchDraw();
+  setPlotConfirmed(false);
   scheduleAutosave();
 }
 
@@ -1080,6 +1126,7 @@ export function rebuildGridForParcel(feature, bearing, apn) {
     fitView();
     undoStack = []; redoStack = [];
     updateUndoRedoButtons();
+    setPlotConfirmed(false); // the plan was wiped with the parcel/orientation change
   }
   updateProgress();
 }
@@ -1165,7 +1212,8 @@ export function serializePlot() {
     cell: CELL_SIZE,
     cols: gridCols, rows: gridRows,
     cells: cellState ? [...cellState] : [],
-    annotations: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || []
+    annotations: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || [],
+    confirmed: plotConfirmedFlag
   };
 }
 
@@ -1181,4 +1229,5 @@ export function restorePlot(plot) {
   }
   undoStack = []; redoStack = [];
   updateUndoRedoButtons();
+  setPlotConfirmed(!!plot.confirmed); // restoreDraft's rebuildGridForParcel just cleared it
 }

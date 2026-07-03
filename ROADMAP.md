@@ -59,20 +59,20 @@ Five external services, unpinned or unguaranteed, sit under a public form.
 - [x] **Touch/mobile pass** — map drag-to-rotate converted to pointer events (works with a finger; step 3 forces `touch-action:none` on the map canvas); the plot stage gained two-finger pinch-zoom/pan (a second finger cancels an in-progress draw and rolls back the half stroke via its undo point); `pointer: coarse` CSS bumps tool/zoom/rotate buttons to fingertip size. Sidenav already collapsed at ≤900px (unchanged).
 - [x] Keyboard access review — Orient step is now a focus stop (arrow keys rotate 1°, Shift 15°, aria-live readout). Documented as inherently pointer-only: parcel selection (map click) and freehand drawing; the upload path is the complete keyboard route (native controls end-to-end), every builder step carries a focusable "upload instead" bail-out, and the typed signature removed the last pointer-only *required* interaction. See CLAUDE.md "Keyboard access".
 
-## Sprint 6 — Draw-step UX: explicit completion + compact layout
+## Sprint 6 — Draw-step UX: explicit completion + compact layout ✅ 2026-07-03
 
 From the 2026-07-03 Draw-step UI/UX review. Two problems: `plotUsed()` marks the plan "provided" after a single stroke (completion is inferred, never declared — and step 4 is the wizard's only dead end, with no forward CTA), and five stacked control rows (~250px: intro, 10 material chips, 9 tool chips, brush+zoom, hint) push the canvas below the fold while materials and tools share one undifferentiated pill style.
 
-- [ ] **"Done — use this plan" button** — primary CTA at the bottom of step 4, restoring the wizard's Next-button rhythm. Sets a new `plotConfirmed` flag persisted in the draft (additive to `.v4`, same pattern as `ownerSigMethod`); cleared by Clear plan and by a parcel/orientation rebuild, *kept* across further edits (adding detail shouldn't un-complete the plan). Build-mode `plotProvided()` becomes `plotUsed() && plotConfirmed`; the Section 06 row and soft gate gain a third state ("In progress — mark it finished in Section 02"); the progress meter counts the plot only when confirmed. Done also flips the Draw dot to `is-done` and scrolls on to Section 03.
-- [ ] **Tool rail** — tools become an icon-only vertical rail docked to the canvas's left edge (the 17px SVGs already exist in `ICON`); Undo/Redo join the rail; the active tool's *name* leads the hint strip so labels aren't lost. Rail flips to a horizontal strip on narrow viewports; keep `pointer: coarse` fingertip sizing.
-- [ ] **Materials = the one palette** — a single swatch-first chip row above the canvas; kills the two-identical-palettes soup.
-- [ ] **Zoom overlay** — the − / % / + / Fit group moves onto the canvas as a corner overlay, MapLibre-control style, consistent with the step-2 map.
-- [ ] **One status strip** — merge `#tool-hint` and the `.hotkey-bar` into a single strip docked directly under the canvas (hint text left, mouse glyphs right).
-- [ ] **Contextual brush control** — brush width appears only while Paint is active (in the status strip), removing the standing `.plot__controls` row.
-- [ ] **Scale badge** — persistent `1 □ = 1 ft` badge in a canvas corner; the intro paragraph shrinks to one line.
-- [ ] **Breadcrumb-only back-nav** — delete the "Back to orientation" button (redundant: the step dots already navigate back, map-wizard.js `data-goto` guard) and stop parking navigation next to the destructive Clear plan.
-- [ ] **Keyboard undo** — Ctrl+Z / Ctrl+Shift+Z (+ Ctrl+Y) while step 4 is active; must not fire while typing in an input/textarea (callout text editing).
-- [ ] Fix `clearPlot()` confirm copy — it says "This can't be undone" but `recordUndoPoint()` runs first, so Clear *is* undoable via Undo. Say so instead.
+- [x] **"Done — use this plan" button** — primary CTA at the bottom of step 4, restoring the wizard's Next-button rhythm. Sets a new `plotConfirmed` flag persisted in the draft (in `plot.confirmed`, additive to `.v4`); cleared by Clear plan and by a parcel/orientation rebuild, *kept* across further edits (adding detail shouldn't un-complete the plan). Build-mode `plotProvided()` is now `plotUsed() && isPlotConfirmed()`; the Section 06 row, packet list, and soft gate gained a third state ("In progress — mark it finished in Section 02", amber `.is-partial` row); the progress meter counts the plot only when confirmed. Done flips the Draw dot to `is-done` (survives `showStep()` re-renders) and scrolls on to Section 03.
+- [x] **Tool rail** — icon-only vertical rail (`.tool-rail`) docked to the canvas's left edge; Undo/Redo joined it (new SVGs in index.html); the active tool's *name* leads the hint strip. Rail flips horizontal ≤640px; `pointer: coarse` bumps buttons to 2.75rem.
+- [x] **Materials = the one palette** — `#palette` is the single chip row above the canvas.
+- [x] **Zoom overlay** — + / − / Fit / % as a top-right canvas overlay, MapLibre-control style.
+- [x] **One status strip** — `.plot-status` (dark, hotkey-bar treatment) docked under the canvas: `#tool-hint` left, mouse glyphs right.
+- [x] **Contextual brush control** — `#brush-control` lives in the status strip, shown only while Paint is active; the `.plot__controls` row is gone.
+- [x] **Scale badge** — persistent "1 square = 1 ft" badge, bottom-left canvas corner; intro paragraph is one line.
+- [x] **Breadcrumb-only back-nav** — "Back to orientation" deleted; step 4 ends in a Clear plan (left) / Done (right) nav bar.
+- [x] **Keyboard undo** — Ctrl/Cmd+Z / Ctrl+Shift+Z / Ctrl+Y whenever the plot host is rendered; skipped while typing in inputs/textareas.
+- [x] `clearPlot()` confirm copy now says Clear can be brought back with Undo.
 
 ## Sprint 7 — Draw-step content: stamps, legend, custom materials
 

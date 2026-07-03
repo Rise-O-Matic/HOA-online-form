@@ -11,7 +11,7 @@ import {
   FOOT_IN_METERS, GRID_MARGIN, GRID_MIN_PAD, MAX_GRID_DIM
 } from "./geometry.js";
 import { $, $$, esc } from "./utils.js";
-import { rebuildGridForParcel, setPlotBackdrop } from "./plot-editor.js";
+import { rebuildGridForParcel, setPlotBackdrop, plotUsed, isPlotConfirmed, setPlotConfirmed } from "./plot-editor.js";
 // Function-only imports from the entry module (a deliberate ESM cycle — see the
 // note in plot-editor.js: call at event time only).
 import { setFieldError, refreshPacketUI } from "./app.js";
@@ -656,7 +656,9 @@ function showStep(n) {
   stepDots.forEach(dot => {
     const s = +dot.dataset.goto;
     dot.classList.toggle("is-active", s === n);
-    dot.classList.toggle("is-done", s < n);
+    // The Draw dot (s=4) is never "behind" the current step — its done-state is the
+    // explicit "Done — use this plan" confirmation, which navigating must not wipe.
+    dot.classList.toggle("is-done", s < n || (s === 4 && isPlotConfirmed()));
   });
 
   // Move the map container into the current step's .map-reference (steps 2-3 share it)
@@ -870,6 +872,15 @@ $("#step2-next").addEventListener("click", () => showStep(3));
 
 // Step 3 Next — Orient → Draw (always enabled, triggers grid rebuild)
 $("#step3-next").addEventListener("click", () => showStep(4));
+
+// Step 4 Done — the builder's terminal CTA, restoring the wizard's Next-button rhythm:
+// declare the plan finished (build-mode plotProvided() requires it), then move on to
+// Section 03. setPlotConfirmed itself refreshes the button/dot/packet UI and autosaves.
+$("#plot-done").addEventListener("click", () => {
+  if (!plotUsed()) return; // disabled anyway while nothing is drawn
+  setPlotConfirmed(true);
+  $("#description")?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 // Rotation panel — slider + quick-adjust buttons, all drive parcelBearing
 const mapRotate = $("#map-rotate");

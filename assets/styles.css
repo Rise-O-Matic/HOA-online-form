@@ -463,6 +463,11 @@ input[type="file"] { padding: .55rem; background: var(--paper); cursor: pointer;
   font-size: .88rem;
 }
 .reqstat.is-ok { background: #f1f5ef; border-color: #c5d8bd; }
+/* Third state: started but not finished (e.g. plot drawn, not yet marked Done) */
+.reqstat.is-partial { background: #faf6ec; border-color: #e3d3ae; }
+.reqstat.is-partial .reqstat__icon { color: #a97a1d; }
+.reqstat.is-partial .reqstat__icon::before { content: "…"; }
+.reqstat.is-partial .reqstat__note { color: #8a6516; }
 .reqstat__icon { flex-shrink: 0; width: 1.2rem; text-align: center; font-weight: 700; color: var(--crimson); }
 .reqstat__icon::before { content: "✗"; }
 .reqstat.is-ok .reqstat__icon { color: var(--green); }
@@ -542,9 +547,10 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .callout__body li { margin-bottom: .3rem; }
 
 /* ===================== SITE PLAN ===================== */
+/* Materials — the ONE chip row above the canvas (tools live in the rail beside it) */
 .palette {
   display: flex; flex-wrap: wrap; gap: .45rem;
-  margin-bottom: 1.1rem;
+  margin-bottom: .7rem;
 }
 .palette button {
   display: inline-flex; align-items: center; gap: .5rem;
@@ -568,29 +574,54 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid rgba(0,0,0,.18);
   flex-shrink: 0;
 }
-/* Tool buttons carry an icon + label */
-#tool-palette button svg { flex-shrink: 0; display: block; }
-#tool-palette button.is-active svg { color: var(--crimson); }
 
-.plot__stage { position: relative; padding: 1.1rem 0; }
-.plot__edge {
-  position: absolute; left: 0; right: 0;
-  text-align: center;
-  font-family: var(--font-disp); font-weight: 600;
-  letter-spacing: .18em; text-transform: uppercase;
-  font-size: .72rem; color: var(--ink-faint);
+/* Rail + canvas column, centered as a block */
+.plot__surface {
+  display: flex; align-items: flex-start; gap: .55rem;
+  justify-content: center;
 }
-.plot__edge--top { top: 0; }
-.plot__edge--bottom { bottom: 0; }
-/* Scrollable viewport onto the to-scale grid — the stage is sized to content × zoom and the
-   host scrolls it (native scrollbars + middle-mouse / hand-tool panning). */
-.plot__grid-wrap { position: relative; padding-bottom: .3rem; }
-.plot__konva-host {
-  /* Square viewport to match the square grid — never wider than the column, taller than the
-     screen, or past a sane cap; centered when the column is wider than the square. */
+/* Icon-only tool rail docked to the canvas's left edge; Undo/Redo ride along below a rule */
+.tool-rail { display: flex; flex-direction: column; gap: .3rem; flex: none; }
+.tool-rail__group { display: flex; flex-direction: column; gap: .3rem; }
+.tool-rail__rule { width: 100%; border: 0; border-top: 1px solid var(--line-2); margin: .15rem 0; }
+.tool-rail button {
+  display: grid; place-items: center;
+  width: 2.4rem; height: 2.4rem;
+  border: 1px solid var(--line-2); border-radius: 8px;
+  background: #fff; color: var(--ink-soft); cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, color .15s;
+}
+.tool-rail button svg { display: block; }
+.tool-rail button:hover { border-color: var(--ink-faint); }
+.tool-rail button.is-active {
+  border-color: var(--ink); color: var(--crimson);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.tool-rail button:disabled { opacity: .35; cursor: default; }
+.tool-rail button:disabled:hover { border-color: var(--line-2); }
+/* Narrow viewports: the rail flips to a horizontal strip above the canvas */
+@media (max-width: 640px) {
+  .plot__surface { flex-direction: column; align-items: stretch; }
+  .tool-rail { flex-direction: row; flex-wrap: wrap; }
+  .tool-rail__group { flex-direction: row; flex-wrap: wrap; }
+  .tool-rail__rule { width: auto; align-self: stretch; border-top: 0; border-left: 1px solid var(--line-2); margin: 0 .15rem; }
+  .plot__stagecol { align-self: center; } /* landscape phones: 70vh can undercut the column width */
+}
+
+/* Canvas column: square viewport matching the square grid — never wider than the column,
+   taller than the screen, or past a sane cap; shrinks beside the rail (min-width 0). */
+.plot__stagecol {
+  flex: 0 1 auto;
   width: min(100%, 70vh, 640px);
+  min-width: 0;
+}
+/* Scrollable viewport onto the to-scale grid — the stage is sized to content × zoom and the
+   host scrolls it (native scrollbars + middle-mouse / hand-tool panning). The wrap is exactly
+   the canvas's box, so corner overlays (zoom, scale badge, loading) anchor to the canvas. */
+.plot__grid-wrap { position: relative; }
+.plot__konva-host {
+  width: 100%;
   aspect-ratio: 1 / 1;
-  margin: 0 auto;
   overflow: auto;
   border: 1px solid var(--ink-faint);
   background: #fbfaf7;
@@ -600,35 +631,82 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   overscroll-behavior: contain;
   isolation: isolate; /* scope the paint layer's mix-blend-mode:multiply to the stage's own canvases */
 }
-/* Brush width + zoom controls above the drawing surface */
-.plot__controls {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 1rem;
-  margin-bottom: .8rem;
+/* Orientation labels ride ON the canvas (white halo so they read over the aerial) */
+.plot__edge {
+  position: absolute; left: 0; right: 0; z-index: 5;
+  text-align: center; pointer-events: none;
+  font-family: var(--font-disp); font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase;
+  font-size: .68rem; color: var(--ink-soft);
+  text-shadow: 0 0 4px #fff, 0 0 3px #fff, 0 0 2px #fff;
 }
-.plot__brush {
-  display: inline-flex; align-items: center; gap: .5rem;
-  font-family: var(--font-ui); font-size: .8rem; font-weight: 500; color: var(--ink-soft);
+.plot__edge--top { top: .35rem; }
+.plot__edge--bottom { bottom: .35rem; }
+/* Zoom controls as a canvas-corner overlay, MapLibre-control style (matches the step-2 map) */
+.plot__zoom {
+  position: absolute; top: .55rem; right: .55rem; z-index: 6;
+  display: flex; flex-direction: column; align-items: stretch;
+  background: rgba(255,255,255,.94);
+  border: 1px solid var(--line-2); border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(30,26,20,.18);
+  overflow: hidden;
 }
-.plot__brush input[type=range] { width: 8rem; }
-.plot__brush-val { min-width: 3ch; font-variant-numeric: tabular-nums; color: var(--ink); }
-.plot__zoom { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
-.plot__zoom .btn { min-width: 2rem; font-weight: 700; }
+.plot__zoom button {
+  display: grid; place-items: center;
+  width: 2.1rem; height: 2.1rem;
+  border: 0; border-bottom: 1px solid var(--line-2);
+  background: transparent; color: var(--ink); cursor: pointer;
+  font-family: var(--font-ui); font-size: 1rem; font-weight: 700; line-height: 1;
+}
+.plot__zoom button:hover { background: var(--paper-2); }
+.plot__zoom .plot__zoom-fit { font-size: .68rem; letter-spacing: .04em; }
 .plot__zoom-level {
-  min-width: 3.5ch; text-align: center;
-  font-family: var(--font-ui); font-size: .8rem; font-variant-numeric: tabular-nums; color: var(--ink);
+  display: block; padding: .25rem 0; text-align: center;
+  font-family: var(--font-ui); font-size: .66rem; font-variant-numeric: tabular-nums; color: var(--ink-faint);
 }
-.plot__tools {
-  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
-  margin-top: 1rem;
+/* Persistent scale badge, opposite corner from the zoom overlay */
+.plot__scale-badge {
+  position: absolute; left: .55rem; bottom: .55rem; z-index: 6;
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .26rem .6rem;
+  background: rgba(255,255,255,.92);
+  border: 1px solid var(--line-2); border-radius: 999px;
+  font-family: var(--font-ui); font-size: .68rem; font-weight: 600; color: var(--ink-soft);
+  pointer-events: none;
 }
-/* Contextual one-line tip for the selected drawing tool, shown just above the canvas */
-.plot__hint {
-  margin: 0 0 .7rem;
-  font-size: .82rem;
-  color: var(--ink-soft);
-  min-height: 1.3em; /* reserve the line so the canvas doesn't jump when the hint changes */
+.plot__scale-square {
+  width: .6rem; height: .6rem; flex: none;
+  border: 1.5px solid var(--ink-soft);
+  background: rgba(124,179,66,.35);
 }
-.plot__hint strong { color: var(--ink); }
+
+/* One status strip docked under the canvas: tool hint left, contextual brush control,
+   mouse glyphs right (same dark treatment as the step-2/3 .hotkey-bar). */
+.plot-status {
+  --hk-hi: #cf9c4c;
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: .4rem 1.1rem;
+  margin-top: .55rem; padding: .5rem .9rem;
+  background: var(--ink);
+  color: rgba(247,244,238,.88);
+  border-radius: var(--radius-sm);
+  font-size: .76rem; letter-spacing: .01em;
+}
+.plot-status__hint { flex: 1 1 15rem; margin: 0; min-height: 1.2em; }
+.plot-status__hint strong { color: #fff; }
+.plot-status__brush {
+  display: inline-flex; align-items: center; gap: .45rem;
+  font-weight: 600; white-space: nowrap;
+}
+.plot-status__brush[hidden] { display: none; } /* author display beats [hidden] otherwise */
+.plot-status__brush input[type=range] { width: 6.5rem; accent-color: #cf9c4c; }
+.plot-status__brush-val { min-width: 3.5ch; font-variant-numeric: tabular-nums; color: #fff; }
+.plot-status__keys {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: .4rem .9rem;
+}
+.plot-status__keys li { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
+.plot-status__keys svg { flex: none; display: block; }
 .plot__notice {
   margin: 0 0 .9rem;
   padding: .65rem .9rem;
@@ -687,6 +765,13 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 /* "Bail out to the upload path" footnote at the bottom of each builder step */
 .plot-step__bail { margin: .8rem 0 0; font-size: .8rem; color: var(--ink-faint); }
+/* The Draw step's "Done — use this plan" CTA flips green once the plan is confirmed
+   (it stays pressable — edits keep the confirmation, re-pressing is a harmless no-op) */
+#plot-done.is-confirmed {
+  background: var(--green);
+  box-shadow: 0 8px 20px -8px rgba(47,93,74,.6);
+}
+#plot-done.is-confirmed:hover { background: var(--green); }
 .linklike {
   background: none; border: none; padding: 0;
   font: inherit; color: var(--crimson);
@@ -939,13 +1024,8 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 @media (prefers-reduced-motion: reduce) {
   .map-loading__spinner { animation: none; }
 }
-/* The Draw-step variant mirrors the Konva host's box (centered square) instead of
-   filling .plot__grid-wrap, so the scrim doesn't spill past the canvas edges. */
-.map-loading--plot {
-  inset: auto; top: 0; left: 50%; transform: translateX(-50%);
-  width: min(100%, 70vh, 640px);
-  aspect-ratio: 1 / 1;
-}
+/* (The Draw-step instance needs no size overrides: .plot__grid-wrap is exactly the
+   canvas's box, so the base inset:0 already matches the canvas edges.) */
 
 /* Rotation panel */
 .rotate-panel {
@@ -1432,8 +1512,8 @@ ul.tight li { margin-bottom: .25rem; }
    signature pad. (pointer: coarse ≈ touchscreen phones/tablets.) */
 @media (pointer: coarse) {
   .palette button { padding: .6rem .9rem .6rem .7rem; }
-  .plot__zoom .btn { min-height: 2.75rem; min-width: 2.75rem; }
-  .plot__tools .btn { min-height: 2.75rem; }
+  .tool-rail button { width: 2.75rem; height: 2.75rem; }
+  .plot__zoom button { width: 2.75rem; height: 2.75rem; }
   .plot-steps-nav__dot { padding: .55rem .8rem; }
   .rotate-fine__btn { min-height: 2.75rem; min-width: 3.25rem; }
   .sigpad { height: 190px; }
@@ -1444,5 +1524,5 @@ ul.tight li { margin-bottom: .25rem; }
 @media print {
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
-  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .plot__controls, .plot__tools, .map-reference { display: none !important; }
+  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference { display: none !important; }
 }

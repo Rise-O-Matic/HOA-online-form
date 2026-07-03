@@ -374,49 +374,57 @@
         <!-- STEP 4: Draw your plan -->
         <div class="plot-step" data-step="4">
           <h3 class="plot-step__title">Draw Your Plan</h3>
-          <p class="plot-step__desc">The grid is drawn to scale — <strong>one square = one square foot</strong>. Pick a material and a drawing tool below; a tip for the selected tool appears just above the canvas.</p>
+          <p class="plot-step__desc">Pick a material and a drawing tool, mark up your lot, then press <strong>Done</strong> below to add the plan to your packet.</p>
           <p class="plot__notice" id="plot-migration-notice" hidden>Your previous site plan drawing needs to be redrawn — the drawing tool was upgraded. Everything else from your saved draft was restored.</p>
           <div class="plot">
             <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
-            <div class="palette" id="tool-palette" role="toolbar" aria-label="Drawing tools"></div>
-            <div class="plot__controls">
-              <label class="plot__brush" for="brush-size">Brush width
-                <input type="range" id="brush-size" min="1" max="20" value="3" step="1" />
-                <span class="plot__brush-val" id="brush-size-val">3 ft</span>
-              </label>
-              <div class="plot__zoom" role="group" aria-label="Zoom">
-                <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-out" aria-label="Zoom out">−</button>
-                <span class="plot__zoom-level" id="plot-zoom-level">100%</span>
-                <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-in" aria-label="Zoom in">+</button>
-                <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-reset" title="Fit the whole lot in view">Fit</button>
-              </div>
-            </div>
-            <p class="plot__hint" id="tool-hint" aria-live="polite"></p>
-            <div class="plot__stage">
-              <span class="plot__edge plot__edge--top">Back Yard</span>
-              <span class="plot__edge plot__edge--bottom">Front Yard</span>
-              <div class="plot__grid-wrap">
-                <div id="plot-konva-host" class="plot__konva-host" aria-label="Site plan drawing canvas"></div>
-                <div class="map-loading map-loading--plot" id="plot-aerial-loading" aria-hidden="true">
-                  <span class="map-loading__pill"><span class="map-loading__spinner"></span>Loading aerial imagery&hellip;</span>
+            <div class="plot__surface">
+              <div class="tool-rail">
+                <div class="tool-rail__group" id="tool-palette" role="toolbar" aria-label="Drawing tools"></div>
+                <hr class="tool-rail__rule" />
+                <div class="tool-rail__group" role="group" aria-label="History">
+                  <button type="button" id="plot-undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5 4 9l4.5 4.5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H9"/></svg></button>
+                  <button type="button" id="plot-redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15.5 4.5 4.5 4.5-4.5 4.5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H15"/></svg></button>
                 </div>
               </div>
-              <p class="plot__notice plot__notice--err" id="plot-fallback-msg" hidden>
-                Drawing tools couldn't load.
-                <button type="button" class="btn btn--ghost btn--sm" id="plot-use-upload" data-switch-upload>Upload a plot plan instead</button>
-              </p>
+              <div class="plot__stagecol">
+                <div class="plot__grid-wrap">
+                  <span class="plot__edge plot__edge--top">Back Yard</span>
+                  <span class="plot__edge plot__edge--bottom">Front Yard</span>
+                  <div id="plot-konva-host" class="plot__konva-host" aria-label="Site plan drawing canvas"></div>
+                  <div class="plot__zoom" role="group" aria-label="Zoom">
+                    <button type="button" id="plot-zoom-in" aria-label="Zoom in">+</button>
+                    <button type="button" id="plot-zoom-out" aria-label="Zoom out">−</button>
+                    <button type="button" id="plot-zoom-reset" class="plot__zoom-fit" title="Fit the whole lot in view">Fit</button>
+                    <span class="plot__zoom-level" id="plot-zoom-level">100%</span>
+                  </div>
+                  <span class="plot__scale-badge"><span class="plot__scale-square" aria-hidden="true"></span>1 square = 1 ft</span>
+                  <div class="map-loading" id="plot-aerial-loading" aria-hidden="true">
+                    <span class="map-loading__pill"><span class="map-loading__spinner"></span>Loading aerial imagery&hellip;</span>
+                  </div>
+                </div>
+                <div class="plot-status">
+                  <p class="plot-status__hint" id="tool-hint" aria-live="polite"></p>
+                  <label class="plot-status__brush" id="brush-control" for="brush-size" hidden>Brush
+                    <input type="range" id="brush-size" min="1" max="20" value="3" step="1" />
+                    <span class="plot-status__brush-val" id="brush-size-val">3 ft</span>
+                  </label>
+                  <ul class="plot-status__keys" aria-label="Mouse controls">
+                    <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Tool</span></li>
+                    <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-right" /></svg><span>Erase</span></li>
+                    <li><svg width="21" height="19" aria-hidden="true"><use href="#hk-mouse-scroll" /></svg><span>Zoom</span></li>
+                    <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-mid" /></svg><span>Hold to pan</span></li>
+                  </ul>
+                </div>
+              </div>
             </div>
-            <ul class="hotkey-bar" aria-label="Drawing canvas controls">
-              <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Use the selected tool</span></li>
-              <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-right" /></svg><span>Quick erase</span></li>
-              <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-scroll" /></svg><span>Zoom</span></li>
-              <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-mid" /></svg><span>Hold to pan</span></li>
-            </ul>
-            <div class="plot__tools">
-              <button type="button" class="btn btn--ghost btn--sm" id="plot-undo" disabled>Undo</button>
-              <button type="button" class="btn btn--ghost btn--sm" id="plot-redo" disabled>Redo</button>
+            <p class="plot__notice plot__notice--err" id="plot-fallback-msg" hidden>
+              Drawing tools couldn't load.
+              <button type="button" class="btn btn--ghost btn--sm" id="plot-use-upload" data-switch-upload>Upload a plot plan instead</button>
+            </p>
+            <div class="plot-step__nav">
               <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
-              <button type="button" class="btn btn--ghost btn--sm" data-back>Back to orientation</button>
+              <button type="button" class="btn btn--primary" id="plot-done" disabled>Done — use this plan</button>
             </div>
             <p class="plot-step__bail">Drawing not working out? <button type="button" class="linklike" data-switch-upload>Upload an existing plan instead</button> — anything you've drawn is kept in case you switch back.</p>
           </div>

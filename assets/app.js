@@ -12,7 +12,7 @@
    ========================================================= */
 import { $, $$, esc } from "./utils.js";
 import {
-  plotUsed, renderPlotImage, rebuildGridForParcel,
+  plotUsed, isPlotConfirmed, renderPlotImage, rebuildGridForParcel,
   serializePlot, restorePlot
 } from "./plot-editor.js";
 import {
@@ -482,7 +482,9 @@ let pdfSaved = false; // flips once the print/save-PDF view is opened this sessi
 function plotProvided() {
   const names = plotUploadInput.files ? Array.from(plotUploadInput.files).map(f => f.name) : [];
   if (planMode === "upload") return { mode: "upload", ok: names.length > 0, names };
-  return { mode: "build", ok: plotUsed(), names: [] };
+  // Build mode: completion is DECLARED (the Draw step's "Done — use this plan" button),
+  // not inferred from a first stroke. `started` drives the "in progress" third state.
+  return { mode: "build", ok: plotUsed() && isPlotConfirmed(), started: plotUsed(), names: [] };
 }
 
 // Every photo the questionnaire currently requests, with the attached filename (or null)
@@ -518,7 +520,9 @@ function packetMissingList(includePdf) {
   const plot = plotProvided();
   if (!plot.ok) missing.push(plot.mode === "upload"
     ? "Plot plan file (upload chosen, but nothing attached in Section 02)"
-    : "Plot plan (nothing drawn yet in Section 02)");
+    : plot.started
+      ? "Plot plan — drawn but not marked finished (press “Done — use this plan” in Section 02)"
+      : "Plot plan (nothing drawn yet in Section 02)");
   const photos = photoChecklist();
   if (!photos.length) missing.push("Property photos — the questionnaire in Section 05 hasn't been answered");
   else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
@@ -606,7 +610,9 @@ function renderPacket() {
       ok: plot.ok,
       note: plot.ok
         ? "Included automatically in the form PDF — nothing extra to attach."
-        : "Nothing drawn yet.",
+        : plot.started
+          ? "In progress — mark it finished in Section 02 (“Done — use this plan”)."
+          : "Nothing drawn yet.",
       href: "#siteplan"
     });
   }
@@ -648,10 +654,11 @@ function renderPacket() {
 }
 
 /* ----- Section 06 live rows ----- */
-function setReqRow(key, ok, note) {
+function setReqRow(key, ok, note, partial) {
   const row = $(`.reqstat[data-req="${key}"]`);
   if (!row) return;
   row.classList.toggle("is-ok", ok);
+  row.classList.toggle("is-partial", !ok && !!partial); // third state: started, not finished
   const noteEl = $("[data-req-note]", row);
   if (noteEl) noteEl.textContent = note;
 }
@@ -660,7 +667,10 @@ function refreshRequirementRows() {
   const plot = plotProvided();
   setReqRow("plot", plot.ok, plot.mode === "upload"
     ? (plot.ok ? "Uploaded: " + plot.names.join(", ") : "Upload chosen — no file attached yet.")
-    : (plot.ok ? "Drawn with the plot tool — included in your application PDF." : "Not provided yet — build or upload it in Section 02."));
+    : (plot.ok ? "Drawn with the plot tool — included in your application PDF."
+      : plot.started ? "In progress — mark it finished in Section 02 (“Done — use this plan”)."
+      : "Not provided yet — build or upload it in Section 02."),
+    plot.mode === "build" && plot.started);
   const photos = photoChecklist();
   setReqRow("photos",
     photos.length > 0 && photos.every(p => p.file),
@@ -677,10 +687,26 @@ function refreshFinishSteps() {
   if (s1) s1.classList.toggle("is-done", pdfSaved);
 }
 
+// The Draw step's "Done — use this plan" CTA + the wizard's Draw dot reflect the
+// declared-completion state (see plot-editor's isPlotConfirmed). Runs from every
+// updateProgress(), so a paint stroke / Clear / Done click all repaint it.
+function refreshPlotDoneUI() {
+  const btn = $("#plot-done");
+  if (btn) {
+    const confirmed = isPlotConfirmed();
+    btn.disabled = !plotUsed();
+    btn.classList.toggle("is-confirmed", confirmed);
+    btn.textContent = confirmed ? "✓ Plan added to your packet" : "Done — use this plan";
+  }
+  const drawDot = $('.plot-steps-nav__dot[data-goto="4"]');
+  if (drawDot) drawDot.classList.toggle("is-done", isPlotConfirmed());
+}
+
 export function refreshPacketUI() {
   renderPacket();
   refreshRequirementRows();
   refreshFinishSteps();
+  refreshPlotDoneUI();
 }
 
 /* ------------------------------------------------------
