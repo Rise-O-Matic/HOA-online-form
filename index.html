@@ -223,10 +223,24 @@
                 <button type="button" class="map-view-toggle__btn is-active" id="view-satellite">Satellite</button>
                 <button type="button" class="map-view-toggle__btn" id="view-street">Street map</button>
               </div>
+              <div class="map-orient-grid" aria-hidden="true"></div>
               <div class="map-orient-overlay" aria-hidden="true">
                 <span class="map-orient-overlay__half map-orient-overlay__half--top">Back Yard</span>
                 <span class="map-orient-overlay__half map-orient-overlay__half--bottom">Front Yard</span>
+                <div class="map-orient-overlay__hint">
+                  <svg class="map-orient-overlay__hint-icon" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                    <polyline points="21 3 21 9 15 9" />
+                  </svg>
+                  <span class="map-orient-overlay__hint-text">Drag to rotate</span>
+                </div>
               </div>
+              <div class="rotate-fine" role="group" aria-label="Fine-tune rotation">
+                <button type="button" class="rotate-fine__btn" id="rotate-fine-minus" aria-label="Rotate 0.1 degrees counter-clockwise" title="Nudge 0.1&deg; counter-clockwise">&minus;0.1&deg;</button>
+                <span class="rotate-fine__readout"><span id="map-rotate-fine">0.0</span>&deg;</span>
+                <button type="button" class="rotate-fine__btn" id="rotate-fine-plus" aria-label="Rotate 0.1 degrees clockwise" title="Nudge 0.1&deg; clockwise">+0.1&deg;</button>
+              </div>
+
             </div>
           </div>
           <div class="plot-step__nav">
@@ -238,11 +252,13 @@
         <!-- STEP 3: Orient your property -->
         <div class="plot-step" data-step="3">
           <h3 class="plot-step__title">Orient Your Property</h3>
-          <p class="plot-step__desc">Rotate the map until the front of your property (the street side) faces down, matching the grid layout.</p>
+          <p class="plot-step__desc">Drag anywhere on the map to spin it until the front of your property (the street side) faces the bottom of the map.</p>
           <div class="orient-layout">
             <div class="map-reference" id="map-step3">
               <!-- map-container moves here via JS -->
             </div>
+            <!-- Rotation controls (slider / ±15° / reset / auto-align) removed in favor of
+                 dragging directly on the map. Auto-align logic is commented out in app.js.
             <div class="rotate-panel" id="map-rotate-wrap">
               <div class="rotate-panel__top">
                 <span class="rotate-panel__title">Rotation angle</span>
@@ -263,14 +279,14 @@
                     <path d="M3 12a9 9 0 1 0 2.64-6.36" />
                     <polyline points="3 3 3 9 9 9" />
                   </svg>
-                  Rotate -15&deg;
+                  Rotate 15&deg;
                 </button>
                 <button type="button" class="rotate-panel__btn" id="rotate-plus15">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 12a9 9 0 1 1-2.64-6.36" />
                     <polyline points="21 3 21 9 15 9" />
                   </svg>
-                  Rotate +15&deg;
+                  Rotate 15&deg;
                 </button>
                 <button type="button" class="rotate-panel__btn" id="rotate-reset">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -288,6 +304,7 @@
                 </button>
               </div>
             </div>
+            -->
           </div>
           <div class="plot-step__nav">
             <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
@@ -298,11 +315,23 @@
         <!-- STEP 4: Draw your plan -->
         <div class="plot-step" data-step="4">
           <h3 class="plot-step__title">Draw Your Plan</h3>
-          <p class="plot-step__desc">Pick a material, then pick a tool — draw shapes, click inside a shape to fill it, or add callouts and measurements. Use <strong>Select</strong> to move or resize, <strong>Erase</strong> to remove.</p>
+          <p class="plot-step__desc">The grid is drawn to scale — <strong>one square = one square foot</strong>. Pick a material and <strong>Paint</strong> to fill tiles (drag to paint; <strong>hold Shift</strong> for a straight line; set the brush width below), <strong>Rectangle</strong> to drag out a solid block, <strong>Fill</strong> to flood an area, or <strong>Erase</strong> to clear (right-click or Ctrl-click erases from any tool). Add <strong>Callout</strong> labels and <strong>Measure</strong> lines on top, then use <strong>Select</strong> to drag them into place. Pan with the scrollbars, the middle mouse button, or the <strong>Pan</strong> tool; zoom with the mouse wheel or the buttons.</p>
           <p class="plot__notice" id="plot-migration-notice" hidden>Your previous site plan drawing needs to be redrawn — the drawing tool was upgraded. Everything else from your saved draft was restored.</p>
           <div class="plot">
             <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
             <div class="palette" id="tool-palette" role="toolbar" aria-label="Drawing tools"></div>
+            <div class="plot__controls">
+              <label class="plot__brush" for="brush-size">Brush width
+                <input type="range" id="brush-size" min="1" max="20" value="3" step="1" />
+                <span class="plot__brush-val" id="brush-size-val">3 ft</span>
+              </label>
+              <div class="plot__zoom" role="group" aria-label="Zoom">
+                <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-out" aria-label="Zoom out">−</button>
+                <span class="plot__zoom-level" id="plot-zoom-level">100%</span>
+                <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-in" aria-label="Zoom in">+</button>
+                <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-reset" title="Fit the whole lot in view">Fit</button>
+              </div>
+            </div>
             <div class="plot__stage">
               <span class="plot__edge plot__edge--top">Back Yard</span>
               <span class="plot__edge plot__edge--bottom">Front Yard</span>
