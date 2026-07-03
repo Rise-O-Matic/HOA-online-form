@@ -13,7 +13,7 @@
 import { $, $$, esc } from "./utils.js";
 import {
   plotUsed, isPlotConfirmed, renderPlotImage, rebuildGridForParcel,
-  serializePlot, restorePlot
+  serializePlot, restorePlot, plotLegend
 } from "./plot-editor.js";
 import {
   planMode, setPlanMode, plotUploadInput, restoreParcelFromDraft,
@@ -1041,6 +1041,21 @@ function photoPreviewHTML(d) {
   return areaLine + list;
 }
 
+// Auto legend beside the drawn plan: a swatch + name for every material actually painted
+// (incl. retired and custom ids) and a glyph + name for every stamp symbol placed. Without
+// this the reviewer's PDF shows colored regions with no key at all. `cls` is the CSS block
+// name — "plot-legend" (preview modal, styles.css) or "print-legend" (print doc's inline styles).
+function plotLegendHTML(cls) {
+  const { materials, stamps } = plotLegend();
+  if (!materials.length && !stamps.length) return "";
+  const items = materials.map(m =>
+    `<li><span class="${cls}__swatch" style="background:${esc(m.color)}"></span>${esc(m.label)}</li>`
+  ).concat(stamps.map(s =>
+    `<li><svg viewBox="0 0 24 24" fill="none" stroke="#1e1a14" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>${esc(s.label)}</li>`
+  ));
+  return `<ul class="${cls}" aria-label="Site plan legend">${items.join("")}</ul>`;
+}
+
 function buildPreview(d) {
   // Submission items are derived/attested state, not checkboxes — "missing" reads better than "not checked"
   const subYn = b => b ? '<span class="yes">✓ Included</span>' : '<span class="no">— missing</span>';
@@ -1080,7 +1095,7 @@ function buildPreview(d) {
         ? (d.plotUpload && d.plotUpload.length
             ? `<p><span class="yes">✓ Uploaded</span> — ${d.plotUpload.map(esc).join(", ")}</p>`
             : '<p class="no">Upload selected — no file attached yet.</p>')
-        : (plotUsed() ? `<img class="plot-img" src="${renderPlotImage()}" alt="Site plan" />` : '<p class="no">No site plan drawn.</p>')}
+        : (plotUsed() ? `<img class="plot-img" src="${renderPlotImage()}" alt="Site plan" />${plotLegendHTML("plot-legend")}` : '<p class="no">No site plan drawn.</p>')}
 
       <h3>Photos</h3>
       ${photoPreviewHTML(d)}
@@ -1169,7 +1184,7 @@ function buildPrintHTML(d) {
           <h4>Site / Plot Plan</h4>
           ${d.planMode === "upload"
             ? `<p style="font-size:11px;">${d.plotUpload && d.plotUpload.length ? "Plot plan uploaded separately: " + d.plotUpload.map(esc).join(", ") : "⚠ No plot plan attached."}</p>`
-            : (plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
+            : (plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />${plotLegendHTML("print-legend")}` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
         </div>
       </div>
 
@@ -1265,6 +1280,10 @@ function printPreview() {
       .print-col { flex: 1; min-width: 0; }
       .print-proposal { font-size: 10px; white-space: pre-wrap; background: #faf8f4; padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; max-height: 120px; overflow: hidden; }
       .print-plot { width: 100%; border: 1px solid #ccc; }
+      .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 0; padding: 0; font-size: 9px; }
+      .print-legend li { display: flex; align-items: center; gap: 4px; }
+      .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #999; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-legend svg { flex: none; width: 12px; height: 12px; }
       .print-neighbors th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; }
       .print-ack-summary { font-size: 10px; margin: 2px 0 6px; }
       .print-sig-block { margin-top: 10px; }

@@ -28,12 +28,36 @@ const PALETTE = [
   { id: "patio",     label: "Patio Cover",     color: "#d98a6a" },
   { id: "mulch",     label: "Mulch / Planter", color: "#b07a4e" },
   { id: "retaining", label: "Retaining Wall",  color: "#7a5c46" },
-  { id: "shed",      label: "Shed",            color: "#e2473b" },
-  { id: "tree",      label: "Tree",            color: "#2e6b35" },
-  { id: "light",     label: "Yard Light",      color: "#f4c430" },
-  { id: "camera",    label: "Camera",          color: "#6a4bb0" }
+  { id: "shed",      label: "Shed",            color: "#e2473b" }
 ];
-const PALETTE_MAP = Object.fromEntries(PALETTE.map(p => [p.id, p]));
+// Point objects retired from the paint palette (they're Stamps now). Their ids stay
+// resolvable so cells painted in old drafts still render — and the legend can name them.
+const RETIRED_MATERIALS = [
+  { id: "tree",   label: "Tree",       color: "#2e6b35" },
+  { id: "light",  label: "Yard Light", color: "#f4c430" },
+  { id: "camera", label: "Camera",     color: "#6a4bb0" }
+];
+// Every id the paint layer can resolve: live chips + retired ids + the user's custom
+// materials (setCustomMaterials/addCustomMaterial mutate this map in place).
+const PALETTE_MAP = Object.fromEntries([...PALETTE, ...RETIRED_MATERIALS].map(p => [p.id, p]));
+let customMaterials = []; // { id, label, color } user-defined, persisted as plot.customMaterials
+
+// Point-object plan symbols placed by the Stamp tool. `d` is an SVG path in a 24×24 box
+// (stroke-only, round caps) shared by the picker button, the legend, and the Konva.Path
+// pair on the canvas; `ft` is the real-world footprint the 24-box is scaled to (trees get
+// their true canopy, hardware gets a legible symbolic size).
+const STAMPS = [
+  { id: "tree",    label: "Tree",        ft: 15, d: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18M12 8v8M8 12h8" },
+  { id: "palm",    label: "Palm",        ft: 10, d: "M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4M12 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 1 0 0-3" },
+  { id: "shrub",   label: "Shrub",       ft: 4,  d: "M21 12a4.5 4.5 0 0 1-4.5 7.8 4.5 4.5 0 0 1-9 0A4.5 4.5 0 0 1 3 12a4.5 4.5 0 0 1 4.5-7.8 4.5 4.5 0 0 1 9 0A4.5 4.5 0 0 1 21 12z" },
+  { id: "cactus",  label: "Cactus / Agave", ft: 4, d: "M12 21V3M12 14c-2.8 0-5-2.2-5-5V7M12 17c2.8 0 5-2.2 5-5v-2" },
+  { id: "xeri",    label: "Xeriscape groundcover", ft: 8, d: "M4 9l2-2 2 2M14 6l2-2 2 2M8 16l2-2 2 2M16 15l2-2 2 2M5 21l2-2 2 2M13 20l2-2 2 2" },
+  { id: "boulder", label: "Boulder",     ft: 5,  d: "M4 13l3-7 8-2 5 8-4 7H7zM10 11l2 8" },
+  { id: "camera",  label: "Camera",      ft: 3,  d: "M3 8h11v8H3zM14 11l6-3v8l-6-3" },
+  { id: "light",   label: "Yard Light",  ft: 3,  d: "M12 5a3 3 0 1 0 0 6 3 3 0 1 0 0-6M12 11v10M8.5 21h7M12 1.5V3M7.4 4.4l1.1 1.1M16.6 4.4l-1.1 1.1" },
+  { id: "ac",      label: "AC Unit",     ft: 4,  d: "M4 4h16v16H4zM12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8M12 11.2v1.6" }
+];
+const STAMP_MAP = Object.fromEntries(STAMPS.map(s => [s.id, s]));
 
 // Inline stroke icons (18px, currentColor) — one per tool.
 const ICON = {
@@ -45,7 +69,8 @@ const ICON = {
   measure: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="1.2"/><path d="M6.5 8v3M10 8v4M13.5 8v3M17 8v4"/></svg>',
   select: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5.5 15 2-6.4 6.4-2z"/><path d="m13.5 13.5 5 5"/></svg>',
   pan: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V11m0-3a1.5 1.5 0 0 1 3 0v5.5c0 3-2.2 5.5-5.2 5.5H12c-1.6 0-2.6-.6-3.6-1.7l-3-3.3a1.5 1.5 0 0 1 2.2-2z"/></svg>',
-  line: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.7" fill="currentColor" stroke="none"/></svg>'
+  line: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.7" fill="currentColor" stroke="none"/></svg>',
+  stamp: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21h14"/><path d="M6.5 18h11c.6 0 1-.4 1-1v-.5a2.5 2.5 0 0 0-2.5-2.5h-2c-.6 0-1-.5-1-1.1 0-2 1.6-2.6 1.6-4.9a2.6 2.6 0 1 0-5.2 0c0 2.3 1.6 2.9 1.6 4.9 0 .6-.4 1.1-1 1.1H8A2.5 2.5 0 0 0 5.5 16.5v.5c0 .6.4 1 1 1z"/></svg>'
 };
 
 // Each tool's one-line hint is shown above the canvas while that tool is selected
@@ -59,6 +84,8 @@ const TOOL_MODES = [
     hint: "Drag to clear painted tiles. Click an outline, callout, or measurement to delete it." },
   { id: "fill",     label: "Fill",     icon: ICON.fill,
     hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls." },
+  { id: "stamp",    label: "Stamp",    icon: ICON.stamp,
+    hint: "Pick a symbol here in this bar, then click the plan to place it — <strong>Select</strong> moves one, <strong>Erase</strong> removes it." },
   { id: "line",     label: "Outline",  icon: ICON.line,
     hint: "Drag between two points to draw an outline edge. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
   { id: "callout",  label: "Callout",  icon: ICON.callout,
@@ -120,6 +147,8 @@ let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in re
 let dragOrigin = null, ghostNode = null;         // measure drag
 let calloutDraft = null, calloutGhost = null;    // callout
 let selectedNode = null, selectionRect = null;   // Select/move tool
+let activeStamp = "tree";                        // selected symbol in the Stamp picker
+let stampArmed = null, stampGhost = null;        // press position awaiting release + cursor preview
 
 let undoStack = [], redoStack = [], restoringHistory = false;
 
@@ -166,6 +195,7 @@ function initPlotStage() {
   stage.on("pointerup", onStagePointerUp);
   stage.on("wheel", onWheel);
   stage.on("click tap", e => { if (activeMode === "select" && e.target === stage) clearSelection(); });
+  stage.on("mouseleave", removeStampGhost); // don't leave the Stamp cursor preview stranded at the edge
   // A gesture that RELEASES past the canvas edge never fires the stage's own pointerup
   // (native events only reach elements the pointer is still over) — without this, an
   // in-progress paint stroke / measurement / callout is silently abandoned. onStagePointerUp
@@ -245,6 +275,8 @@ function beginPinch() {
   if (gridLineDraft) { gridLineDraft = null; if (gridLineGhost) { gridLineGhost.destroy(); gridLineGhost = null; } }
   if (calloutDraft) { calloutDraft = null; if (calloutGhost) { calloutGhost.destroy(); calloutGhost = null; } }
   if (dragOrigin) { dragOrigin = null; if (ghostNode) { ghostNode.destroy(); ghostNode = null; } }
+  stampArmed = null; // stamps place on release, so the second finger simply disarms the tap
+  removeStampGhost();
   overlayLayer?.batchDraw();
   const [p1, p2] = [...touchPts.values()];
   const rect = plotHost.getBoundingClientRect();
@@ -573,9 +605,14 @@ function rebuildBgLayer() {
 }
 
 /* --- Toolbars --- */
-function buildPalette() {
+// The material chip row: built-in materials + the user's custom ones + the "+ Add material"
+// chip. Re-rendered whenever the custom list changes (add, draft restore).
+function renderPaletteChips() {
   const pal = $("#palette");
-  PALETTE.forEach(p => {
+  if (!pal) return;
+  if (!PALETTE_MAP[activeMaterial]) activeMaterial = "turf"; // a restore may have replaced the customs
+  pal.innerHTML = "";
+  [...PALETTE, ...customMaterials].forEach(p => {
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.material = p.id;
@@ -589,6 +626,86 @@ function buildPalette() {
       $$("#palette button").forEach(x => x.classList.toggle("is-active", x === b));
     });
     pal.appendChild(b);
+  });
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "palette__add";
+  add.textContent = "+ Add material";
+  add.addEventListener("click", () => {
+    const pop = $("#palette-pop");
+    if (!pop) return;
+    pop.hidden = !pop.hidden;
+    if (!pop.hidden) { const warn = $("#custom-mat-warn"); if (warn) warn.hidden = true; $("#custom-mat-name")?.focus(); }
+  });
+  pal.appendChild(add);
+}
+
+/* --- Custom named materials ("+ Add material" popover) --- */
+// Perceived brightness (0–255). The paint layer multiplies over the aerial on screen,
+// so near-white materials wash out to invisible — block those at the door.
+function perceivedBrightness(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return 255;
+  const v = parseInt(m[1], 16);
+  return 0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255);
+}
+
+function addCustomMaterial() {
+  const nameEl = $("#custom-mat-name"), colorEl = $("#custom-mat-color"), warnEl = $("#custom-mat-warn");
+  const label = (nameEl?.value || "").trim();
+  const color = colorEl ? colorEl.value : "";
+  const warn = msg => { if (warnEl) { warnEl.textContent = msg; warnEl.hidden = false; } };
+  if (!label) { warn("Give the material a name — the legend shows it to the reviewer."); nameEl?.focus(); return; }
+  if (perceivedBrightness(color) > 220) { warn("That color is too light to read over the aerial photo — pick a darker shade."); return; }
+  const mat = { id: "custom-" + Date.now().toString(36), label, color };
+  customMaterials.push(mat);
+  PALETTE_MAP[mat.id] = mat;
+  activeMaterial = mat.id;
+  renderPaletteChips();
+  if (nameEl) nameEl.value = "";
+  if (warnEl) warnEl.hidden = true;
+  const pop = $("#palette-pop");
+  if (pop) pop.hidden = true;
+  scheduleAutosave();
+}
+
+// Draft restore path: replace the custom list wholesale and re-point PALETTE_MAP.
+// Must run BEFORE loadCells() so restored cells painted in a custom color resolve.
+function setCustomMaterials(list) {
+  customMaterials.forEach(m => { delete PALETTE_MAP[m.id]; });
+  customMaterials = [];
+  (Array.isArray(list) ? list : []).forEach(m => {
+    if (!m || !m.id || !m.label || !m.color) return;
+    const mat = { id: String(m.id), label: String(m.label), color: String(m.color) };
+    customMaterials.push(mat);
+    PALETTE_MAP[mat.id] = mat;
+  });
+  renderPaletteChips();
+}
+
+// Glyph buttons for the Stamp tool's contextual slot in the status strip.
+function buildStampPicker() {
+  const wrap = $("#stamp-control");
+  if (!wrap) return;
+  STAMPS.forEach(s => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.stamp = s.id;
+    b.title = s.label;
+    b.setAttribute("aria-label", s.label);
+    b.setAttribute("aria-pressed", s.id === activeStamp ? "true" : "false");
+    if (s.id === activeStamp) b.classList.add("is-active");
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>`;
+    b.addEventListener("click", () => {
+      activeStamp = s.id;
+      removeStampGhost(); // next pointer move rebuilds it at the new symbol's footprint
+      $$("#stamp-control button").forEach(x => {
+        const on = x === b;
+        x.classList.toggle("is-active", on);
+        x.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    });
+    wrap.appendChild(b);
   });
 }
 
@@ -637,9 +754,12 @@ function setActiveMode(mode) {
     x.classList.toggle("is-active", on);
     x.setAttribute("aria-pressed", on ? "true" : "false");
   });
-  // The brush width control lives in the status strip and only applies to Paint.
+  // The contextual slot in the status strip: brush width for Paint, symbol picker for Stamp.
   const brushControl = $("#brush-control");
   if (brushControl) brushControl.hidden = mode !== "paint";
+  const stampControl = $("#stamp-control");
+  if (stampControl) stampControl.hidden = mode !== "stamp";
+  if (mode !== "stamp") { stampArmed = null; removeStampGhost(); }
   // Annotations intercept pointer events in Erase (click removes) and Select (click/drag to
   // move) modes, and are draggable only in Select; otherwise they're inert so a paint stroke
   // passes straight through to the grid underneath.
@@ -648,7 +768,7 @@ function setActiveMode(mode) {
     n.draggable(mode === "select");
   });
   if (plotHost) plotHost.style.cursor =
-    mode === "pan" ? "grab" : (mode === "erase" ? "cell" : (mode === "select" ? "move" : (mode === "fill" ? "pointer" : "crosshair")));
+    mode === "pan" ? "grab" : (mode === "erase" ? "cell" : (mode === "select" ? "move" : (mode === "fill" || mode === "stamp" ? "pointer" : "crosshair")));
 }
 
 /* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
@@ -841,6 +961,60 @@ function buildCalloutGroup(tip, labelPos, text) {
   return group;
 }
 
+/* --- Stamp (click-to-place plan symbol) ---
+   A stamp is a Konva.Group (kind:"stamp") on drawLayer: the glyph path drawn twice —
+   a fat white halo under a black stroke, the standard plan-symbol treatment so it reads
+   over both the aerial and painted fills — plus an invisible full-footprint hit disc so
+   Select/Erase can grab it anywhere inside the symbol, not just on a hairline stroke.
+   Everything downstream (drag/erase wiring, undo, serialize/restore, print) comes free
+   from the existing drawLayer vector pipeline. */
+function buildStampGroup(pos, spec) {
+  // Scale the 24-box glyph to the symbol's real-world footprint (ft → content px).
+  const s = (spec.ft * CELL_SIZE / FEET_PER_CELL) / 24;
+  const group = new Konva.Group({ x: pos.x, y: pos.y, scaleX: s, scaleY: s });
+  group.setAttr("kind", "stamp");
+  group.setAttr("stampId", spec.id);
+  // Hit target: opacity is ignored by Konva's hit graph, so this invisible disc still catches clicks.
+  group.add(new Konva.Circle({ x: 0, y: 0, radius: 13, fill: "#000", opacity: 0 }));
+  const glyphAttrs = { data: spec.d, x: -12, y: -12, lineCap: "round", lineJoin: "round", listening: false };
+  group.add(new Konva.Path({ ...glyphAttrs, stroke: "#fff", strokeWidth: 4.6 }));
+  group.add(new Konva.Path({ ...glyphAttrs, stroke: "#1e1a14", strokeWidth: 1.8 }));
+  return group;
+}
+
+// Translucent cursor preview so the symbol's true footprint is visible before you commit.
+function updateStampGhost(pos) {
+  const spec = STAMP_MAP[activeStamp];
+  if (!spec || !overlayLayer) return;
+  if (stampGhost && stampGhost.getAttr("stampId") !== spec.id) removeStampGhost();
+  if (!stampGhost) {
+    stampGhost = buildStampGroup(pos, spec);
+    stampGhost.opacity(0.45);
+    stampGhost.listening(false);
+    overlayLayer.add(stampGhost);
+  }
+  stampGhost.position(pos);
+  overlayLayer.batchDraw();
+}
+
+function removeStampGhost() {
+  if (!stampGhost) return;
+  stampGhost.destroy();
+  stampGhost = null;
+  overlayLayer?.batchDraw();
+}
+
+function placeStamp(pos) {
+  const spec = STAMP_MAP[activeStamp];
+  if (!spec) return;
+  const group = buildStampGroup(pos, spec);
+  recordUndoPoint();
+  drawLayer.add(group);
+  attachShapeInteractions(group);
+  drawLayer.batchDraw();
+  scheduleAutosave();
+}
+
 /* --- Stage-level pointer dispatch ---
    Everything works in CONTENT coordinates (getRelativePointerPosition), so painting,
    callouts and measurements stay put under the pointer at any pan/zoom. --- */
@@ -928,6 +1102,11 @@ function onStagePointerDown(e) {
   }
   const pos = contentPos();
   if (!pos) return;
+  if (activeMode === "stamp") {
+    // Arm on press, place on release: a second finger landing (pinch) can still cancel it.
+    stampArmed = pos;
+    return;
+  }
   if (activeMode === "line") {
     const a = snapToGrid(pos);
     gridLineDraft = { x: a.x, y: a.y };
@@ -994,11 +1173,18 @@ function onStagePointerMove() {
   const pos = contentPos();
   if (!pos) return;
   if (dragOrigin && ghostNode) { ghostNode.points([dragOrigin.x, dragOrigin.y, pos.x, pos.y]); overlayLayer.batchDraw(); return; }
-  if (calloutDraft) { updateCalloutGhost(pos); }
+  if (calloutDraft) { updateCalloutGhost(pos); return; }
+  if (activeMode === "stamp" && !eraseGesture && !painting) updateStampGhost(pos);
 }
 
 function onStagePointerUp() {
   if (!stageReady) return;
+  if (stampArmed) {
+    const pos = stampArmed;
+    stampArmed = null;
+    placeStamp(pos); // at the PRESS point — a slight drag before release shouldn't shift the symbol
+    return;
+  }
   if (rectDraft) {
     const cell = cellFromPointer();
     if (cell) {
@@ -1170,11 +1356,19 @@ export function renderPlotImage() {
   return dataUrl;
 }
 
-buildPalette();
+renderPaletteChips();
 buildToolbar();
+buildStampPicker();
 initPlotStage();
 setActiveMode("rect");
 $("#plot-clear").addEventListener("click", clearPlot);
+$("#custom-mat-add")?.addEventListener("click", addCustomMaterial);
+$("#custom-mat-cancel")?.addEventListener("click", () => { const pop = $("#palette-pop"); if (pop) pop.hidden = true; });
+// The popover sits inside the big <form>: Enter in the name field must add the material,
+// not submit the whole application to the preview modal.
+$("#custom-mat-name")?.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); addCustomMaterial(); }
+});
 $("#plot-undo").addEventListener("click", undo);
 $("#plot-redo").addEventListener("click", redo);
 // (#plot-use-upload in the Konva-fallback notice carries data-switch-upload and is
@@ -1213,7 +1407,8 @@ export function serializePlot() {
     cols: gridCols, rows: gridRows,
     cells: cellState ? [...cellState] : [],
     annotations: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || [],
-    confirmed: plotConfirmedFlag
+    confirmed: plotConfirmedFlag,
+    customMaterials: customMaterials.map(m => ({ ...m }))
   };
 }
 
@@ -1221,6 +1416,7 @@ export function serializePlot() {
 // (e.g. Konva failed to load — the fallback message is already showing).
 export function restorePlot(plot) {
   if (!stageReady) return;
+  setCustomMaterials(plot.customMaterials); // before loadCells — restored cells may use custom colors
   loadCells(plot.cells);
   gridLayer.batchDraw();
   if (Array.isArray(plot.annotations)) {
@@ -1230,4 +1426,18 @@ export function restorePlot(plot) {
   undoStack = []; redoStack = [];
   updateUndoRedoButtons();
   setPlotConfirmed(!!plot.confirmed); // restoreDraft's rebuildGridForParcel just cleared it
+}
+
+// What the plan actually contains, for the auto legend beside the preview/print image:
+// every material present in cellState (built-in, retired, or custom — a custom color is
+// meaningless to the reviewer without its name) plus every stamp symbol placed.
+export function plotLegend() {
+  const used = new Set(cellState ? cellState.values() : []);
+  const materials = [...PALETTE, ...RETIRED_MATERIALS, ...customMaterials].filter(p => used.has(p.id));
+  const stampIds = new Set();
+  if (drawLayer) drawLayer.getChildren().forEach(n => {
+    if (n.getAttr("kind") === "stamp") stampIds.add(n.getAttr("stampId"));
+  });
+  const stamps = STAMPS.filter(s => stampIds.has(s.id));
+  return { materials, stamps };
 }

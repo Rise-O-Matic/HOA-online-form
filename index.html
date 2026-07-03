@@ -378,6 +378,13 @@
           <p class="plot__notice" id="plot-migration-notice" hidden>Your previous site plan drawing needs to be redrawn — the drawing tool was upgraded. Everything else from your saved draft was restored.</p>
           <div class="plot">
             <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
+            <div class="palette-pop" id="palette-pop" hidden>
+              <label>Name <input type="text" id="custom-mat-name" maxlength="24" placeholder="e.g. Pavers" /></label>
+              <label>Color <input type="color" id="custom-mat-color" value="#8a6d3b" /></label>
+              <button type="button" class="btn btn--primary btn--sm" id="custom-mat-add">Add material</button>
+              <button type="button" class="btn btn--ghost btn--sm" id="custom-mat-cancel">Cancel</button>
+              <p class="palette-pop__warn" id="custom-mat-warn" role="alert" hidden></p>
+            </div>
             <div class="plot__surface">
               <div class="tool-rail">
                 <div class="tool-rail__group" id="tool-palette" role="toolbar" aria-label="Drawing tools"></div>
@@ -409,6 +416,7 @@
                     <input type="range" id="brush-size" min="1" max="20" value="3" step="1" />
                     <span class="plot-status__brush-val" id="brush-size-val">3 ft</span>
                   </label>
+                  <div class="plot-status__stamps" id="stamp-control" role="toolbar" aria-label="Stamp symbols" hidden></div>
                   <ul class="plot-status__keys" aria-label="Mouse controls">
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Tool</span></li>
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-right" /></svg><span>Erase</span></li>

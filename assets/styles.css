@@ -574,6 +574,32 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid rgba(0,0,0,.18);
   flex-shrink: 0;
 }
+.palette button.palette__add {
+  border-style: dashed;
+  color: var(--crimson);
+  font-weight: 600;
+  padding: .4rem .7rem;
+}
+
+/* "+ Add material" popover: an inline panel that opens under the chip row */
+.palette-pop {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem;
+  margin: -.2rem 0 .7rem; padding: .6rem .8rem;
+  border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-size: .85rem;
+}
+.palette-pop[hidden] { display: none; } /* author display beats [hidden] otherwise */
+.palette-pop label { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; color: var(--ink-soft); }
+.palette-pop input[type=text] {
+  padding: .35rem .55rem; border: 1px solid var(--line-2); border-radius: 6px;
+  font: inherit; width: 11rem;
+}
+.palette-pop input[type=color] {
+  inline-size: 2.6rem; block-size: 1.9rem; padding: 2px;
+  border: 1px solid var(--line-2); border-radius: 6px; background: #fff; cursor: pointer;
+}
+.palette-pop__warn { flex-basis: 100%; margin: 0; color: var(--crimson); font-size: .8rem; }
 
 /* Rail + canvas column, centered as a block */
 .plot__surface {
@@ -701,6 +727,18 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .plot-status__brush[hidden] { display: none; } /* author display beats [hidden] otherwise */
 .plot-status__brush input[type=range] { width: 6.5rem; accent-color: #cf9c4c; }
 .plot-status__brush-val { min-width: 3.5ch; font-variant-numeric: tabular-nums; color: #fff; }
+/* Stamp symbol picker — the Stamp tool's contextual control in the same slot as the brush */
+.plot-status__stamps { display: flex; flex-wrap: wrap; gap: .3rem; }
+.plot-status__stamps[hidden] { display: none; } /* same [hidden]-vs-display gotcha as the brush */
+.plot-status__stamps button {
+  display: grid; place-items: center;
+  width: 2rem; height: 2rem;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.3); border-radius: 6px;
+  color: #f7f4ee; cursor: pointer;
+}
+.plot-status__stamps button:hover { border-color: #fff; }
+.plot-status__stamps button.is-active { background: #f7f4ee; color: #1e1a14; border-color: #fff; }
 .plot-status__keys {
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-wrap: wrap; gap: .4rem .9rem;
@@ -1466,6 +1504,18 @@ ul.tight li { margin-bottom: .25rem; }
 .doc .doc-block { white-space: pre-wrap; background: var(--paper); padding: .8rem; border-radius: 8px; border: 1px solid var(--line); }
 .doc img.sig-img { height: 64px; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
 .doc img.plot-img { max-width: 100%; border: 1px solid var(--line-2); border-radius: 8px; }
+/* Auto legend under the plan image (buildPreview's plotLegendHTML) */
+.doc .plot-legend {
+  list-style: none; display: flex; flex-wrap: wrap; gap: .3rem 1rem;
+  margin: .5rem 0 0; padding: 0;
+  font-size: .8rem; color: var(--ink-soft);
+}
+.doc .plot-legend li { display: flex; align-items: center; gap: .4rem; }
+.doc .plot-legend__swatch {
+  display: inline-block; width: .9rem; height: .9rem;
+  border-radius: 3px; border: 1px solid rgba(0,0,0,.18);
+}
+.doc .plot-legend svg { flex: none; width: 14px; height: 14px; }
 .doc .doc-list { padding-left: 1.1rem; margin: .3rem 0; }
 .doc .yes { color: var(--green); font-weight: 600; }
 .doc .no  { color: var(--ink-faint); }
@@ -1513,6 +1563,7 @@ ul.tight li { margin-bottom: .25rem; }
 @media (pointer: coarse) {
   .palette button { padding: .6rem .9rem .6rem .7rem; }
   .tool-rail button { width: 2.75rem; height: 2.75rem; }
+  .plot-status__stamps button { width: 2.6rem; height: 2.6rem; }
   .plot__zoom button { width: 2.75rem; height: 2.75rem; }
   .plot-steps-nav__dot { padding: .55rem .8rem; }
   .rotate-fine__btn { min-height: 2.75rem; min-width: 3.25rem; }
@@ -1524,5 +1575,5 @@ ul.tight li { margin-bottom: .25rem; }
 @media print {
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
-  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference { display: none !important; }
+  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .palette-pop, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference { display: none !important; }
 }
