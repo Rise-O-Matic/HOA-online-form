@@ -1,0 +1,1088 @@
+/* =========================================================
+   Plot editor — the "Draw Your Plan" Konva surface.
+   Raster material grid (cellState painted onto an offscreen
+   canvas) + vector annotations (callouts / measurements /
+   Line-tool walls) + undo/redo + DOM-scroll pan/zoom + the
+   offscreen print/preview compositor.
+   Pure geometry (grid projection, flood-fill core) lives in
+   geometry.js; form plumbing (autosave, progress, packet)
+   in app.js; the parcel/orientation come in through
+   rebuildGridForParcel() and setPlotBackdrop() from the
+   map wizard.
+   ========================================================= */
+import {
+  CELL_SIZE, FEET_PER_CELL, LINE_WIDTH_FEET,
+  computeBBox, fitSimilarity, buildParcelGrid, computeFloodFill
+} from "./geometry.js";
+import { $, $$ } from "./utils.js";
+// Function-only imports from the entry module (a deliberate ESM cycle: app.js
+// imports this module. Hoisted function declarations are safe to import in a
+// cycle as long as they're only CALLED at event time — never read a non-function
+// binding from app.js at this module's top level).
+import { scheduleAutosave, updateProgress } from "./app.js";
+
+const PALETTE = [
+  { id: "turf",      label: "Turf",            color: "#7cb342" },
+  { id: "grass",     label: "Grass",           color: "#a5d36a" },
+  { id: "concrete",  label: "Concrete",        color: "#c2bdb2" },
+  { id: "patio",     label: "Patio Cover",     color: "#d98a6a" },
+  { id: "mulch",     label: "Mulch / Planter", color: "#b07a4e" },
+  { id: "retaining", label: "Retaining Wall",  color: "#7a5c46" },
+  { id: "shed",      label: "Shed",            color: "#e2473b" },
+  { id: "tree",      label: "Tree",            color: "#2e6b35" },
+  { id: "light",     label: "Yard Light",      color: "#f4c430" },
+  { id: "camera",    label: "Camera",          color: "#6a4bb0" }
+];
+const PALETTE_MAP = Object.fromEntries(PALETTE.map(p => [p.id, p]));
+
+// Inline stroke icons (18px, currentColor) — one per tool.
+const ICON = {
+  paint: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5 4 20c-.7.7-.2 2 .8 2 1.6 0 3.2-.6 4.4-1.8L14 15.5"/><path d="m12 12 6.5-6.5a2.1 2.1 0 0 1 3 3L15 15"/></svg>',
+  rect: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/></svg>',
+  erase: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16"/><path d="M15.5 5.5 20 10l-7.5 7.5H8.5L4 13a2 2 0 0 1 0-2.8l6.7-6.7a2 2 0 0 1 2.8 0z"/></svg>',
+  fill: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m11 3 8 8-7.3 7.3a2 2 0 0 1-2.8 0L4 13.8a2 2 0 0 1 0-2.8z"/><path d="M8 6 5 9"/><path d="M20 15c0 1.5 1.2 2.6 1.2 4a1.2 1.2 0 0 1-2.4 0c0-1.4 1.2-2.5 1.2-4z"/></svg>',
+  callout: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v11H10l-4 4v-4H4z"/></svg>',
+  measure: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="1.2"/><path d="M6.5 8v3M10 8v4M13.5 8v3M17 8v4"/></svg>',
+  select: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5.5 15 2-6.4 6.4-2z"/><path d="m13.5 13.5 5 5"/></svg>',
+  pan: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V11m0-3a1.5 1.5 0 0 1 3 0v5.5c0 3-2.2 5.5-5.2 5.5H12c-1.6 0-2.6-.6-3.6-1.7l-3-3.3a1.5 1.5 0 0 1 2.2-2z"/></svg>',
+  line: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.7" fill="currentColor" stroke="none"/></svg>'
+};
+
+// Each tool's one-line hint is shown above the canvas while that tool is selected
+// (replaces the old wall-of-text intro paragraph). Edit the copy here, not the DOM.
+const TOOL_MODES = [
+  { id: "paint",    label: "Paint",    icon: ICON.paint,
+    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; set the brush width above. Right-click erases from any tool." },
+  { id: "rect",     label: "Rectangle", icon: ICON.rect,
+    hint: "Drag diagonally to fill a solid block with the selected material." },
+  { id: "erase",    label: "Erase",    icon: ICON.erase,
+    hint: "Drag to clear painted tiles. Click a line, callout, or measurement to delete it." },
+  { id: "fill",     label: "Fill",     icon: ICON.fill,
+    hint: "Click an enclosed area to flood it with the selected material — <strong>Line</strong> edges act as walls." },
+  { id: "line",     label: "Line",     icon: ICON.line,
+    hint: "Drag between two points to draw an edge line. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
+  { id: "callout",  label: "Callout",  icon: ICON.callout,
+    hint: "Press where the label should sit, drag to the thing it points at, release, then type the text." },
+  { id: "measure",  label: "Measure",  icon: ICON.measure,
+    hint: "Drag between two points to add a dimension arrow labeled with the distance in feet." },
+  { id: "select",   label: "Select",   icon: ICON.select,
+    hint: "Drag a line, callout, or measurement to reposition it." },
+  { id: "pan",      label: "Pan",      icon: ICON.pan,
+    hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms." }
+];
+
+// Fixed real-world scale (1 grid tile = 1 sq ft, CELL_SIZE px at 100% zoom) — the scale
+// constants and the projection math live in geometry.js.
+const MAX_ZOOM_ABS = 6;       // hard zoom-in cap (relative to 100%)
+const SAFE_CANVAS_PX = 3200;  // cap on the backing canvas's longest side (content × zoom) to bound memory
+// Baked aerial alignment correction. The county's 2020 orthophoto sits a few feet off the parcel
+// vectors — verified NOT a datum issue (a NAD83↔WGS84 datumTransformation on the query moves the
+// parcels 0.00 ft), so it's the orthophoto's own rectification accuracy and can't be reprojected
+// away. Instead we shift the aerial backdrop by a fixed GROUND vector (feet, +E/+N) that
+// rebuildBgLayer() rotates by the parcel bearing into stage space, so it's correct at any
+// orientation. Observed (tuned by eye over two passes): the aerial sat ≈ +1 ft E, +3.6 ft N of
+// the outline, so we push it back the other way. This is a by-eye constant — tune it here.
+const AERIAL_NUDGE_FT = { east: -1.0, north: -3.6 };
+let gridCols = 80;            // grid width in tiles (= feet); recomputed per parcel
+let gridRows = 60;            // grid height in tiles (= feet)
+let parcelPolygonPx = null;   // polygon vertices in pixel coords, traced as a Konva.Line overlay
+let scaleFeetPerPixel = FEET_PER_CELL / CELL_SIZE; // real-world scale for the Measure tool (content px → feet); refined once a parcel is selected
+
+const KONVA_AVAILABLE = typeof Konva !== "undefined";
+const plotHost = $("#plot-konva-host");
+let plotBgDataUrl = null; // aerial snapshot from the Orient step, shown behind the drawing as a tracing aid
+let plotBgParcelPx = null; // the parcel ring projected into the snapshot's own pixel space, so the
+                           // aerial can be registered 1:1 to parcelPolygonPx instead of blindly cover-fit
+
+let stage = null, bgLayer = null, gridLayer = null, drawLayer = null, overlayLayer = null;
+let gridLinesCanvas = null, paintCanvas = null, gridCtx = null; // offscreen 2D canvases behind the grid
+let gridLinesNode = null, gridImageNode = null;                 // Konva.Images wrapping the two canvases
+let paintClipGroup = null;                                      // clips painted material to the parcel footprint
+let cellState = new Map();     // "c,r" -> material id (sparse; big lots are mostly empty)
+let stageReady = false;
+let activeMaterial = "turf";
+let activeMode = "paint";
+let brushSize = 3;             // square paint brush, in tiles (= feet)
+let painting = false, lastCell = null; // in-progress freehand paint/erase stroke
+let eraseGesture = false;              // right-click / Ctrl(⌘)+click forces erase regardless of tool
+let lineDraft = null, lineGhost = null; // shift-held straight-line paint stroke
+let gridLineDraft = null, gridLineGhost = null; // Line tool: grid-snapped vector line annotation
+let rectDraft = null, rectGhost = null; // Rectangle tool: drag-to-fill a block of cells
+let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in rebuildGridForParcel
+
+let dragOrigin = null, ghostNode = null;         // measure drag
+let calloutDraft = null, calloutGhost = null;    // callout
+let selectedNode = null, selectionRect = null;   // Select/move tool
+
+let undoStack = [], redoStack = [], restoringHistory = false;
+
+// View model: the stage is sized to content × viewZoom and lives inside the scrollable host,
+// so panning is native scroll (scrollbars / middle-mouse / hand tool) and zoom is a resize.
+let viewZoom = 1;
+let panActive = false, panStartX = 0, panStartY = 0, panScrollL = 0, panScrollT = 0;
+
+function formatFeet(feet) {
+  return `${feet.toFixed(1)} ft`;
+}
+
+/* --- Stage setup: stage sized to content × zoom inside a scrollable host --- */
+function initPlotStage() {
+  if (!KONVA_AVAILABLE) {
+    const msg = $("#plot-fallback-msg");
+    if (msg) msg.hidden = false;
+    return;
+  }
+  stage = new Konva.Stage({ container: "plot-konva-host", width: gridCols * CELL_SIZE, height: gridRows * CELL_SIZE });
+  bgLayer = new Konva.Layer({ listening: false });   // aerial + parcel outline
+  gridLayer = new Konva.Layer({ listening: false }); // graph-paper lines + painted cells
+  drawLayer = new Konva.Layer();                     // callouts + measurements
+  overlayLayer = new Konva.Layer();                  // in-progress ghosts
+  stage.add(bgLayer, gridLayer, drawLayer, overlayLayer);
+  makeGridCanvases(gridCols, gridRows);
+  gridLinesNode = new Konva.Image({ image: gridLinesCanvas, x: 0, y: 0, listening: false });
+  gridImageNode = new Konva.Image({ image: paintCanvas, x: 0, y: 0, listening: false });
+  // Occlude painted material outside the dashed parcel outline: the paint image lives in a
+  // clip group tracing the footprint, while the graph-paper lines stay full-square for context.
+  paintClipGroup = new Konva.Group({ listening: false, clipFunc: clipToParcel });
+  paintClipGroup.add(gridImageNode);
+  gridLayer.add(gridLinesNode, paintClipGroup);
+  // Blend the painted materials into the aerial beneath (multiply) so the ground texture
+  // reads through your plan. It's a CSS blend on the layer's own DOM canvas, compositing
+  // live against bgLayer; toDataURL() ignores it, so print/preview keeps solid opaque colors.
+  const gridCanvasEl = (typeof gridLayer.getNativeCanvasElement === "function")
+    ? gridLayer.getNativeCanvasElement()
+    : gridLayer.getCanvas() && gridLayer.getCanvas()._canvas;
+  if (gridCanvasEl) gridCanvasEl.style.mixBlendMode = "multiply";
+  if (plotHost) plotHost.style.touchAction = "none";
+  stage.on("pointerdown", onStagePointerDown);
+  stage.on("pointermove", onStagePointerMove);
+  stage.on("pointerup", onStagePointerUp);
+  stage.on("wheel", onWheel);
+  stage.on("click tap", e => { if (activeMode === "select" && e.target === stage) clearSelection(); });
+  // A gesture that RELEASES past the canvas edge never fires the stage's own pointerup
+  // (native events only reach elements the pointer is still over) — without this, an
+  // in-progress paint stroke / measurement / callout is silently abandoned. onStagePointerUp
+  // is idempotent, so double-binding alongside the stage's own listener is safe.
+  window.addEventListener("pointerup", onStagePointerUp);
+  // Native scroll panning: middle-mouse anywhere, or left-drag while the Pan tool is active.
+  plotHost.addEventListener("pointerdown", onHostPointerDown);
+  window.addEventListener("pointermove", onHostPointerMove);
+  window.addEventListener("pointerup", onHostPointerUp);
+  plotHost.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); // suppress MMB autoscroll
+  plotHost.addEventListener("contextmenu", e => e.preventDefault()); // right-click erases instead of opening the menu
+  stageReady = true;
+  applyStageSize();
+  fitView();
+  window.addEventListener("resize", onViewportResize);
+}
+
+/* --- Middle-mouse / hand-tool panning (adjusts native scroll) --- */
+function onHostPointerDown(e) {
+  if (e.button === 1 || (activeMode === "pan" && e.button === 0)) {
+    panActive = true;
+    panStartX = e.clientX; panStartY = e.clientY;
+    panScrollL = plotHost.scrollLeft; panScrollT = plotHost.scrollTop;
+    try { plotHost.setPointerCapture(e.pointerId); } catch (_) {}
+    plotHost.style.cursor = "grabbing";
+    e.preventDefault();
+  }
+}
+function onHostPointerMove(e) {
+  if (!panActive) return;
+  plotHost.scrollLeft = panScrollL - (e.clientX - panStartX);
+  plotHost.scrollTop = panScrollT - (e.clientY - panStartY);
+}
+function onHostPointerUp(e) {
+  if (!panActive) return;
+  panActive = false;
+  try { plotHost.releasePointerCapture(e.pointerId); } catch (_) {}
+  plotHost.style.cursor = activeMode === "pan" ? "grab" : "";
+}
+
+// Clip path (content-pixel space) tracing the parcel footprint, used as the clipFunc for the
+// painted-material group so paint is occluded outside the dashed red outline. Reads the live
+// parcelPolygonPx each draw, so it tracks parcel/orientation changes automatically. Before a
+// parcel resolves, it falls back to the full content rect (nothing hidden).
+function clipToParcel(ctx) {
+  const poly = parcelPolygonPx;
+  if (!poly || poly.length < 3) {
+    ctx.rect(0, 0, gridCols * CELL_SIZE, gridRows * CELL_SIZE);
+    return;
+  }
+  ctx.beginPath();
+  poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.closePath();
+}
+
+/* --- Grid canvases (graph paper + painted cells) --- */
+function makeGridCanvases(cols, rows) {
+  const w = cols * CELL_SIZE, h = rows * CELL_SIZE;
+  gridLinesCanvas = document.createElement("canvas");
+  gridLinesCanvas.width = w; gridLinesCanvas.height = h;
+  drawGraphPaper(gridLinesCanvas.getContext("2d"), cols, rows);
+  paintCanvas = document.createElement("canvas");
+  paintCanvas.width = w; paintCanvas.height = h;
+  gridCtx = paintCanvas.getContext("2d");
+}
+
+// Transparent graph paper (aerial backdrop shows through unpainted tiles): light 1-ft lines,
+// heavier every 10 ft for a rough ruler feel.
+function drawGraphPaper(ctx, cols, rows) {
+  const w = cols * CELL_SIZE, h = rows * CELL_SIZE;
+  ctx.clearRect(0, 0, w, h);
+  ctx.lineWidth = 1;
+  for (let c = 0; c <= cols; c++) {
+    const x = Math.round(c * CELL_SIZE) + 0.5;
+    ctx.strokeStyle = (c % 10 === 0) ? "rgba(60,50,40,.32)" : "rgba(60,50,40,.10)";
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  for (let r = 0; r <= rows; r++) {
+    const y = Math.round(r * CELL_SIZE) + 0.5;
+    ctx.strokeStyle = (r % 10 === 0) ? "rgba(60,50,40,.32)" : "rgba(60,50,40,.10)";
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+}
+
+function paintCellRaw(c, r, id) {
+  if (c < 0 || r < 0 || c >= gridCols || r >= gridRows || !gridCtx) return;
+  const key = c + "," + r;
+  if (id) {
+    cellState.set(key, id);
+    gridCtx.fillStyle = PALETTE_MAP[id]?.color || "#7cb342";
+    gridCtx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+  } else {
+    cellState.delete(key);
+    gridCtx.clearRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+  }
+}
+
+// Square brush of side `brushSize`, roughly centered on (c, r).
+function paintBrush(c, r, id) {
+  const off = Math.floor(brushSize / 2);
+  for (let dy = 0; dy < brushSize; dy++)
+    for (let dx = 0; dx < brushSize; dx++)
+      paintCellRaw(c - off + dx, r - off + dy, id);
+}
+
+// Stamp the brush along the line between two cells so a fast drag leaves no gaps.
+function paintStroke(c0, r0, c1, r1, id) {
+  const steps = Math.max(Math.abs(c1 - c0), Math.abs(r1 - r0));
+  if (steps === 0) { paintBrush(c1, r1, id); return; }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    paintBrush(Math.round(c0 + (c1 - c0) * t), Math.round(r0 + (r1 - r0) * t), id);
+  }
+}
+
+function cellFromPointer() {
+  const p = stage.getRelativePointerPosition();
+  if (!p) return null;
+  return { c: Math.floor(p.x / CELL_SIZE), r: Math.floor(p.y / CELL_SIZE) };
+}
+
+// Fill the axis-aligned block of cells between two corners with `id` (null = erase).
+function fillRect(c0, r0, c1, r1, id) {
+  const cMin = Math.min(c0, c1), cMax = Math.max(c0, c1);
+  const rMin = Math.min(r0, r1), rMax = Math.max(r0, r1);
+  for (let r = rMin; r <= rMax; r++)
+    for (let c = cMin; c <= cMax; c++) paintCellRaw(c, r, id);
+}
+
+// --- Line-tool walls as flood-fill barriers (any angle, including triangles) ---
+// Lines are thin geometric walls; the paint-bucket core (sub-tile flood, >50%-coverage
+// tile rule, on-wall strip recovery) is computeFloodFill in geometry.js. This side just
+// collects the wall segments from the live drawLayer, in TILE units (1 unit = CELL_SIZE px).
+function collectLineSegments() {
+  const segs = [];
+  if (!drawLayer) return segs;
+  drawLayer.getChildren().forEach(node => {
+    if (node.getAttr("kind") !== "line") return;
+    const pts = node.points ? node.points() : null;
+    if (!pts || pts.length < 4) return;
+    const ox = node.x() || 0, oy = node.y() || 0;   // include any Select-tool drag offset
+    segs.push({
+      x0: (pts[0] + ox) / CELL_SIZE, y0: (pts[1] + oy) / CELL_SIZE,
+      x1: (pts[2] + ox) / CELL_SIZE, y1: (pts[3] + oy) / CELL_SIZE
+    });
+  });
+  return segs;
+}
+
+// Paint-bucket. The region logic (same-material flood bounded by grid edges, colour and
+// Line-tool walls at any angle, >50%-coverage tile rule, seeded on the clicked side of a
+// wall) is computeFloodFill in geometry.js — this wrapper just feeds it the live state
+// and paints whatever tiles it returns.
+function floodFill(c0, r0, id, seed) {
+  computeFloodFill({
+    cols: gridCols, rows: gridRows, cells: cellState,
+    c0, r0, id, seed, segments: collectLineSegments()
+  }).forEach(([c, r]) => paintCellRaw(c, r, id));
+}
+
+function repaintAllCells() {
+  if (!gridCtx) return;
+  gridCtx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
+  cellState.forEach((id, key) => {
+    const i = key.indexOf(","), c = +key.slice(0, i), r = +key.slice(i + 1);
+    gridCtx.fillStyle = PALETTE_MAP[id]?.color || "#7cb342";
+    gridCtx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+  });
+}
+
+function loadCells(pairs) {
+  cellState = new Map(Array.isArray(pairs) ? pairs : []);
+  repaintAllCells();
+}
+
+/* --- Zoom (resize the stage; the host scrolls). Content/measurement coords never change. --- */
+function contentSize() { return { w: gridCols * CELL_SIZE, h: gridRows * CELL_SIZE }; }
+
+// Smallest zoom that still fully covers the viewport — you can't zoom out into whitespace.
+function minZoom() {
+  const { w, h } = contentSize();
+  const vw = plotHost.clientWidth || 0, vh = plotHost.clientHeight || 0;
+  if (!w || !h || !vw || !vh) return 1;
+  return Math.max(vw / w, vh / h);
+}
+// Largest zoom whose backing canvas (content × zoom) stays within a safe pixel budget, so
+// zooming into a big lot can't allocate a browser-crashing canvas.
+function maxZoom() {
+  const { w, h } = contentSize();
+  return Math.min(MAX_ZOOM_ABS, SAFE_CANVAS_PX / Math.max(w, h, 1));
+}
+function clampZoom(z) { return Math.max(minZoom(), Math.min(Math.max(minZoom(), maxZoom()), z)); }
+
+function applyStageSize() {
+  if (!stageReady) return;
+  const { w, h } = contentSize();
+  stage.width(w * viewZoom);
+  stage.height(h * viewZoom);
+  stage.scale({ x: viewZoom, y: viewZoom });
+  stage.batchDraw();
+  updateZoomReadout();
+}
+
+function updateZoomReadout() {
+  const el = $("#plot-zoom-level");
+  if (el) el.textContent = Math.round(viewZoom * 100) + "%";
+}
+
+// Zoom toward a viewport point (cx, cy relative to the host's top-left), keeping it fixed.
+function zoomAt(rawZoom, cx, cy) {
+  if (!stageReady) return;
+  const nz = clampZoom(rawZoom);
+  if (nz === viewZoom) return;
+  const contentX = (plotHost.scrollLeft + cx) / viewZoom;
+  const contentY = (plotHost.scrollTop + cy) / viewZoom;
+  viewZoom = nz;
+  applyStageSize();
+  plotHost.scrollLeft = contentX * nz - cx;
+  plotHost.scrollTop = contentY * nz - cy;
+}
+
+function onWheel(e) {
+  e.evt.preventDefault();
+  const rect = plotHost.getBoundingClientRect();
+  zoomAt(viewZoom * (e.evt.deltaY < 0 ? 1.15 : 1 / 1.15), e.evt.clientX - rect.left, e.evt.clientY - rect.top);
+}
+
+function zoomButton(factor) {
+  zoomAt(viewZoom * factor, plotHost.clientWidth / 2, plotHost.clientHeight / 2);
+}
+
+// "Fit": zoom all the way out (to the no-whitespace floor) and center on the parcel.
+function fitView() {
+  if (!stageReady) return;
+  viewZoom = clampZoom(minZoom());
+  applyStageSize();
+  centerOnParcel();
+  updateZoomReadout();
+}
+
+function centerOnParcel() {
+  const bb = (parcelPolygonPx && parcelPolygonPx.length)
+    ? computeBBox(parcelPolygonPx)
+    : { minX: 0, minY: 0, maxX: gridCols * CELL_SIZE, maxY: gridRows * CELL_SIZE };
+  const cx = ((bb.minX + bb.maxX) / 2) * viewZoom, cy = ((bb.minY + bb.maxY) / 2) * viewZoom;
+  plotHost.scrollLeft = cx - plotHost.clientWidth / 2;
+  plotHost.scrollTop = cy - plotHost.clientHeight / 2;
+}
+
+// On container resize the no-whitespace floor changes; re-clamp and re-apply.
+function onViewportResize() {
+  if (!stageReady) return;
+  viewZoom = clampZoom(viewZoom);
+  applyStageSize();
+}
+
+function rebuildBgLayer() {
+  if (!stageReady) return;
+  bgLayer.destroyChildren();
+  if (plotBgDataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      if (!stageReady) return;
+      const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+      let node;
+      const fit = (plotBgParcelPx && plotBgParcelPx.length && parcelPolygonPx && parcelPolygonPx.length)
+        ? fitSimilarity(plotBgParcelPx, parcelPolygonPx) : null;
+      if (fit) {
+        // Register the aerial to the drawn parcel outline by a least-squares similarity
+        // fit over every corresponding parcel vertex (see fitSimilarity). This lines the
+        // lot/house up 1:1 with the dashed outline at the correct scale AND angle, fixing
+        // the small drift the old bounding-box registration left behind (it ignored any
+        // rotation between the snapshot's and the grid's projections of the ring).
+        const scale = Math.hypot(fit.a, fit.b);
+        node = new Konva.Image({
+          image: img,
+          width: img.width, height: img.height,
+          x: fit.tx, y: fit.ty,
+          scaleX: scale, scaleY: scale,
+          rotation: Math.atan2(fit.b, fit.a) * 180 / Math.PI,
+          opacity: 0.33, listening: false
+        });
+      } else {
+        // Fallback (e.g. a restored draft with no fresh capture): cover-fit + center.
+        const scale = Math.max(w / img.width, h / img.height);
+        node = new Konva.Image({
+          image: img,
+          width: img.width * scale, height: img.height * scale,
+          x: (w - img.width * scale) / 2, y: (h - img.height * scale) / 2,
+          opacity: 0.33, listening: false
+        });
+      }
+      // Apply the baked ortho correction (see AERIAL_NUDGE_FT). It's a ground vector in feet;
+      // rotate it by the parcel bearing and flip Y to land in stage pixels, then translate the
+      // whole aerial by it. At bearing 0 this is just (+E → +x, +N → −y). A pure translation of
+      // the node origin is unaffected by the node's own rotation, so this composes cleanly.
+      if (node && (AERIAL_NUDGE_FT.east || AERIAL_NUDGE_FT.north)) {
+        const b = (lastPlotBearing || 0) * Math.PI / 180;
+        const e = AERIAL_NUDGE_FT.east, nth = AERIAL_NUDGE_FT.north;
+        node.x(node.x() + (e * Math.cos(b) - nth * Math.sin(b)) * CELL_SIZE);
+        node.y(node.y() - (e * Math.sin(b) + nth * Math.cos(b)) * CELL_SIZE);
+      }
+      bgLayer.add(node);
+      node.moveToBottom();
+      bgLayer.batchDraw();
+    };
+    img.src = plotBgDataUrl;
+  }
+  if (parcelPolygonPx && parcelPolygonPx.length) {
+    bgLayer.add(new Konva.Line({
+      points: parcelPolygonPx.flatMap(p => [p.x, p.y]),
+      closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3], listening: false
+    }));
+  }
+  bgLayer.batchDraw();
+}
+
+/* --- Toolbars --- */
+function buildPalette() {
+  const pal = $("#palette");
+  PALETTE.forEach(p => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.material = p.id;
+    if (p.id === activeMaterial) b.classList.add("is-active");
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = p.color;
+    b.append(sw, document.createTextNode(p.label));
+    b.addEventListener("click", () => {
+      activeMaterial = p.id;
+      $$("#palette button").forEach(x => x.classList.toggle("is-active", x === b));
+    });
+    pal.appendChild(b);
+  });
+}
+
+function buildToolbar() {
+  const pal = $("#tool-palette");
+  TOOL_MODES.forEach(t => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.mode = t.id;
+    if (t.id === activeMode) b.classList.add("is-active");
+    b.innerHTML = (t.icon || "") + '<span>' + t.label + '</span>';
+    b.title = t.label;
+    b.addEventListener("click", () => setActiveMode(t.id));
+    pal.appendChild(b);
+  });
+}
+
+// One contextual hint line above the canvas, swapped as the tool changes.
+function updateToolHint(mode) {
+  const hintEl = $("#tool-hint");
+  const t = TOOL_MODES.find(x => x.id === mode);
+  if (hintEl && t) hintEl.innerHTML = "<strong>" + t.label + ":</strong> " + t.hint;
+}
+
+function setActiveMode(mode) {
+  if (calloutDraft && mode !== "callout") {
+    calloutDraft = null;
+    if (calloutGhost) { calloutGhost.destroy(); calloutGhost = null; overlayLayer?.batchDraw(); }
+  }
+  if (dragOrigin && mode !== "measure") {
+    if (ghostNode) { ghostNode.destroy(); ghostNode = null; }
+    dragOrigin = null; overlayLayer?.batchDraw();
+  }
+  if (lineDraft) { lineDraft = null; if (lineGhost) { lineGhost.destroy(); lineGhost = null; overlayLayer?.batchDraw(); } }
+  if (gridLineDraft) { gridLineDraft = null; if (gridLineGhost) { gridLineGhost.destroy(); gridLineGhost = null; overlayLayer?.batchDraw(); } }
+  if (rectDraft) { rectDraft = null; if (rectGhost) { rectGhost.destroy(); rectGhost = null; overlayLayer?.batchDraw(); } }
+  if (mode !== "select") clearSelection();
+  activeMode = mode;
+  updateToolHint(mode);
+  $$("#tool-palette button").forEach(x => x.classList.toggle("is-active", x.dataset.mode === mode));
+  // Annotations intercept pointer events in Erase (click removes) and Select (click/drag to
+  // move) modes, and are draggable only in Select; otherwise they're inert so a paint stroke
+  // passes straight through to the grid underneath.
+  if (drawLayer) drawLayer.getChildren().forEach(n => {
+    n.listening(mode === "erase" || mode === "select");
+    n.draggable(mode === "select");
+  });
+  if (plotHost) plotHost.style.cursor =
+    mode === "pan" ? "grab" : (mode === "erase" ? "cell" : (mode === "select" ? "move" : (mode === "fill" ? "pointer" : "crosshair")));
+}
+
+/* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
+function attachShapeInteractions(node) {
+  node.listening(activeMode === "erase" || activeMode === "select");
+  node.draggable(activeMode === "select");
+  node.on("click tap", () => {
+    if (activeMode === "erase") {
+      recordUndoPoint();
+      if (node === selectedNode) clearSelection();
+      node.destroy();
+      drawLayer.batchDraw();
+      scheduleAutosave();
+    } else if (activeMode === "select") {
+      selectShape(node);
+    }
+  });
+  node.on("dragstart", () => { recordUndoPoint(); selectShape(node); });
+  node.on("dragmove", updateSelectionRect);
+  node.on("dragend", () => { updateSelectionRect(); scheduleAutosave(); });
+}
+
+/* --- Select / move: highlight a callout or measurement and drag it to reposition --- */
+function selectShape(node) {
+  selectedNode = node;
+  updateSelectionRect();
+}
+
+function updateSelectionRect() {
+  if (!selectedNode) return;
+  const box = selectedNode.getClientRect({ relativeTo: drawLayer }); // content coords
+  if (!selectionRect) {
+    selectionRect = new Konva.Rect({ stroke: "#2b6cb0", strokeWidth: 1.5, dash: [5, 3], listening: false });
+    overlayLayer.add(selectionRect);
+  }
+  const pad = 5;
+  selectionRect.setAttrs({ x: box.x - pad, y: box.y - pad, width: box.width + pad * 2, height: box.height + pad * 2 });
+  overlayLayer.batchDraw();
+}
+
+function clearSelection() {
+  selectedNode = null;
+  if (selectionRect) { selectionRect.destroy(); selectionRect = null; overlayLayer?.batchDraw(); }
+}
+
+/* --- Undo / redo (snapshots BOTH the painted grid and the annotations) --- */
+function snapshotState() {
+  return JSON.stringify({
+    cells: cellState ? [...cellState] : [],
+    ann: (drawLayer ? drawLayer.toObject().children : []) || []
+  });
+}
+
+function recordUndoPoint() {
+  if (restoringHistory || !stageReady) return;
+  undoStack.push(snapshotState());
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack = [];
+  updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  const undoBtn = $("#plot-undo"), redoBtn = $("#plot-redo");
+  if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+  if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+}
+
+function applyHistorySnapshot(json) {
+  restoringHistory = true;
+  clearSelection();
+  const s = JSON.parse(json);
+  loadCells(s.cells);
+  drawLayer.destroyChildren();
+  hydrateShapesInto(drawLayer, s.ann);
+  drawLayer.batchDraw();
+  gridLayer.batchDraw();
+  restoringHistory = false;
+}
+
+function undo() {
+  if (!undoStack.length || !stageReady) return;
+  redoStack.push(snapshotState());
+  applyHistorySnapshot(undoStack.pop());
+  updateUndoRedoButtons();
+  scheduleAutosave();
+}
+
+function redo() {
+  if (!redoStack.length || !stageReady) return;
+  undoStack.push(snapshotState());
+  applyHistorySnapshot(redoStack.pop());
+  updateUndoRedoButtons();
+  scheduleAutosave();
+}
+
+// Rebuilds annotations from serialized JSON (draft restore, undo/redo) and re-wires
+// interactions — Konva's serialized JSON carries no event listeners.
+function hydrateShapesInto(layer, shapes) {
+  (shapes || []).forEach(obj => {
+    try {
+      const node = Konva.Node.create(obj);
+      layer.add(node);
+      attachShapeInteractions(node);
+    } catch (e) { /* skip a shape that fails to reconstruct rather than aborting the whole restore */ }
+  });
+}
+
+/* --- Measure (drag-to-draw dimension arrow with a feet label) --- */
+function makeMeasureGhost(a) {
+  return new Konva.Arrow({ points: [a.x, a.y, a.x, a.y], stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2, pointerAtBeginning: true, pointerAtEnding: true, listening: false });
+}
+
+function buildMeasurementGroup(a, b) {
+  const group = new Konva.Group();
+  group.setAttr("kind", "measurement");
+  const arrow = new Konva.Arrow({
+    points: [a.x, a.y, b.x, b.y],
+    stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2,
+    pointerAtBeginning: true, pointerAtEnding: true, pointerLength: 7, pointerWidth: 7
+  });
+  const feet = Math.hypot(b.x - a.x, b.y - a.y) * scaleFeetPerPixel;
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const label = new Konva.Text({
+    x: mid.x, y: mid.y - 16, text: formatFeet(feet),
+    fontFamily: "sans-serif", fontSize: 12, fontStyle: "bold", fill: "#2b6cb0", padding: 2
+  });
+  label.offsetX(label.width() / 2);
+  group.add(arrow, label);
+  return group;
+}
+
+/* --- Callout (leader line + text box, free-angle) ---
+   The label box anchors where you PRESS; you drag toward the thing you're pointing at,
+   and the arrowhead lands where you RELEASE. This keeps the committed arrow pointing the
+   same way as the drag ghost (both arrowhead-at-release), so the callout no longer
+   "deploys backwards" from the direction it was drawn. */
+function startCallout(pos) {
+  calloutDraft = { anchor: pos };  // label box anchor = first press point
+  calloutGhost = new Konva.Arrow({
+    points: [pos.x, pos.y, pos.x, pos.y],
+    stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2, pointerAtEnding: true, listening: false
+  });
+  overlayLayer.add(calloutGhost);
+}
+
+function updateCalloutGhost(pos) {
+  if (!calloutGhost || !calloutDraft) return;
+  calloutGhost.points([calloutDraft.anchor.x, calloutDraft.anchor.y, pos.x, pos.y]);
+  overlayLayer.batchDraw();
+}
+
+function commitCallout(pos) {
+  if (!calloutDraft) return;
+  const anchor = calloutDraft.anchor;
+  calloutDraft = null;
+  if (calloutGhost) { calloutGhost.destroy(); calloutGhost = null; }
+  overlayLayer.batchDraw();
+  // Where the arrow points (the "tip"): the release point, or a small default offset for a click.
+  const tip = (pos && Math.hypot(pos.x - anchor.x, pos.y - anchor.y) > 10) ? pos : { x: anchor.x + 60, y: anchor.y + 40 };
+  const text = window.prompt("Callout text:");
+  if (!text || !text.trim()) return;
+  const group = buildCalloutGroup(tip, anchor, text.trim());
+  recordUndoPoint();
+  drawLayer.add(group);
+  attachShapeInteractions(group);
+  drawLayer.batchDraw();
+  scheduleAutosave();
+}
+
+function buildCalloutGroup(tip, labelPos, text) {
+  const group = new Konva.Group();
+  group.setAttr("kind", "callout");
+  const arrow = new Konva.Arrow({
+    points: [labelPos.x, labelPos.y, tip.x, tip.y],
+    stroke: "#a4111f", fill: "#a4111f", strokeWidth: 1.5,
+    pointerLength: 8, pointerWidth: 8, pointerAtEnding: true
+  });
+  const label = new Konva.Label({ x: labelPos.x, y: labelPos.y });
+  label.add(new Konva.Tag({ fill: "#fff9f2", stroke: "#a4111f", strokeWidth: 1.5, cornerRadius: 4, shadowColor: "#000", shadowOpacity: .15, shadowBlur: 4, shadowOffset: { x: 0, y: 2 } }));
+  label.add(new Konva.Text({ text, fontFamily: "sans-serif", fontSize: 13, padding: 6, fill: "#1e1a14" }));
+  group.add(arrow, label);
+  return group;
+}
+
+/* --- Stage-level pointer dispatch ---
+   Everything works in CONTENT coordinates (getRelativePointerPosition), so painting,
+   callouts and measurements stay put under the pointer at any pan/zoom. --- */
+function contentPos() { return stage.getRelativePointerPosition(); }
+
+function cellCenter(c, r) { return { x: (c + 0.5) * CELL_SIZE, y: (r + 0.5) * CELL_SIZE }; }
+
+/* --- Line tool: a grid-snapped black vector line (~2 in wide at real-world scale) ---
+   Endpoints snap to the nearest grid-line intersection so the line rides the graph paper
+   instead of filling squares. It's a plain Konva.Line on drawLayer, so it selects, erases,
+   undoes, persists and prints exactly like a callout/measurement. */
+function snapToGrid(pos) {
+  return { x: Math.round(pos.x / CELL_SIZE) * CELL_SIZE, y: Math.round(pos.y / CELL_SIZE) * CELL_SIZE };
+}
+
+// 2 inches expressed in content pixels via the real-world scale, so the line stays 2 in
+// regardless of zoom (Konva scales the stroke with the stage's viewZoom).
+function gridLineWidth() { return LINE_WIDTH_FEET / scaleFeetPerPixel; }
+
+function buildLineNode(a, b) {
+  const line = new Konva.Line({
+    points: [a.x, a.y, b.x, b.y],
+    stroke: "#1e1a14", strokeWidth: gridLineWidth(),
+    lineCap: "round", lineJoin: "round",
+    hitStrokeWidth: 12   // fat invisible hit area so a hairline-thin line is still easy to select/erase
+  });
+  line.setAttr("kind", "line");
+  return line;
+}
+
+function onStagePointerDown(e) {
+  if (!stageReady || activeMode === "pan") return;          // pan is handled by the host scroll pan
+  const evt = e && e.evt;
+  // Right-click or Ctrl(⌘)+click is a quick eraser on the painted grid, available from any tool.
+  eraseGesture = !!(evt && (evt.button === 2 || evt.ctrlKey || evt.metaKey));
+  if (evt && evt.button !== 0 && !eraseGesture) return;     // left button (or the erase gesture) draws; MMB pans
+  if (activeMode === "rect") {
+    // Rectangle tool: rubber-band a filled block of cells. Right-click/Ctrl erases the block instead.
+    const cell = cellFromPointer();
+    if (!cell) return;
+    const id = eraseGesture ? null : activeMaterial;
+    rectDraft = { c0: cell.c, r0: cell.r, id };
+    const color = id ? (PALETTE_MAP[id]?.color || "#7cb342") : "#a4111f";
+    rectGhost = new Konva.Rect({
+      x: cell.c * CELL_SIZE, y: cell.r * CELL_SIZE, width: CELL_SIZE, height: CELL_SIZE,
+      fill: color, opacity: id ? 0.5 : 0.18, stroke: color, strokeWidth: 1.5,
+      dash: id ? null : [6, 4], listening: false
+    });
+    overlayLayer.add(rectGhost);
+    overlayLayer.batchDraw();
+    return;
+  }
+  if (eraseGesture || activeMode === "paint" || activeMode === "erase") {
+    const cell = cellFromPointer();
+    if (!cell) return;
+    const id = (eraseGesture || activeMode === "erase") ? null : activeMaterial;
+    recordUndoPoint();
+    if (evt && evt.shiftKey && !eraseGesture) {
+      // Shift: rubber-band a straight line, committed on release.
+      lineDraft = { c0: cell.c, r0: cell.r, id };
+      const a = cellCenter(cell.c, cell.r);
+      lineGhost = new Konva.Line({
+        points: [a.x, a.y, a.x, a.y],
+        stroke: id ? (PALETTE_MAP[id]?.color || "#7cb342") : "#a4111f",
+        strokeWidth: Math.max(2, brushSize * CELL_SIZE), opacity: 0.5,
+        lineCap: "round", dash: id ? null : [6, 4], listening: false
+      });
+      overlayLayer.add(lineGhost);
+      return;
+    }
+    painting = true; lastCell = cell;
+    paintBrush(cell.c, cell.r, id);
+    gridLayer.batchDraw();
+    return;
+  }
+  if (activeMode === "fill") {
+    const cell = cellFromPointer();
+    if (!cell) return;
+    recordUndoPoint();
+    floodFill(cell.c, cell.r, activeMaterial, contentPos());
+    gridLayer.batchDraw();
+    scheduleAutosave();
+    return;
+  }
+  const pos = contentPos();
+  if (!pos) return;
+  if (activeMode === "line") {
+    const a = snapToGrid(pos);
+    gridLineDraft = { x: a.x, y: a.y };
+    gridLineGhost = new Konva.Line({
+      points: [a.x, a.y, a.x, a.y],
+      stroke: "#1e1a14", strokeWidth: gridLineWidth(),
+      lineCap: "round", opacity: 0.55, listening: false
+    });
+    overlayLayer.add(gridLineGhost);
+    overlayLayer.batchDraw();
+    return;
+  }
+  if (activeMode === "callout") { startCallout(pos); return; }
+  if (activeMode === "measure") {
+    dragOrigin = pos;
+    ghostNode = makeMeasureGhost(pos);
+    overlayLayer.add(ghostNode);
+  }
+}
+
+function onStagePointerMove() {
+  if (!stageReady) return;
+  if (rectDraft && rectGhost) {
+    const cell = cellFromPointer();
+    if (cell) {
+      const cMin = Math.min(rectDraft.c0, cell.c), cMax = Math.max(rectDraft.c0, cell.c);
+      const rMin = Math.min(rectDraft.r0, cell.r), rMax = Math.max(rectDraft.r0, cell.r);
+      rectGhost.setAttrs({
+        x: cMin * CELL_SIZE, y: rMin * CELL_SIZE,
+        width: (cMax - cMin + 1) * CELL_SIZE, height: (rMax - rMin + 1) * CELL_SIZE
+      });
+      overlayLayer.batchDraw();
+    }
+    return;
+  }
+  if (lineDraft && lineGhost) {
+    const cell = cellFromPointer();
+    if (cell) {
+      const a = cellCenter(lineDraft.c0, lineDraft.r0), b = cellCenter(cell.c, cell.r);
+      lineGhost.points([a.x, a.y, b.x, b.y]);
+      overlayLayer.batchDraw();
+    }
+    return;
+  }
+  if (gridLineDraft && gridLineGhost) {
+    const p = contentPos();
+    if (p) {
+      const b = snapToGrid(p);
+      gridLineGhost.points([gridLineDraft.x, gridLineDraft.y, b.x, b.y]);
+      overlayLayer.batchDraw();
+    }
+    return;
+  }
+  if (painting) {
+    const cell = cellFromPointer();
+    if (cell && (!lastCell || cell.c !== lastCell.c || cell.r !== lastCell.r)) {
+      const id = (eraseGesture || activeMode === "erase") ? null : activeMaterial;
+      paintStroke(lastCell.c, lastCell.r, cell.c, cell.r, id);
+      lastCell = cell;
+      gridLayer.batchDraw();
+    }
+    return;
+  }
+  const pos = contentPos();
+  if (!pos) return;
+  if (dragOrigin && ghostNode) { ghostNode.points([dragOrigin.x, dragOrigin.y, pos.x, pos.y]); overlayLayer.batchDraw(); return; }
+  if (calloutDraft) { updateCalloutGhost(pos); }
+}
+
+function onStagePointerUp() {
+  if (!stageReady) return;
+  if (rectDraft) {
+    const cell = cellFromPointer();
+    if (cell) {
+      recordUndoPoint();
+      fillRect(rectDraft.c0, rectDraft.r0, cell.c, cell.r, rectDraft.id);
+      gridLayer.batchDraw();
+      scheduleAutosave();
+    }
+    if (rectGhost) { rectGhost.destroy(); rectGhost = null; }
+    rectDraft = null; eraseGesture = false;
+    overlayLayer.batchDraw();
+    return;
+  }
+  if (lineDraft) {
+    const cell = cellFromPointer();
+    if (cell) paintStroke(lineDraft.c0, lineDraft.r0, cell.c, cell.r, lineDraft.id);
+    if (lineGhost) { lineGhost.destroy(); lineGhost = null; }
+    lineDraft = null;
+    gridLayer.batchDraw(); overlayLayer.batchDraw();
+    scheduleAutosave();
+    return;
+  }
+  if (gridLineDraft) {
+    const p = contentPos();
+    const b = p ? snapToGrid(p) : { x: gridLineDraft.x, y: gridLineDraft.y };
+    const a = gridLineDraft; gridLineDraft = null;
+    if (gridLineGhost) { gridLineGhost.destroy(); gridLineGhost = null; }
+    overlayLayer.batchDraw();
+    if (Math.hypot(b.x - a.x, b.y - a.y) >= CELL_SIZE / 2) { // ignore a click that never dragged to a new intersection
+      const node = buildLineNode(a, b);
+      recordUndoPoint();
+      drawLayer.add(node);
+      attachShapeInteractions(node);
+      drawLayer.batchDraw();
+      scheduleAutosave();
+    }
+    return;
+  }
+  if (painting) { painting = false; lastCell = null; eraseGesture = false; scheduleAutosave(); return; }
+  if (dragOrigin && ghostNode) {
+    const b = contentPos() || dragOrigin;
+    ghostNode.destroy(); ghostNode = null;
+    const a = dragOrigin; dragOrigin = null;
+    overlayLayer.batchDraw();
+    if (Math.hypot(b.x - a.x, b.y - a.y) >= CELL_SIZE) {
+      const group = buildMeasurementGroup(a, b);
+      recordUndoPoint();
+      drawLayer.add(group);
+      attachShapeInteractions(group);
+      drawLayer.batchDraw();
+      scheduleAutosave();
+    }
+    return;
+  }
+  if (calloutDraft) commitCallout(contentPos());
+}
+
+/* --- Clear / parcel rebuild / print export --- */
+function clearPlot() {
+  if (!plotUsed()) return;
+  if (!confirm("Clear your drawn site plan? This can't be undone.")) return;
+  recordUndoPoint();
+  clearSelection();
+  cellState = new Map();
+  repaintAllCells();
+  gridLayer.batchDraw();
+  drawLayer.destroyChildren();
+  drawLayer.batchDraw();
+  scheduleAutosave();
+}
+
+export function plotUsed() {
+  return !!((cellState && cellState.size > 0) || (drawLayer && drawLayer.getChildren().length > 0));
+}
+
+export function rebuildGridForParcel(feature, bearing, apn) {
+  const ring = feature.geometry.coordinates[0];
+  const parcelChanged = apn !== lastPlotAPN || bearing !== lastPlotBearing;
+  // Re-entering the Draw step with the same parcel/orientation must NOT wipe the drawing —
+  // just make the stage match the (now-visible) host and recenter.
+  if (!parcelChanged && stageReady && paintCanvas) {
+    fitView();
+    return;
+  }
+  const result = buildParcelGrid(ring, bearing);
+  if (plotUsed() && parcelChanged) {
+    if (!confirm("Changing the parcel or orientation will clear your drawn site plan. Continue?")) return;
+  }
+  gridCols = result.cols;
+  gridRows = result.rows;
+  parcelPolygonPx = result.polygonPx;
+  scaleFeetPerPixel = (result.metersPerCell * 3.28084) / CELL_SIZE;
+  lastPlotAPN = apn;
+  lastPlotBearing = bearing;
+  if (!stageReady) initPlotStage();
+  if (stageReady) {
+    makeGridCanvases(gridCols, gridRows);
+    gridLinesNode.image(gridLinesCanvas); gridLinesNode.position({ x: 0, y: 0 });
+    gridImageNode.image(paintCanvas); gridImageNode.position({ x: 0, y: 0 });
+    cellState = new Map();
+    clearSelection();
+    rebuildBgLayer();
+    drawLayer.destroyChildren();
+    drawLayer.batchDraw();
+    gridLayer.batchDraw();
+    fitView();
+    undoStack = []; redoStack = [];
+    updateUndoRedoButtons();
+  }
+  updateProgress();
+}
+
+// Renders the plan (painted grid + parcel outline + callouts/measurements) to a PNG for
+// the preview modal / print output. Built on a throwaway offscreen Stage at full content
+// resolution (never the live, pan/zoomed one), so the current view and any in-progress
+// ghost shapes on overlayLayer can't affect the output.
+export function renderPlotImage() {
+  if (!KONVA_AVAILABLE) return "";
+  const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+  const exportStage = new Konva.Stage({ container: document.createElement("div"), width: w, height: h });
+  const layer = new Konva.Layer();
+  exportStage.add(layer);
+  layer.add(new Konva.Rect({ x: 0, y: 0, width: w, height: h, fill: "#fff" }));
+  if (gridLinesCanvas) layer.add(new Konva.Image({ image: gridLinesCanvas, x: 0, y: 0 }));
+  if (paintCanvas) {
+    // Occlude paint outside the footprint in print/preview too (same clip as the live stage).
+    const clip = new Konva.Group({ clipFunc: clipToParcel });
+    clip.add(new Konva.Image({ image: paintCanvas, x: 0, y: 0 }));
+    layer.add(clip);
+  }
+  if (parcelPolygonPx && parcelPolygonPx.length) {
+    layer.add(new Konva.Line({
+      points: parcelPolygonPx.flatMap(p => [p.x, p.y]),
+      closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3]
+    }));
+  }
+  const shapes = drawLayer ? (JSON.parse(drawLayer.toJSON()).children || []) : [];
+  shapes.forEach(obj => {
+    try { layer.add(Konva.Node.create(obj)); } catch (e) { /* skip a shape that fails to reconstruct */ }
+  });
+  layer.draw();
+  const dataUrl = exportStage.toDataURL({ pixelRatio: 2, mimeType: "image/png" });
+  exportStage.destroy();
+  return dataUrl;
+}
+
+buildPalette();
+buildToolbar();
+initPlotStage();
+setActiveMode("paint");
+$("#plot-clear").addEventListener("click", clearPlot);
+$("#plot-undo").addEventListener("click", undo);
+$("#plot-redo").addEventListener("click", redo);
+// (#plot-use-upload in the Konva-fallback notice carries data-switch-upload and is
+// wired with the other mid-wizard bail-out buttons in the plan-mode section below.)
+const brushInput = $("#brush-size");
+if (brushInput) {
+  const brushOut = $("#brush-size-val");
+  const syncBrush = () => {
+    brushSize = Math.max(1, parseInt(brushInput.value, 10) || 1);
+    if (brushOut) brushOut.textContent = brushSize + " ft";
+  };
+  brushInput.addEventListener("input", syncBrush);
+  syncBrush();
+}
+$("#plot-zoom-in")?.addEventListener("click", () => zoomButton(1.25));
+$("#plot-zoom-out")?.addEventListener("click", () => zoomButton(1 / 1.25));
+$("#plot-zoom-reset")?.addEventListener("click", fitView);
+updateUndoRedoButtons();
+
+/* --- Cross-module API --- */
+
+// The Orient step's aerial snapshot + the parcel ring in the snapshot's own pixel
+// space, handed over by the map wizard just before the Draw step becomes visible.
+export function setPlotBackdrop(dataUrl, parcelPx) {
+  plotBgDataUrl = dataUrl;
+  plotBgParcelPx = parcelPx;
+}
+
+// The drawing exactly as the draft stores it. The version field is stamped by the
+// caller — persistence (app.js) owns the draft format.
+export function serializePlot() {
+  return {
+    cell: CELL_SIZE,
+    cols: gridCols, rows: gridRows,
+    cells: cellState ? [...cellState] : [],
+    annotations: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || []
+  };
+}
+
+// Rehydrate a saved drawing (draft restore). No-ops before the stage exists
+// (e.g. Konva failed to load — the fallback message is already showing).
+export function restorePlot(plot) {
+  if (!stageReady) return;
+  loadCells(plot.cells);
+  gridLayer.batchDraw();
+  if (Array.isArray(plot.annotations)) {
+    hydrateShapesInto(drawLayer, plot.annotations);
+    drawLayer.batchDraw();
+  }
+  undoStack = []; redoStack = [];
+  updateUndoRedoButtons();
+}
