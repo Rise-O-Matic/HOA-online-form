@@ -1,0 +1,9 @@
+{
+  "name": "hoa-online-form",
+  "private": true,
+  "type": "module",
+  "description": "Fairway Canyon HOA ARC application (static mockup). No dependencies, no build step - this file exists only so Node parses assets/*.js as ES modules for `node --check` and `node --test`.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
