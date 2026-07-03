@@ -59,6 +59,30 @@ Five external services, unpinned or unguaranteed, sit under a public form.
 - [x] **Touch/mobile pass** — map drag-to-rotate converted to pointer events (works with a finger; step 3 forces `touch-action:none` on the map canvas); the plot stage gained two-finger pinch-zoom/pan (a second finger cancels an in-progress draw and rolls back the half stroke via its undo point); `pointer: coarse` CSS bumps tool/zoom/rotate buttons to fingertip size. Sidenav already collapsed at ≤900px (unchanged).
 - [x] Keyboard access review — Orient step is now a focus stop (arrow keys rotate 1°, Shift 15°, aria-live readout). Documented as inherently pointer-only: parcel selection (map click) and freehand drawing; the upload path is the complete keyboard route (native controls end-to-end), every builder step carries a focusable "upload instead" bail-out, and the typed signature removed the last pointer-only *required* interaction. See CLAUDE.md "Keyboard access".
 
+## Sprint 6 — Draw-step UX: explicit completion + compact layout
+
+From the 2026-07-03 Draw-step UI/UX review. Two problems: `plotUsed()` marks the plan "provided" after a single stroke (completion is inferred, never declared — and step 4 is the wizard's only dead end, with no forward CTA), and five stacked control rows (~250px: intro, 10 material chips, 9 tool chips, brush+zoom, hint) push the canvas below the fold while materials and tools share one undifferentiated pill style.
+
+- [ ] **"Done — use this plan" button** — primary CTA at the bottom of step 4, restoring the wizard's Next-button rhythm. Sets a new `plotConfirmed` flag persisted in the draft (additive to `.v4`, same pattern as `ownerSigMethod`); cleared by Clear plan and by a parcel/orientation rebuild, *kept* across further edits (adding detail shouldn't un-complete the plan). Build-mode `plotProvided()` becomes `plotUsed() && plotConfirmed`; the Section 06 row and soft gate gain a third state ("In progress — mark it finished in Section 02"); the progress meter counts the plot only when confirmed. Done also flips the Draw dot to `is-done` and scrolls on to Section 03.
+- [ ] **Tool rail** — tools become an icon-only vertical rail docked to the canvas's left edge (the 17px SVGs already exist in `ICON`); Undo/Redo join the rail; the active tool's *name* leads the hint strip so labels aren't lost. Rail flips to a horizontal strip on narrow viewports; keep `pointer: coarse` fingertip sizing.
+- [ ] **Materials = the one palette** — a single swatch-first chip row above the canvas; kills the two-identical-palettes soup.
+- [ ] **Zoom overlay** — the − / % / + / Fit group moves onto the canvas as a corner overlay, MapLibre-control style, consistent with the step-2 map.
+- [ ] **One status strip** — merge `#tool-hint` and the `.hotkey-bar` into a single strip docked directly under the canvas (hint text left, mouse glyphs right).
+- [ ] **Contextual brush control** — brush width appears only while Paint is active (in the status strip), removing the standing `.plot__controls` row.
+- [ ] **Scale badge** — persistent `1 □ = 1 ft` badge in a canvas corner; the intro paragraph shrinks to one line.
+- [ ] **Breadcrumb-only back-nav** — delete the "Back to orientation" button (redundant: the step dots already navigate back, map-wizard.js `data-goto` guard) and stop parking navigation next to the destructive Clear plan.
+- [ ] **Keyboard undo** — Ctrl+Z / Ctrl+Shift+Z (+ Ctrl+Y) while step 4 is active; must not fire while typing in an input/textarea (callout text editing).
+- [ ] Fix `clearPlot()` confirm copy — it says "This can't be undone" but `recordUndoPoint()` runs first, so Clear *is* undoable via Undo. Say so instead.
+
+## Sprint 7 — Draw-step content: stamps, legend, custom materials
+
+Second half of the 2026-07-03 review. Tree / Yard Light / Camera are *area materials* today — semantically wrong for point objects (a purple 3-ft smear means "camera") — and no output path carries a material legend, so the reviewer's PDF shows colored regions with no key at all.
+
+- [ ] **Stamp tool** — new data-driven `STAMPS` constant (id / label / SVG path / default footprint in ft): tree, palm, shrub, cactus/agave, xeriscape groundcover, boulder, camera, yard light, AC unit. Black glyph with a white halo (reads over both aerial and painted fills; standard plan-symbol convention). Click to place as `kind:"stamp"` Konva nodes on `drawLayer` — Select-drag, Erase-click, undo/redo, `serializePlot`/`restorePlot` (rehydrate needs `attachShapeInteractions`, like the other shapes), and print via `renderPlotImage()` all come free from the existing vector pipeline. Picker = a glyph flyout in the contextual slot where Paint's brush control lives. v1 uses fixed real-world sizes (tree ~15 ft canopy, shrub ~3 ft, legible symbolic sizes for hardware); resize-on-select is a later nicety.
+- [ ] **Retire the point-object materials** — drop the Tree / Yard Light / Camera chips from `PALETTE` but keep their ids resolvable in `PALETTE_MAP` so cells painted in old drafts still render.
+- [ ] **Auto legend** — swatch + label for every material actually present in `cellState` (plus stamps used), rendered beside the plan in `buildPreview()` and `buildPrintHTML()`. Prerequisite for custom colors — a custom color is meaningless to the reviewer without its name.
+- [ ] **Custom named materials** — "+ Add material" chip → small popover (name + native `<input type=color>`). Persist as `plot.customMaterials` in the draft (additive to `.v4`); restore must merge them into `PALETTE_MAP` *before* `loadCells()` repaints. Guardrail: clamp or warn on very light colors — the paint layer multiplies over the aerial on screen and near-white washes out.
+
 ## Decision-gated / backlog
 
 - **Real submission backend** — a minimal endpoint (Cloudflare Worker or a form-relay service) accepting the JSON + files would flip the app from mockup to usable tool and obsolete much of Sprint 1's manual-assembly UX. Needs a hosting/ownership decision with the HOA client first. Sprint 1 is still worth doing: the packet-review screen becomes the upload UI.
