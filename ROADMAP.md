@@ -6,11 +6,11 @@ Distilled from a full-project critique (2026-07-02): architecture, robustness, a
 
 ---
 
-## Sprint 0 — Baseline (housekeeping, small)
+## Sprint 0 — Baseline (housekeeping, small) ✅ 2026-07-02
 
-- [ ] Commit the outstanding working tree (the Konva grid-painter rework + CLAUDE.md updates) so sprints start from a clean anchor.
-- [ ] Rewrite `README.md` (~10 lines): live branch is `master`, feature list still describes the pre-map-wizard plot painter. Remove the need for CLAUDE.md's "distrust the README" disclaimer.
-- [ ] Optional: move `416603fe-...pdf` to `docs/source-form.pdf` (nothing in the code references it; update the mention in CLAUDE.md).
+- [x] Commit the outstanding working tree (the Konva grid-painter rework + CLAUDE.md updates) so sprints start from a clean anchor. (`5b88785`)
+- [x] Rewrite `README.md` (~10 lines): live branch is `master`, feature list still describes the pre-map-wizard plot painter. Remove the need for CLAUDE.md's "distrust the README" disclaimer.
+- [x] Move `416603fe-...pdf` to `docs/source-form.pdf` (nothing in the code references it; update the mention in CLAUDE.md).
 
 ## Sprint 1 — Packet assembly & the submission ending (highest impact)
 

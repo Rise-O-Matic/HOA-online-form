@@ -18,3 +18,7 @@
 ## Pending
 
 - **#3** — Photography examples: good vs. bad. The Photos section (Section 05) now shows a ✓ Do this / ✗ Not this placeholder frame for each requested photo. Replace the placeholder frames with real comparison images.
+
+## Sprint log
+
+- **Sprint 0 (2026-07-02)** — baseline housekeeping, complete. Committed the outstanding grid-painter/auto-align working tree as a clean anchor; rewrote `README.md` (correct `master` branch, current feature description, points to CLAUDE.md/ROADMAP.md); moved the source PDF to `docs/source-form.pdf` and updated its mention in CLAUDE.md. Next: Sprint 1 (packet assembly & submission ending).

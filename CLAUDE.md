@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A **static, client-side mockup** of the Fairway Canyon HOA Architectural Review Committee (ARC) application, rebuilt from a printed PDF (`416603fe-...pdf`) as a web form for GitHub Pages. **There is no backend.** Nothing is transmitted: drafts persist to `localStorage`, "submitting" generates a printable preview or opens a `mailto:`, and data can be exported as JSON.
+A **static, client-side mockup** of the Fairway Canyon HOA Architectural Review Committee (ARC) application, rebuilt from a printed PDF (`docs/source-form.pdf`) as a web form for GitHub Pages. **There is no backend.** Nothing is transmitted: drafts persist to `localStorage`, "submitting" generates a printable preview or opens a `mailto:`, and data can be exported as JSON.
 
 Plain HTML/CSS/JS — **no build step, no package.json, no npm dependencies, no tests, no linter.** The only external runtime dependencies are CDN `<script>`/`<link>` tags: MapLibre GL JS (maps), Konva.js (the plot-plan drawing stage — a raster material grid plus vector annotations), and Google Fonts. (There is one dev-time Node script, `tools/fetch-streets.mjs`, but it is not part of the app or its build — see Commands.)
 
@@ -19,7 +19,7 @@ Plain HTML/CSS/JS — **no build step, no package.json, no npm dependencies, no 
 ## Commands
 
 - **Run locally:** `python -m http.server 8000`, then visit `http://localhost:8000`. Use a server rather than opening `index.html` via `file://` — the county GIS `fetch()` calls and map tiles need an http(s) origin.
-- **Deploy:** GitHub Pages serves the repo root (`.nojekyll` disables Jekyll processing). The live branch is **`master`**. The README is stale — it says `main`, and its feature list still describes the pre-map-wizard plot painter — so trust this file and the code over it.
+- **Deploy:** GitHub Pages serves the repo root (`.nojekyll` disables Jekyll processing). The live branch is **`master`**.
 - **Sanity check:** there is no lint/test tooling, but always run `node --check assets/app.js` after editing it — it catches syntax errors before you hand a change to the user (who does the real browser verification). The app itself needs no build step: edit the three source files and reload.
 - **Regenerate the baked street extract:** `node tools/fetch-streets.mjs` rewrites `assets/streets.json` from live Overpass (it tries several public mirrors in order). Widen the `BBOX` in that script if the service area grows. Dev-time tool only — the deployed app just `fetch()`es the committed JSON.
 
