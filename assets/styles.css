@@ -731,9 +731,12 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .map-reference__status.err { color: var(--crimson); font-weight: 500; }
 .map-reference__status.ok  { color: var(--green); font-weight: 500; }
 
+/* One shared viewport for the Select AND Orient steps (the container is physically
+   reparented between them) — full content width, same height in both, so stepping
+   back and forth doesn't make the map jump sizes. */
 #map-container {
-  width: 100%; max-width: 400px;
-  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: clamp(340px, 62vh, 560px);
   margin: 0 auto;
   border: 1px solid var(--line-2);
   border-radius: var(--radius-sm);
@@ -748,13 +751,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   margin-top: .8rem;
 }
 .orient-layout .map-reference { margin-top: 0; }
-/* Let the Orient-step map fill the whole content column instead of the 400px
-   square used for parcel selection in step 2. */
-#map-step3 #map-container {
-  max-width: none;
-  aspect-ratio: auto;
-  height: clamp(340px, 62vh, 560px);
-}
 .map-reference__placeholder {
   position: absolute; inset: 0;
   display: grid; place-items: center;
@@ -971,7 +967,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 
 @media (max-width: 620px) {
-  #map-container { max-width: 100%; }
   .rotate-panel { max-width: 100%; }
 }
 

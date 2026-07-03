@@ -434,6 +434,7 @@ async function locateByAddress(address) {
   mapStatus.textContent = "Looking up address\u2026";
   mapStatus.className = "map-reference__status";
   hideGisFallback(); // fresh attempt \u2014 don't leave a stale outage notice up
+  step2Camera = null; // new lookup \u2014 the remembered selection view belongs to the old address
 
   const parsed = parseAddress(address);
   if (!parsed) {
@@ -497,6 +498,7 @@ async function locateByAddress(address) {
 let currentStep = 1;
 const stepDots = $$(".plot-steps-nav__dot");
 const mapContainer = $("#map-container");
+let step2Camera = null; // Select-step center/zoom, captured on 2→3 so backing up restores the view as it was left
 
 // Parcel outline/fill/label layers. Shown in Select (step 2) so the user can click their lot;
 // hidden in Orient (step 3) so the map is a clean, non-interactive rotation dial — hiding them
@@ -533,6 +535,11 @@ function showStep(n) {
       }));
     } catch (e) { setPlotBackdrop(null, null); }
   }
+  // Leaving Select for Orient: remember the selection view (center/zoom) so backing up to
+  // step 2 shows the map as the user left it, not step 3's tight parcel framing.
+  if (n === 3 && currentStep === 2 && mapInstance) {
+    step2Camera = { center: mapInstance.getCenter(), zoom: mapInstance.getZoom() };
+  }
   currentStep = n;
   $$(".plot-step").forEach(el => el.classList.toggle("is-active", +el.dataset.step === n));
   stepDots.forEach(dot => {
@@ -564,8 +571,9 @@ function showStep(n) {
 
   // Step 2→3: just frame the selected parcel. Auto-align / front-yard-down logic is
   // removed — the user orients by dragging the map to rotate (see the drag-to-rotate
-  // handler in initMap). The current bearing is preserved across the fit, so returning
-  // to Orient keeps whatever rotation the user already dialed in.
+  // handler in initMap). The bearing MUST be passed explicitly: fitBounds animates to
+  // bearing 0 by default, which silently un-did the user's dialed rotation a moment
+  // after re-entering Orient. parcelBearing keeps it (and a draft-restored bearing) put.
   if (n === 3 && selectedParcelGeoJSON && mapInstance) {
     const ring = selectedParcelGeoJSON.geometry.coordinates[0];
     const bounds = ring.reduce(
@@ -574,7 +582,7 @@ function showStep(n) {
     );
     setTimeout(() => {
       mapInstance.resize();
-      mapInstance.fitBounds(bounds, { padding: 40, duration: 600 });
+      mapInstance.fitBounds(bounds, { padding: 40, duration: 600, bearing: parcelBearing });
     }, 100);
   }
 
@@ -594,6 +602,15 @@ function showStep(n) {
     mapContainer.removeAttribute("tabindex");
     mapContainer.removeAttribute("role");
     mapContainer.removeAttribute("aria-label");
+    // Backing up from Orient: restore the selection view captured on the way out (step 3's
+    // fitBounds left the camera zoomed tight on the parcel) and square it north-up for
+    // selection. parcelBearing still holds the dialed rotation — the step-3 fitBounds above
+    // re-applies it when the user goes forward again. 100ms keeps this behind the reparent
+    // resize (50ms); nothing else animates the camera on step-2 entry, so no collision.
+    if (step2Camera) {
+      const cam = step2Camera;
+      setTimeout(() => mapInstance.easeTo({ center: cam.center, zoom: cam.zoom, bearing: 0, duration: 600 }), 100);
+    }
   }
   // Step 3: a pure rotation dial. Every built-in mouse/touch gesture is disabled — the only
   // interaction is our custom drag-to-rotate — and the parcel layers are hidden so they can't
