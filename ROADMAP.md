@@ -53,11 +53,11 @@ Five external services, unpinned or unguaranteed, sit under a public form.
 - [x] **ES-module split** — `utils.js` / `geometry.js` / `plot-editor.js` / `map-wizard.js` / `app.js` (entry: form+persistence), loaded natively; no build step. Found & fixed along the way: restore never re-set `selectedParcelGeoJSON`, so the first post-restore autosave dropped `parcelCoords` and the grid failed to rebuild on the *next* reload.
 - [x] Update CLAUDE.md architecture section to match the new file layout (module map, cycle rules, test command).
 
-## Sprint 5 — Accessibility & mobile
+## Sprint 5 — Accessibility & mobile ✅ 2026-07-03
 
-- [ ] **Non-canvas alternative for the owner signature** (typed-name attestation or the same print-and-attach path neighbors use). The canvas pad is the only required interaction with no keyboard/AT alternative.
-- [ ] **Touch/mobile pass** — homeowners will open this on phones: drag-to-rotate, 8-px-tile painting, sidenav layout, pinch-zoom on the plot stage.
-- [ ] Keyboard access review for the map wizard and drawing tools (document what's infeasible; ensure the upload path remains a complete keyboard-only route).
+- [x] **Non-canvas alternative for the owner signature** — Draw/Type toggle on the owner signature; typing a full legal name acts as the e-signature (validated, in the progress meter, persisted as `ownerSigMethod`/`ownerTypedSignature`, rendered in preview + print). Also fixed the latent pad-sizing bug (canvas was sized while the layout was `display:none`).
+- [x] **Touch/mobile pass** — map drag-to-rotate converted to pointer events (works with a finger; step 3 forces `touch-action:none` on the map canvas); the plot stage gained two-finger pinch-zoom/pan (a second finger cancels an in-progress draw and rolls back the half stroke via its undo point); `pointer: coarse` CSS bumps tool/zoom/rotate buttons to fingertip size. Sidenav already collapsed at ≤900px (unchanged).
+- [x] Keyboard access review — Orient step is now a focus stop (arrow keys rotate 1°, Shift 15°, aria-live readout). Documented as inherently pointer-only: parcel selection (map click) and freehand drawing; the upload path is the complete keyboard route (native controls end-to-end), every builder step carries a focusable "upload instead" bail-out, and the typed signature removed the last pointer-only *required* interaction. See CLAUDE.md "Keyboard access".
 
 ## Decision-gated / backlog
 

@@ -151,25 +151,33 @@ function initMap() {
   // view around its center. Bound once; guarded on currentStep so it stays inert in step 2.
   const ROTATE_DEG_PER_PX = 0.5;
   const dragCanvas = mapInstance.getCanvasContainer();
-  let dragRotating = false, dragStartX = 0, dragStartBearing = 0;
-  dragCanvas.addEventListener("mousedown", (e) => {
-    if (currentStep !== 3 || e.button !== 0) return;
-    dragRotating = true;
+  // Pointer events (not mouse events) so a finger or pen rotates too — on touch, a drag
+  // never fires the mouse-event fallbacks. Capture keeps the gesture alive when the
+  // pointer leaves the map mid-drag; extra fingers are ignored (first pointer wins).
+  let rotatePointerId = null, dragStartX = 0, dragStartBearing = 0;
+  dragCanvas.addEventListener("pointerdown", (e) => {
+    if (currentStep !== 3 || rotatePointerId !== null) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    rotatePointerId = e.pointerId;
     dragStartX = e.clientX;
     dragStartBearing = mapInstance.getBearing();
     dragCanvas.style.cursor = "grabbing";
+    try { dragCanvas.setPointerCapture(e.pointerId); } catch (_) {}
     e.preventDefault();
   });
-  window.addEventListener("mousemove", (e) => {
-    if (!dragRotating) return;
+  dragCanvas.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== rotatePointerId) return;
     const dx = e.clientX - dragStartX;
     setRotation(dragStartBearing + dx * ROTATE_DEG_PER_PX);
   });
-  window.addEventListener("mouseup", () => {
-    if (!dragRotating) return;
-    dragRotating = false;
+  const endRotateDrag = (e) => {
+    if (e.pointerId !== rotatePointerId) return;
+    rotatePointerId = null;
     dragCanvas.style.cursor = "";
-  });
+    try { dragCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+  };
+  dragCanvas.addEventListener("pointerup", endRotateDrag);
+  dragCanvas.addEventListener("pointercancel", endRotateDrag);
 
   mapInstance.on("load", () => {
     // Hide building footprints from the base style
@@ -580,6 +588,12 @@ function showStep(n) {
     mapInstance.doubleClickZoom.enable();
     mapInstance.boxZoom.enable();
     setParcelLayersVisible(true);
+    // Undo the Orient-step overrides: give touch back to MapLibre's own pan/pinch handlers
+    // and drop the keyboard-rotation focus stop (selection is pointer-driven here).
+    mapInstance.getCanvas().style.touchAction = "";
+    mapContainer.removeAttribute("tabindex");
+    mapContainer.removeAttribute("role");
+    mapContainer.removeAttribute("aria-label");
   }
   // Step 3: a pure rotation dial. Every built-in mouse/touch gesture is disabled — the only
   // interaction is our custom drag-to-rotate — and the parcel layers are hidden so they can't
@@ -591,6 +605,15 @@ function showStep(n) {
     mapInstance.doubleClickZoom.disable();
     mapInstance.boxZoom.disable();
     setParcelLayersVisible(false);
+    // Touch drag-to-rotate: with MapLibre's handlers off, its stylesheet may still leave
+    // touch-action allowing native pan/zoom on the canvas, which would swallow the drag
+    // (pointercancel) before our rotate handler sees it. Force it off for this step.
+    mapInstance.getCanvas().style.touchAction = "none";
+    // Keyboard rotation: focus the map and use arrow keys (see the keydown handler below).
+    mapContainer.setAttribute("tabindex", "0");
+    mapContainer.setAttribute("role", "application");
+    mapContainer.setAttribute("aria-label",
+      "Property orientation map. Press Left or Right arrow to rotate one degree; hold Shift for 15 degrees.");
   }
 
   // Step 3→4 transition: rebuild grid from parcel (backdrop was already snapshotted above)
@@ -764,6 +787,19 @@ function nudgeRotation(delta) {
 }
 $("#rotate-fine-minus")?.addEventListener("click", () => nudgeRotation(-0.1));
 $("#rotate-fine-plus")?.addEventListener("click", () => nudgeRotation(0.1));
+
+// Keyboard rotation — the Orient step's drag gesture has no keyboard equivalent, so the
+// map container becomes a focus stop in step 3 (tabindex is set in showStep) and arrow
+// keys rotate: 1° per press, 15° with Shift. The ±0.1° buttons remain for fine tuning,
+// and the aria-live readout announces the new bearing.
+mapContainer?.addEventListener("keydown", (e) => {
+  if (currentStep !== 3) return;
+  const dir = (e.key === "ArrowRight" || e.key === "ArrowUp") ? 1
+            : (e.key === "ArrowLeft" || e.key === "ArrowDown") ? -1 : 0;
+  if (!dir) return;
+  e.preventDefault();
+  nudgeRotation(dir * (e.shiftKey ? 15 : 1));
+});
 
 // Street/satellite imagery toggle — lets the user spot the roofline/driveway to judge orientation
 function setSatelliteView(on) {

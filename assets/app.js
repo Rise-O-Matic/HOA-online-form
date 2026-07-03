@@ -67,8 +67,12 @@ class SignaturePad {
     window.addEventListener("resize", () => this.resize(true));
   }
   resize(preserve) {
-    const data = preserve && this.hasInk ? this.canvas.toDataURL() : null;
     const r = this.canvas.getBoundingClientRect();
+    // Hidden (the landing gate, or the Type signature method): the rect is 0×0, and sizing
+    // the backing store to it would destroy any ink. Keep the bitmap; resize again on reveal.
+    if (!r.width || !r.height) return;
+    const data = this.pending || (preserve && this.hasInk ? this.canvas.toDataURL() : null);
+    this.pending = null;
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.max(1, r.width * dpr);
     this.canvas.height = Math.max(1, r.height * dpr);
@@ -103,12 +107,16 @@ class SignaturePad {
     this.wrap.classList.remove("has-ink");
   }
   isEmpty() { return !this.hasInk; }
-  toDataURL() { return this.hasInk ? this.canvas.toDataURL("image/png") : null; }
+  toDataURL() {
+    if (this.pending) return this.pending; // restored ink not yet drawn (pad was hidden) — pass it through
+    return this.hasInk ? this.canvas.toDataURL("image/png") : null;
+  }
   fromDataURL(url) {
     if (!url) return;
+    const r = this.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) { this.pending = url; this._ink(); return; } // hidden — draw on next resize
     const img = new Image();
     img.onload = () => {
-      const r = this.canvas.getBoundingClientRect();
       this.ctx.drawImage(img, 0, 0, r.width, r.height);
       this._ink();
     };
@@ -118,6 +126,40 @@ class SignaturePad {
 
 const sigPads = {};
 $$(".sigpad").forEach(w => { sigPads[w.dataset.sigpad] = new SignaturePad(w); });
+
+/* Signature method: draw on the canvas pad, or type a full legal name. The typed path is
+   the keyboard/assistive-tech alternative — the pad is the only pointer-only required
+   interaction in the form. Both inputs are preserved when toggling; only the active
+   method counts for validation/progress and lands in preview/print. */
+let sigMethod = "draw";
+const typedSigInput = $("#typed-signature");
+
+function ownerSignatureProvided() {
+  return sigMethod === "type"
+    ? !!(typedSigInput && typedSigInput.value.trim())
+    : !sigPads.ownerAckSignature.isEmpty();
+}
+
+function setSigMethod(method) {
+  sigMethod = method === "type" ? "type" : "draw";
+  const pad = sigPads.ownerAckSignature;
+  [["#sig-method-draw", "draw"], ["#sig-method-type", "type"]].forEach(([sel, m]) => {
+    const btn = $(sel);
+    if (!btn) return;
+    btn.classList.toggle("is-active", sigMethod === m);
+    btn.setAttribute("aria-pressed", String(sigMethod === m));
+  });
+  pad.wrap.hidden = sigMethod !== "draw";
+  const typedWrap = $("#sig-typed-wrap");
+  if (typedWrap) typedWrap.hidden = sigMethod !== "type";
+  // The pad's canvas can't size itself while hidden — (re)size it on reveal.
+  if (sigMethod === "draw") pad.resize(true);
+  // Don't let a stale error from the other method linger.
+  pad.wrap.classList.remove("invalid");
+  if (typedSigInput) clearFieldError(typedSigInput);
+}
+$("#sig-method-draw")?.addEventListener("click", () => { setSigMethod("draw"); updateProgress(); scheduleAutosave(); });
+$("#sig-method-type")?.addEventListener("click", () => { setSigMethod("type"); updateProgress(); scheduleAutosave(); });
 
 
 /* ------------------------------------------------------
@@ -406,9 +448,9 @@ export function updateProgress() {
     if (el.type === "checkbox") { if (el.checked) done++; }
     else if (el.value && el.value.trim()) done++;
   });
-  // count the ack signature as required-ish
+  // count the ack signature as required-ish (drawn ink or a typed name, per the chosen method)
   let total = required.length + 1;
-  if (!sigPads.ownerAckSignature.isEmpty()) done++;
+  if (ownerSignatureProvided()) done++;
   // Packet items count too — 100% must not be reachable with an empty packet.
   // Three items: the plot plan, the requested photos (questionnaire answered AND
   // every requested shot attached), and the signed neighbor form.
@@ -657,6 +699,8 @@ function collect() {
     acks: {},
     ackDate: $("#ack-date").value,
     ownerAckSignature: sigPads.ownerAckSignature.toDataURL(),
+    ownerSigMethod: sigMethod,
+    ownerTypedSignature: typedSigInput ? typedSigInput.value.trim() : "",
     planMode: planMode,
     plot: { version: PLOT_VERSION, ...plotData },
     plotMeta: {
@@ -762,6 +806,8 @@ function restoreDraft() {
     });
   }
   // signatures
+  if (typedSigInput) typedSigInput.value = d.ownerTypedSignature || "";
+  if (d.ownerSigMethod === "type") setSigMethod("type");
   setTimeout(() => {
     if (d.ownerAckSignature) sigPads.ownerAckSignature.fromDataURL(d.ownerAckSignature);
   }, 60);
@@ -897,12 +943,20 @@ function validate() {
       if (!firstBad) firstBad = el;
     }
   });
-  // signatures
-  [["ownerAckSignature", "#acknowledgments"]].forEach(([k]) => {
-    const empty = sigPads[k].isEmpty();
-    sigPads[k].wrap.classList.toggle("invalid", empty);
-    if (empty && !firstBad) firstBad = sigPads[k].wrap;
-  });
+  // Owner signature — drawn ink or a typed full name, whichever method is selected.
+  const pad = sigPads.ownerAckSignature;
+  if (sigMethod === "type") {
+    pad.wrap.classList.remove("invalid");
+    clearFieldError(typedSigInput);
+    if (!typedSigInput.value.trim()) {
+      setFieldError(typedSigInput, "Type your full legal name to sign.");
+      if (!firstBad) firstBad = typedSigInput;
+    }
+  } else {
+    const empty = pad.isEmpty();
+    pad.wrap.classList.toggle("invalid", empty);
+    if (empty && !firstBad) firstBad = pad.wrap;
+  }
   return firstBad;
 }
 
@@ -917,9 +971,10 @@ function validateOrFocus() {
   return false;
 }
 
-// Clear inline errors on input
+// Clear inline errors on input (the typed signature isn't [required] — its requiredness
+// is conditional on the selected signature method — but its error should clear the same way)
 form.addEventListener("input", e => {
-  if (e.target.matches("[required]")) clearFieldError(e.target);
+  if (e.target.matches("[required]") || e.target === typedSigInput) clearFieldError(e.target);
 });
 
 /* ------------------------------------------------------
@@ -930,6 +985,12 @@ const previewContent = $("#preview-content");
 
 const yn = b => b ? '<span class="yes">✓ Included</span>' : '<span class="no">— not checked</span>';
 const sigImg = url => url ? `<img class="sig-img" src="${url}" alt="signature" />` : '<span class="no">— not signed</span>';
+// Owner signature per the selected method: drawn ink image, or the typed name set in a script face.
+const ownerSigHTML = d => d.ownerSigMethod === "type"
+  ? (d.ownerTypedSignature
+      ? `<span class="sig-typed-preview">${esc(d.ownerTypedSignature)}</span> <span class="no">(typed signature)</span>`
+      : '<span class="no">— not signed</span>')
+  : sigImg(d.ownerAckSignature);
 
 const SUB_LABELS = {
   req_plot: "Plot design with modification marked",
@@ -1008,7 +1069,7 @@ function buildPreview(d) {
       <h3>Owner Acknowledgments</h3>
       <ul class="doc-list">${acks}</ul>
       <dl style="margin-top:.6rem">
-        <dt>Owner Signature</dt><dd>${sigImg(d.ownerAckSignature)}</dd>
+        <dt>Owner Signature</dt><dd>${ownerSigHTML(d)}</dd>
         <dt>Date</dt><dd>${esc(d.ackDate) || '<span class="no">—</span>'}</dd>
       </dl>
     </div>`;
@@ -1108,9 +1169,13 @@ function buildPrintHTML(d) {
       <div class="print-sig-block">
         <div class="print-sig-row">
           <div class="print-sig-field">
-            <div class="print-sig-ink">${d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" />` : ""}</div>
+            <div class="print-sig-ink">${
+              d.ownerSigMethod === "type"
+                ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
+                : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" />` : "")
+            }</div>
             <div class="print-sig-line"></div>
-            <div class="print-sig-label">Homeowner(s) Signature</div>
+            <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " — signed electronically by typing name" : ""}</div>
           </div>
           <div class="print-sig-field print-sig-field--narrow">
             <div class="print-sig-ink">${esc(d.ackDate)}</div>
@@ -1182,6 +1247,7 @@ function printPreview() {
       .print-sig-field--narrow { flex: 0 0 160px; }
       .print-sig-ink { min-height: 28px; display: flex; align-items: flex-end; }
       .print-sig-line { border-bottom: 1px solid #333; margin-top: 2px; }
+      .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 16px; }
       .print-sig-label { font-size: 9px; color: #777; margin-top: 2px; }
       .print-footer-note { font-size: 8px; color: #999; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
     </style></head><body>
@@ -1397,6 +1463,11 @@ function enterForm() {
   layoutEl.hidden = false;
   window.scrollTo({ top: 0, behavior: "auto" });
   if (mapInstance) setTimeout(() => mapInstance.resize(), 60);
+  // The signature pads were constructed while the layout was display:none (0×0 rect), so
+  // their canvas backing stores are still unsized — size them now that they're visible.
+  // Timeout 0 keeps this ahead of restoreDraft()'s 60ms fromDataURL, so restored ink lands
+  // on a properly sized canvas.
+  setTimeout(() => Object.values(sigPads).forEach(p => p.resize(true)), 0);
 }
 function showLanding() {
   if (!landingEl || !layoutEl) return;

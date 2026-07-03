@@ -246,7 +246,7 @@
               </div>
               <div class="rotate-fine" role="group" aria-label="Fine-tune rotation">
                 <button type="button" class="rotate-fine__btn" id="rotate-fine-minus" aria-label="Rotate 0.1 degrees counter-clockwise" title="Nudge 0.1&deg; counter-clockwise">&minus;0.1&deg;</button>
-                <span class="rotate-fine__readout"><span id="map-rotate-fine">0.0</span>&deg;</span>
+                <span class="rotate-fine__readout" aria-live="polite"><span id="map-rotate-fine">0.0</span>&deg;</span>
                 <button type="button" class="rotate-fine__btn" id="rotate-fine-plus" aria-label="Rotate 0.1 degrees clockwise" title="Nudge 0.1&deg; clockwise">+0.1&deg;</button>
               </div>
 
@@ -518,10 +518,19 @@
         <div class="grid-2 ack-sign">
           <div class="field field--sig">
             <label>Owner Signature <span class="req">*</span></label>
+            <div class="sig-method" role="group" aria-label="Signature method">
+              <button type="button" class="sig-method__btn is-active" id="sig-method-draw" aria-pressed="true">Draw</button>
+              <button type="button" class="sig-method__btn" id="sig-method-type" aria-pressed="false">Type</button>
+            </div>
             <div class="sigpad" data-sigpad="ownerAckSignature">
               <canvas></canvas>
               <span class="sigpad__hint">Sign here</span>
               <button type="button" class="sigpad__clear" aria-label="Clear signature">Clear</button>
+            </div>
+            <div class="sig-typed" id="sig-typed-wrap" hidden>
+              <input type="text" id="typed-signature" name="typedSignature" autocomplete="name"
+                     placeholder="Type your full legal name" aria-describedby="sig-typed-note" />
+              <p class="sig-typed__note" id="sig-typed-note">Typing your full legal name here acts as your electronic signature on this application.</p>
             </div>
           </div>
           <div class="field">

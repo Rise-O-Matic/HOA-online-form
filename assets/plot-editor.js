@@ -68,7 +68,7 @@ const TOOL_MODES = [
   { id: "select",   label: "Select",   icon: ICON.select,
     hint: "Drag a line, callout, or measurement to reposition it." },
   { id: "pan",      label: "Pan",      icon: ICON.pan,
-    hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms." }
+    hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
 
 // Fixed real-world scale (1 grid tile = 1 sq ft, CELL_SIZE px at 100% zoom) — the scale
@@ -164,6 +164,14 @@ function initPlotStage() {
   // in-progress paint stroke / measurement / callout is silently abandoned. onStagePointerUp
   // is idempotent, so double-binding alongside the stage's own listener is safe.
   window.addEventListener("pointerup", onStagePointerUp);
+  window.addEventListener("pointercancel", onStagePointerUp); // touch gestures can be browser-cancelled mid-stroke
+  // Touch: two-finger pinch zooms / pans. Capture phase on the host so the pinch flag is
+  // set before Konva's own pointerdown starts a draw gesture with the second finger;
+  // move/end on window so fingers drifting off the host don't strand the gesture.
+  plotHost.addEventListener("pointerdown", onTouchPointerDown, true);
+  window.addEventListener("pointermove", onTouchPointerMove);
+  window.addEventListener("pointerup", onTouchPointerEnd, true);
+  window.addEventListener("pointercancel", onTouchPointerEnd, true);
   // Native scroll panning: middle-mouse anywhere, or left-drag while the Pan tool is active.
   plotHost.addEventListener("pointerdown", onHostPointerDown);
   window.addEventListener("pointermove", onHostPointerMove);
@@ -197,6 +205,61 @@ function onHostPointerUp(e) {
   panActive = false;
   try { plotHost.releasePointerCapture(e.pointerId); } catch (_) {}
   plotHost.style.cursor = activeMode === "pan" ? "grab" : "";
+}
+
+/* --- Touch: two-finger pinch-zoom + pan (one finger keeps using the active tool) --- */
+const touchPts = new Map(); // pointerId -> latest client position, touch pointers on the host only
+let pinch = null;           // { startDist, startZoom, contentMid } while two fingers are down
+
+function beginPinch() {
+  // A second finger landing mid-gesture means "zoom", not "draw" — abandon whatever the
+  // first finger started. A half-painted stroke is rolled back through the undo point
+  // recorded when it began, so an accidental palm/finger graze leaves no paint behind.
+  if (painting) {
+    painting = false; lastCell = null; eraseGesture = false;
+    if (undoStack.length) { applyHistorySnapshot(undoStack.pop()); updateUndoRedoButtons(); }
+  }
+  if (rectDraft) { rectDraft = null; if (rectGhost) { rectGhost.destroy(); rectGhost = null; } }
+  if (lineDraft) { lineDraft = null; if (lineGhost) { lineGhost.destroy(); lineGhost = null; } }
+  if (gridLineDraft) { gridLineDraft = null; if (gridLineGhost) { gridLineGhost.destroy(); gridLineGhost = null; } }
+  if (calloutDraft) { calloutDraft = null; if (calloutGhost) { calloutGhost.destroy(); calloutGhost = null; } }
+  if (dragOrigin) { dragOrigin = null; if (ghostNode) { ghostNode.destroy(); ghostNode = null; } }
+  overlayLayer?.batchDraw();
+  const [p1, p2] = [...touchPts.values()];
+  const rect = plotHost.getBoundingClientRect();
+  const mid = { x: (p1.x + p2.x) / 2 - rect.left, y: (p1.y + p2.y) / 2 - rect.top };
+  pinch = {
+    startDist: Math.max(Math.hypot(p1.x - p2.x, p1.y - p2.y), 1),
+    startZoom: viewZoom,
+    contentMid: { x: (plotHost.scrollLeft + mid.x) / viewZoom, y: (plotHost.scrollTop + mid.y) / viewZoom }
+  };
+}
+
+function onTouchPointerDown(e) {
+  if (e.pointerType !== "touch" || !stageReady) return;
+  touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touchPts.size === 2) beginPinch();
+}
+
+function onTouchPointerMove(e) {
+  if (!touchPts.has(e.pointerId)) return;
+  touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (!pinch || touchPts.size < 2) return;
+  const [p1, p2] = [...touchPts.values()];
+  const rect = plotHost.getBoundingClientRect();
+  const mid = { x: (p1.x + p2.x) / 2 - rect.left, y: (p1.y + p2.y) / 2 - rect.top };
+  const nz = clampZoom(pinch.startZoom * (Math.hypot(p1.x - p2.x, p1.y - p2.y) / pinch.startDist));
+  viewZoom = nz;
+  applyStageSize();
+  // Pin the content point that began under the fingers' midpoint to wherever the midpoint
+  // is now — one formula covers both the zoom (distance change) and the pan (midpoint move).
+  plotHost.scrollLeft = pinch.contentMid.x * nz - mid.x;
+  plotHost.scrollTop = pinch.contentMid.y * nz - mid.y;
+}
+
+function onTouchPointerEnd(e) {
+  if (!touchPts.delete(e.pointerId)) return;
+  if (touchPts.size < 2) pinch = null; // remaining finger doesn't draw — a new stroke needs a fresh pointerdown
 }
 
 // Clip path (content-pixel space) tracing the parcel footprint, used as the clipFunc for the
@@ -758,6 +821,7 @@ function buildLineNode(a, b) {
 
 function onStagePointerDown(e) {
   if (!stageReady || activeMode === "pan") return;          // pan is handled by the host scroll pan
+  if (pinch || touchPts.size >= 2) return;                  // two fingers = pinch-zoom, never a draw
   const evt = e && e.evt;
   // Right-click or Ctrl(⌘)+click is a quick eraser on the painted grid, available from any tool.
   eraseGesture = !!(evt && (evt.button === 2 || evt.ctrlKey || evt.metaKey));
@@ -833,7 +897,7 @@ function onStagePointerDown(e) {
 }
 
 function onStagePointerMove() {
-  if (!stageReady) return;
+  if (!stageReady || pinch) return;
   if (rectDraft && rectGhost) {
     const cell = cellFromPointer();
     if (cell) {

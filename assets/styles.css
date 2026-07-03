@@ -405,6 +405,36 @@ input[type="file"] { padding: .55rem; background: var(--paper); cursor: pointer;
 }
 .sigpad__clear:hover { color: var(--crimson); border-color: var(--crimson); }
 
+/* Draw / Type signature method toggle — Type is the keyboard & assistive-tech route */
+.sig-method {
+  display: inline-flex;
+  margin-bottom: .55rem;
+  border: 1px solid var(--line-2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.sig-method__btn {
+  font-family: var(--font-ui); font-size: .78rem; font-weight: 600;
+  padding: .32rem .95rem;
+  background: var(--paper); color: var(--ink-soft);
+  border: none; cursor: pointer;
+}
+.sig-method__btn + .sig-method__btn { border-left: 1px solid var(--line-2); }
+.sig-method__btn.is-active { background: var(--crimson); color: #fff; }
+.sig-typed input {
+  font-family: var(--font-disp);
+  font-style: italic;
+  font-size: 1.25rem;
+}
+.sig-typed__note { font-size: .75rem; color: var(--ink-faint); margin: .35rem 0 0; }
+/* Typed name in the preview modal, set in a script-ish face so it reads as a signature */
+.sig-typed-preview {
+  font-family: var(--font-disp);
+  font-style: italic;
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+
 /* ===================== CHECKLIST ===================== */
 .checklist__intro { font-weight: 600; margin: 0 0 .9rem; font-size: .92rem; }
 .checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
@@ -1323,6 +1353,21 @@ ul.tight li { margin-bottom: .25rem; }
   .landing__title { font-size: 1.6rem; }
   .photo-quiz__options { grid-template-columns: 1fr; }
   .photo-examples { grid-template-columns: 1fr; }
+}
+
+/* Keyboard rotation focus stop (the Orient step sets tabindex on the map container) */
+#map-container:focus-visible { outline: 3px solid var(--crimson); outline-offset: 2px; }
+
+/* Touch devices: fingertip-sized targets for the drawing/wizard controls, and a taller
+   signature pad. (pointer: coarse ≈ touchscreen phones/tablets.) */
+@media (pointer: coarse) {
+  .palette button { padding: .6rem .9rem .6rem .7rem; }
+  .plot__zoom .btn { min-height: 2.75rem; min-width: 2.75rem; }
+  .plot__tools .btn { min-height: 2.75rem; }
+  .plot-steps-nav__dot { padding: .55rem .8rem; }
+  .rotate-fine__btn { min-height: 2.75rem; min-width: 3.25rem; }
+  .sigpad { height: 190px; }
+  .sig-method__btn { padding: .55rem 1.1rem; }
 }
 
 /* ===================== PRINT ===================== */
