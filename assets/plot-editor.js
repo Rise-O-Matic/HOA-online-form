@@ -56,17 +56,17 @@ const TOOL_MODES = [
   { id: "rect",     label: "Rectangle", icon: ICON.rect,
     hint: "Drag diagonally to fill a solid block with the selected material." },
   { id: "erase",    label: "Erase",    icon: ICON.erase,
-    hint: "Drag to clear painted tiles. Click a line, callout, or measurement to delete it." },
+    hint: "Drag to clear painted tiles. Click an outline, callout, or measurement to delete it." },
   { id: "fill",     label: "Fill",     icon: ICON.fill,
-    hint: "Click an enclosed area to flood it with the selected material — <strong>Line</strong> edges act as walls." },
-  { id: "line",     label: "Line",     icon: ICON.line,
-    hint: "Drag between two points to draw an edge line. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
+    hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls." },
+  { id: "line",     label: "Outline",  icon: ICON.line,
+    hint: "Drag between two points to draw an outline edge. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
   { id: "callout",  label: "Callout",  icon: ICON.callout,
     hint: "Press where the label should sit, drag to the thing it points at, release, then type the text." },
   { id: "measure",  label: "Measure",  icon: ICON.measure,
     hint: "Drag between two points to add a dimension arrow labeled with the distance in feet." },
   { id: "select",   label: "Select",   icon: ICON.select,
-    hint: "Drag a line, callout, or measurement to reposition it." },
+    hint: "Drag an outline, callout, or measurement to reposition it." },
   { id: "pan",      label: "Pan",      icon: ICON.pan,
     hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
@@ -74,6 +74,13 @@ const TOOL_MODES = [
 // Fixed real-world scale (1 grid tile = 1 sq ft, CELL_SIZE px at 100% zoom) — the scale
 // constants and the projection math live in geometry.js.
 const MAX_ZOOM_ABS = 6;       // hard zoom-in cap (relative to 100%)
+const ANNOTATION_FONT_PX = 9;   // callout + measurement text: SCREEN-FIXED size in CSS px. The text
+                                // nodes carry a counter-scale of 1/viewZoom (see syncAnnotationTextScale)
+                                // so they read 9px on the user's monitor at any plot zoom, and
+                                // renderPlotImage() re-normalizes them to land at 9px on the printed page.
+const PRINT_PLOT_WIDTH_PX = 348; // how wide the plan prints, in the print doc's CSS px: letter page
+                                 // (8.5in) minus 14mm side margins ≈ 710px, split into two flex
+                                 // columns with a 14px gap (see buildPrintHTML's .print-col/.print-plot)
 const SAFE_CANVAS_PX = 3200;  // cap on the backing canvas's longest side (content × zoom) to bound memory
 // Baked aerial alignment correction. The county's 2020 orthophoto sits a few feet off the parcel
 // vectors — verified NOT a datum issue (a NAD83↔WGS84 datumTransformation on the query moves the
@@ -101,7 +108,7 @@ let paintClipGroup = null;                                      // clips painted
 let cellState = new Map();     // "c,r" -> material id (sparse; big lots are mostly empty)
 let stageReady = false;
 let activeMaterial = "turf";
-let activeMode = "paint";
+let activeMode = "rect";
 let brushSize = 3;             // square paint brush, in tiles (= feet)
 let painting = false, lastCell = null; // in-progress freehand paint/erase stroke
 let eraseGesture = false;              // right-click / Ctrl(⌘)+click forces erase regardless of tool
@@ -421,8 +428,20 @@ function applyStageSize() {
   stage.width(w * viewZoom);
   stage.height(h * viewZoom);
   stage.scale({ x: viewZoom, y: viewZoom });
+  syncAnnotationTextScale();
   stage.batchDraw();
   updateZoomReadout();
+}
+
+// Callout / measurement text is screen-fixed: nodes flagged screenFixed carry a counter-scale
+// of 1/viewZoom so the text reads ANNOTATION_FONT_PX CSS px on the user's monitor at any plot
+// zoom, while the leader arrows/geometry stay plan-scaled. Runs on every zoom change (via
+// applyStageSize) and after every hydrate (draft restore / undo), which also normalizes away
+// whatever counter-scale was serialized into the draft at save time.
+function syncAnnotationTextScale() {
+  if (!drawLayer) return;
+  const k = 1 / viewZoom;
+  drawLayer.find(n => n.getAttr("screenFixed")).forEach(n => n.scale({ x: k, y: k }));
 }
 
 function updateZoomReadout() {
@@ -710,6 +729,7 @@ function hydrateShapesInto(layer, shapes) {
       attachShapeInteractions(node);
     } catch (e) { /* skip a shape that fails to reconstruct rather than aborting the whole restore */ }
   });
+  syncAnnotationTextScale();
 }
 
 /* --- Measure (drag-to-draw dimension arrow with a feet label) --- */
@@ -728,10 +748,13 @@ function buildMeasurementGroup(a, b) {
   const feet = Math.hypot(b.x - a.x, b.y - a.y) * scaleFeetPerPixel;
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const label = new Konva.Text({
-    x: mid.x, y: mid.y - 16, text: formatFeet(feet),
-    fontFamily: "sans-serif", fontSize: 12, fontStyle: "bold", fill: "#2b6cb0", padding: 2
+    x: mid.x, y: mid.y, text: formatFeet(feet),
+    fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, fontStyle: "bold", fill: "#2b6cb0", padding: 2
   });
+  label.setAttr("screenFixed", true);
+  label.scale({ x: 1 / viewZoom, y: 1 / viewZoom });
   label.offsetX(label.width() / 2);
+  label.offsetY(label.height() + 3); // gap above the arrow in label-local px, so it holds at any zoom
   group.add(arrow, label);
   return group;
 }
@@ -783,8 +806,10 @@ function buildCalloutGroup(tip, labelPos, text) {
     pointerLength: 8, pointerWidth: 8, pointerAtEnding: true
   });
   const label = new Konva.Label({ x: labelPos.x, y: labelPos.y });
+  label.setAttr("screenFixed", true);
+  label.scale({ x: 1 / viewZoom, y: 1 / viewZoom });
   label.add(new Konva.Tag({ fill: "#fff9f2", stroke: "#a4111f", strokeWidth: 1.5, cornerRadius: 4, shadowColor: "#000", shadowOpacity: .15, shadowBlur: 4, shadowOffset: { x: 0, y: 2 } }));
-  label.add(new Konva.Text({ text, fontFamily: "sans-serif", fontSize: 13, padding: 6, fill: "#1e1a14" }));
+  label.add(new Konva.Text({ text, fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, padding: 5, fill: "#1e1a14" }));
   group.add(arrow, label);
   return group;
 }
@@ -1087,6 +1112,11 @@ export function renderPlotImage() {
   shapes.forEach(obj => {
     try { layer.add(Konva.Node.create(obj)); } catch (e) { /* skip a shape that fails to reconstruct */ }
   });
+  // Print normalization: the serialized screen-fixed labels carry the live view's 1/viewZoom
+  // counter-scale, which is meaningless on paper. Rescale them so the text lands at
+  // ANNOTATION_FONT_PX CSS px in the print doc's ~PRINT_PLOT_WIDTH_PX-wide plan column.
+  const kPrint = w / PRINT_PLOT_WIDTH_PX;
+  layer.find(n => n.getAttr("screenFixed")).forEach(n => n.scale({ x: kPrint, y: kPrint }));
   layer.draw();
   const dataUrl = exportStage.toDataURL({ pixelRatio: 2, mimeType: "image/png" });
   exportStage.destroy();
@@ -1096,7 +1126,7 @@ export function renderPlotImage() {
 buildPalette();
 buildToolbar();
 initPlotStage();
-setActiveMode("paint");
+setActiveMode("rect");
 $("#plot-clear").addEventListener("click", clearPlot);
 $("#plot-undo").addEventListener("click", undo);
 $("#plot-redo").addEventListener("click", redo);
@@ -1119,11 +1149,13 @@ updateUndoRedoButtons();
 
 /* --- Cross-module API --- */
 
-// The Orient step's aerial snapshot + the parcel ring in the snapshot's own pixel
-// space, handed over by the map wizard just before the Draw step becomes visible.
+// The aerial backdrop image + the parcel ring in that image's own pixel space,
+// handed over by the map wizard (a county exportImage fetch, so it lands async —
+// usually after rebuildGridForParcel has already built the bg layer).
 export function setPlotBackdrop(dataUrl, parcelPx) {
   plotBgDataUrl = dataUrl;
   plotBgParcelPx = parcelPx;
+  if (stageReady) rebuildBgLayer();
 }
 
 // The drawing exactly as the draft stores it. The version field is stamped by the

@@ -3,10 +3,13 @@
    Select → Orient → Draw): plan-mode choice, MapLibre map,
    county-GIS address/parcel lookups, drag-to-rotate
    orientation, the OSM nearest-street lookup (kept for the
-   auto-align revival), and the step 3→4 aerial-snapshot
-   handoff to the plot editor.
+   auto-align revival), and the Draw-step aerial-backdrop
+   fetch handed to the plot editor.
    ========================================================= */
-import { closestPointOnSegment } from "./geometry.js";
+import {
+  closestPointOnSegment, geoToLocalMeters, rotatePoints, computeBBox,
+  FOOT_IN_METERS, GRID_MARGIN, GRID_MIN_PAD, MAX_GRID_DIM
+} from "./geometry.js";
 import { $, $$, esc } from "./utils.js";
 import { rebuildGridForParcel, setPlotBackdrop } from "./plot-editor.js";
 // Function-only imports from the entry module (a deliberate ESM cycle — see the
@@ -120,6 +123,9 @@ const PARCEL_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/service
 const AERIAL_URL = "https://gis.countyofriverside.us/arcgis_mapping/rest/services/Aerials_WGS/Riverside_County_2020_WM/ImageServer/exportImage";
 const HOA_CENTER = [-116.9770, 33.9295]; // [lng, lat] — Beaumont, CA
 const PROPERTY_ZOOM = 18;
+const ORIENT_ZOOM_IN = Math.log2(1.25);    // Orient step frames the parcel ~25% closer than a plain bounds fit
+const ORIENT_WHEEL_RANGE = Math.log2(1.5); // ...and the wheel can zoom ±50% scale around that framing
+const ORIENT_WHEEL_STEP = 0.0015;          // zoom levels per wheel deltaY unit (~0.15 per notch)
 const PARCEL_RADIUS = 0.003; // ~300m bounding box around the address
 
 export let mapInstance = null;
@@ -138,10 +144,7 @@ function initMap() {
     zoom: 15,
     scrollZoom: false,
     maxZoom: 20,
-    attributionControl: true,
-    // maplibre-gl 5.x nests this under canvasContextAttributes (not a top-level option) —
-    // needed so map.getCanvas().toDataURL() (the Draw step's backdrop snapshot) isn't blank.
-    canvasContextAttributes: { preserveDrawingBuffer: true }
+    attributionControl: true
   });
 
   mapInstance.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false }), "top-right");
@@ -178,6 +181,30 @@ function initMap() {
   };
   dragCanvas.addEventListener("pointerup", endRotateDrag);
   dragCanvas.addEventListener("pointercancel", endRotateDrag);
+
+  // Wheel zoom (Orient step only — scroll-zoom stays off globally): nudge the camera within
+  // ±ORIENT_WHEEL_RANGE of the framed parcel view (orientCamera, set by showStep's step-3
+  // framing). jumpTo carries center + bearing so a wheel event mid-flight through the entry
+  // easeTo can't strand the camera at a half-animated bearing/center (the one-animation-at-a-
+  // time gotcha). Non-passive so it can keep the page from scrolling over the dial.
+  dragCanvas.addEventListener("wheel", (e) => {
+    if (currentStep !== 3 || !orientCamera) return;
+    e.preventDefault();
+    // deltaMode 1/2 = lines/pages (e.g. Firefox) — normalize to pixel-ish units
+    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 300 : 1);
+    const zoom = Math.min(orientCamera.zoom + ORIENT_WHEEL_RANGE,
+                 Math.max(orientCamera.zoom - ORIENT_WHEEL_RANGE,
+                   mapInstance.getZoom() - dy * ORIENT_WHEEL_STEP));
+    mapInstance.jumpTo({ center: orientCamera.center, zoom, bearing: parcelBearing });
+  }, { passive: false });
+
+  // Satellite-tile streaming → loading overlay: sourcedataloading fires as satellite
+  // tiles start downloading, sourcedata as each lands, idle once everything visible has
+  // rendered. Each just recomputes "satellite on + tiles still loading" — cheap, and the
+  // overlay's CSS appear-delay keeps fast loads from flashing it.
+  mapInstance.on("sourcedataloading", (e) => { if (e.sourceId === "satellite") updateMapLoadingOverlay(); });
+  mapInstance.on("sourcedata", (e) => { if (e.sourceId === "satellite") updateMapLoadingOverlay(); });
+  mapInstance.on("idle", updateMapLoadingOverlay);
 
   mapInstance.on("load", () => {
     // Hide building footprints from the base style
@@ -499,6 +526,7 @@ let currentStep = 1;
 const stepDots = $$(".plot-steps-nav__dot");
 const mapContainer = $("#map-container");
 let step2Camera = null; // Select-step center/zoom, captured on 2→3 so backing up restores the view as it was left
+let orientCamera = null; // Orient-step framed view (center + base zoom incl. ORIENT_ZOOM_IN), the anchor the wheel zooms around
 
 // Parcel outline/fill/label layers. Shown in Select (step 2) so the user can click their lot;
 // hidden in Orient (step 3) so the map is a clean, non-interactive rotation dial — hiding them
@@ -511,29 +539,112 @@ function setParcelLayersVisible(visible) {
   });
 }
 
+/* --- Draw-step aerial backdrop --- */
+// Fetched straight from the county ImageServer with a ground bbox computed from the same
+// math that sizes the plot grid (buildParcelGrid's square: longest bearing-rotated parcel
+// dimension + margin), so coverage is guaranteed by construction — independent of the
+// Orient viewport's size, zoom, or rotation (the old canvas-screenshot handoff clipped
+// whenever the step-3 camera showed less ground than the grid square needs). The export
+// is north-up; the parcel corners' pixel positions inside it are computed with the same
+// linear bbox→pixel mapping the server renders with, so plot-editor's fitSimilarity
+// registration is exact and supplies the bearing rotation.
+const AERIAL_PX_PER_FT = 6;        // target export resolution (the 2020 county ortho is ~2 px/ft)
+const AERIAL_EXPORT_MAX_PX = 2048; // stay well inside the ImageServer's per-request size cap
+const AERIAL_COVER_PAD = 1.05;     // slack over the exact rotated-square cover
+
+function lngLatToMercator(lng, lat) {
+  const R = 6378137;
+  return [R * lng * Math.PI / 180, R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360))];
+}
+
+let aerialFetchSeq = 0;   // lets a newer fetch supersede one still in flight
+let lastAerialKey = null; // "APN@bearing" of the backdrop currently delivered to the plot editor
+
+// Loading overlay over the Konva host (#plot-aerial-loading) while the county aerial
+// export is in flight — otherwise the Draw step sits on a bare grid with no hint that
+// the backdrop is coming. Only the newest fetch may clear it (see the finally below).
+const plotAerialLoadingEl = $("#plot-aerial-loading");
+function setAerialLoading(on) {
+  if (plotAerialLoadingEl) plotAerialLoadingEl.classList.toggle("is-visible", on);
+}
+
+async function fetchAerialBackdrop() {
+  if (!selectedParcelGeoJSON) return;
+  const ring = selectedParcelGeoJSON.geometry.coordinates[0];
+  const bearing = parcelBearing;
+  const apn = selectedAPN || "?";
+  const key = apn + "@" + Math.round(bearing * 10) / 10;
+  if (key === lastAerialKey) return; // this exact backdrop is already in place
+  const seq = ++aerialFetchSeq;
+  setAerialLoading(true);
+  // A stale backdrop for the SAME parcel still registers correctly at a new bearing
+  // (fitSimilarity maps the same vertices), so it can stay up while the replacement
+  // loads; another lot's aerial cannot — drop it immediately.
+  if (lastAerialKey && lastAerialKey.split("@")[0] !== apn) {
+    lastAerialKey = null;
+    setPlotBackdrop(null, null);
+  }
+
+  // The grid square, in the same terms buildParcelGrid uses (see geometry.js)
+  const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+  const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  const local = geoToLocalMeters(ring, [cx, cy]);
+  const bb = computeBBox(rotatePoints(local, -bearing));
+  const longestFt = Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY) / FOOT_IN_METERS;
+  const padTiles = Math.max(GRID_MIN_PAD, Math.ceil(longestFt * GRID_MARGIN / 2));
+  const sideM = Math.min(MAX_GRID_DIM, Math.ceil(longestFt) + padTiles * 2) * FOOT_IN_METERS;
+  // Grid centre back to lng/lat (undo the -bearing rotation; the grid's Y flip cancels
+  // out for extents and centre points)
+  const rc = rotatePoints([{ x: (bb.minX + bb.maxX) / 2, y: (bb.minY + bb.maxY) / 2 }], bearing)[0];
+  const cosLat = Math.cos(cy * Math.PI / 180);
+  const cLng = cx + rc.x / (cosLat * 111320);
+  const cLat = cy + rc.y / 111320;
+  // North-up ground square that covers the bearing-rotated grid square
+  const rad = bearing * Math.PI / 180;
+  const coverM = sideM * (Math.abs(Math.cos(rad)) + Math.abs(Math.sin(rad))) * AERIAL_COVER_PAD;
+  const dLng = coverM / 2 / (111320 * cosLat), dLat = coverM / 2 / 111320;
+  const [xmin, ymin] = lngLatToMercator(cLng - dLng, cLat - dLat);
+  const [xmax, ymax] = lngLatToMercator(cLng + dLng, cLat + dLat);
+  const sizePx = Math.min(AERIAL_EXPORT_MAX_PX,
+    Math.max(512, Math.round(coverM / FOOT_IN_METERS * AERIAL_PX_PER_FT)));
+
+  try {
+    const res = await gisFetch(AERIAL_URL + "?bbox=" + [xmin, ymin, xmax, ymax].join(",") +
+      "&bboxSR=3857&imageSR=3857&size=" + sizePx + "," + sizePx + "&format=jpg&f=image");
+    if (!res.ok) throw new Error("aerial export HTTP " + res.status);
+    const blob = await res.blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+      const rd = new FileReader();
+      rd.onload = () => resolve(rd.result);
+      rd.onerror = () => reject(rd.error);
+      rd.readAsDataURL(blob);
+    });
+    if (seq !== aerialFetchSeq) return; // a newer fetch superseded this one
+    const parcelPx = ring.map(([lng, lat]) => {
+      const [mx, my] = lngLatToMercator(lng, lat);
+      return { x: (mx - xmin) / (xmax - xmin) * sizePx, y: (ymax - my) / (ymax - ymin) * sizePx };
+    });
+    lastAerialKey = key;
+    setPlotBackdrop(dataUrl, parcelPx);
+  } catch (e) {
+    // Keep whatever backdrop is up (none, or this parcel at a stale bearing — still
+    // registered correctly); the plain grid + dashed outline is the existing fallback.
+    if (seq === aerialFetchSeq && !lastAerialKey) setPlotBackdrop(null, null);
+  } finally {
+    // Only the newest fetch clears the overlay — a superseded one returning early must
+    // leave it up for the replacement that's still in flight.
+    if (seq === aerialFetchSeq) setAerialLoading(false);
+  }
+}
+
 function showStep(n) {
-  // Snapshot the oriented map BEFORE its pane goes display:none below — a hidden
-  // canvas can't be captured (toDataURL comes back solid black once painting stops).
-  if (n === 4 && currentStep === 3 && mapInstance && selectedParcelGeoJSON) {
-    try {
-      // Force a synchronous render so the captured framebuffer matches the exact camera
-      // transform project() reads below — otherwise a pending (rAF-deferred) repaint can
-      // leave the JPEG a frame behind the transform, offsetting the aerial from the ring.
-      if (typeof mapInstance.redraw === "function") mapInstance.redraw();
-      const canvas = mapInstance.getCanvas();
-      const bgUrl = canvas.toDataURL("image/jpeg", 0.9);
-      // Record where the parcel's corners land in the SNAPSHOT's own pixel grid.
-      // project() returns CSS pixels; the toDataURL bitmap is device pixels, so
-      // scale by the canvas's device-pixel ratio. rebuildBgLayer uses this to place
-      // the aerial so its parcel lines up exactly with the drawn outline — otherwise
-      // a blind cover-fit renders the lot/house at the wrong (roughly half) scale.
-      const dpr = canvas.width / canvas.clientWidth;
-      const ring = selectedParcelGeoJSON.geometry.coordinates[0];
-      setPlotBackdrop(bgUrl, ring.map(([lng, lat]) => {
-        const p = mapInstance.project([lng, lat]);
-        return { x: p.x * dpr, y: p.y * dpr };
-      }));
-    } catch (e) { setPlotBackdrop(null, null); }
+  // Entering Draw: (re)fetch the aerial backdrop for the grid area. This is a direct
+  // county exportImage request sized to the plot grid itself — NOT a screenshot of the
+  // Orient viewport, whose ground coverage depends on the step-3 camera and (since the
+  // closer Orient framing + wheel zoom) no longer reliably spans the grid square, which
+  // left bare strips along the grid's top/bottom edges at some orientations.
+  if (n === 4 && currentStep === 3 && selectedParcelGeoJSON) {
+    fetchAerialBackdrop();
   }
   // Leaving Select for Orient: remember the selection view (center/zoom) so backing up to
   // step 2 shows the map as the user left it, not step 3's tight parcel framing.
@@ -569,11 +680,14 @@ function showStep(n) {
     selectedPopup = null;
   }
 
-  // Step 2→3: just frame the selected parcel. Auto-align / front-yard-down logic is
-  // removed — the user orients by dragging the map to rotate (see the drag-to-rotate
-  // handler in initMap). The bearing MUST be passed explicitly: fitBounds animates to
-  // bearing 0 by default, which silently un-did the user's dialed rotation a moment
-  // after re-entering Orient. parcelBearing keeps it (and a draft-restored bearing) put.
+  // Step 2→3: frame the selected parcel, ~25% closer than a plain bounds fit. Auto-align /
+  // front-yard-down logic is removed — the user orients by dragging the map to rotate (see
+  // the drag-to-rotate handler in initMap). The bearing MUST ride in the same camera call:
+  // fitBounds/easeTo animate to bearing 0 by default, which silently un-did the dialed
+  // rotation a moment after re-entering Orient — and it has to be ONE animation (center +
+  // zoom + bearing together), since MapLibre cancels an in-flight camera animation when a
+  // second one starts. The framed view is kept in orientCamera as the anchor for the
+  // Orient-step wheel zoom (see the wheel handler in initMap).
   if (n === 3 && selectedParcelGeoJSON && mapInstance) {
     const ring = selectedParcelGeoJSON.geometry.coordinates[0];
     const bounds = ring.reduce(
@@ -582,7 +696,13 @@ function showStep(n) {
     );
     setTimeout(() => {
       mapInstance.resize();
-      mapInstance.fitBounds(bounds, { padding: 40, duration: 600, bearing: parcelBearing });
+      const cam = mapInstance.cameraForBounds(bounds, { padding: 40, bearing: parcelBearing });
+      if (cam) {
+        orientCamera = { center: cam.center, zoom: cam.zoom + ORIENT_ZOOM_IN };
+        mapInstance.easeTo({ center: orientCamera.center, zoom: orientCamera.zoom, bearing: parcelBearing, duration: 600 });
+      } else {
+        mapInstance.fitBounds(bounds, { padding: 40, duration: 600, bearing: parcelBearing });
+      }
     }, 100);
   }
 
@@ -633,7 +753,8 @@ function showStep(n) {
       "Property orientation map. Press Left or Right arrow to rotate one degree; hold Shift for 15 degrees.");
   }
 
-  // Step 3→4 transition: rebuild grid from parcel (backdrop was already snapshotted above)
+  // Step 3→4 transition: rebuild grid from parcel. The aerial fetch kicked off at the top
+  // of this function lands asynchronously — setPlotBackdrop refreshes the bg layer then.
   if (n === 4 && selectedParcelGeoJSON) {
     rebuildGridForParcel(selectedParcelGeoJSON, parcelBearing, selectedAPN);
   }
@@ -818,9 +939,23 @@ mapContainer?.addEventListener("keydown", (e) => {
   nudgeRotation(dir * (e.shiftKey ? 15 : 1));
 });
 
+// Loading overlay for the map's satellite raster tiles (#map-loading, inside
+// #map-container so it rides along on reparent): shown whenever the satellite layer is
+// visible and its tiles are still streaming — the first toggle to satellite, the Orient
+// step's default view, and any camera move that pulls fresh tiles. Recomputed from the
+// sourcedataloading/sourcedata/idle events wired in initMap and on every view toggle.
+let satelliteViewOn = false;
+const mapLoadingEl = $("#map-loading");
+function updateMapLoadingOverlay() {
+  const waiting = satelliteViewOn && mapInstance && mapStyleLoaded &&
+    !!mapInstance.getSource("satellite") && !mapInstance.isSourceLoaded("satellite");
+  if (mapLoadingEl) mapLoadingEl.classList.toggle("is-visible", waiting);
+}
+
 // Street/satellite imagery toggle — lets the user spot the roofline/driveway to judge orientation
 function setSatelliteView(on) {
   if (!mapInstance || !mapReady) return;
+  satelliteViewOn = on;
   mapInstance.getStyle().layers.forEach(({ id }) => {
     if (id === "satellite-layer" || id.startsWith("parcel-")) return;
     mapInstance.setLayoutProperty(id, "visibility", on ? "none" : "visible");
@@ -828,6 +963,7 @@ function setSatelliteView(on) {
   mapInstance.setLayoutProperty("satellite-layer", "visibility", on ? "visible" : "none");
   $("#view-street").classList.toggle("is-active", !on);
   $("#view-satellite").classList.toggle("is-active", on);
+  updateMapLoadingOverlay(); // toggling on with cold tiles shows it now; toggling off hides it
 }
 $("#view-street").addEventListener("click", () => setSatelliteView(false));
 $("#view-satellite").addEventListener("click", () => setSatelliteView(true));
@@ -854,4 +990,7 @@ export function restoreParcelFromDraft(feature, apn, bearing) {
   selectedParcelGeoJSON = feature;
   selectedAPN = apn;
   setRotation(bearing);
+  // Restored drafts get their aerial back too — the old screenshot pipeline couldn't
+  // (it only ever captured during a live 3→4 walk), so a reload lost the backdrop.
+  fetchAerialBackdrop();
 }

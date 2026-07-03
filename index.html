@@ -181,6 +181,43 @@
           <button type="button" class="plot-steps-nav__dot" data-goto="4"><span>4</span> Draw</button>
         </nav>
 
+        <!-- Icon symbols for the .hotkey-bar strips below each builder viewport (steps 2–4).
+             Highlighted button/wheel fills read the - -hk-hi custom property (set on .hotkey-bar),
+             which inherits through the <use> shadow DOM where normal selectors can't reach. -->
+        <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false">
+          <defs>
+            <symbol id="hk-mouse-left" viewBox="0 0 20 28">
+              <path fill="var(--hk-hi,#cf9c4c)" d="M10 2 A7 7 0 0 0 3 9 V13 H10 Z" />
+              <rect x="3" y="2" width="14" height="24" rx="7" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <path d="M10 2 V13 M3 13 H17" fill="none" stroke="currentColor" stroke-width="1.5" />
+            </symbol>
+            <symbol id="hk-mouse-right" viewBox="0 0 20 28">
+              <path fill="var(--hk-hi,#cf9c4c)" d="M10 2 A7 7 0 0 1 17 9 V13 H10 Z" />
+              <rect x="3" y="2" width="14" height="24" rx="7" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <path d="M10 2 V13 M3 13 H17" fill="none" stroke="currentColor" stroke-width="1.5" />
+            </symbol>
+            <symbol id="hk-mouse-mid" viewBox="0 0 20 28">
+              <rect x="3" y="2" width="14" height="24" rx="7" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <path d="M10 2 V13 M3 13 H17" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <rect x="8.3" y="5.5" width="3.4" height="6.5" rx="1.7" fill="var(--hk-hi,#cf9c4c)" />
+            </symbol>
+            <symbol id="hk-mouse-drag" viewBox="0 0 32 28">
+              <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M5.5 10.5 2.5 14 5.5 17.5 M26.5 10.5 29.5 14 26.5 17.5" />
+              <g transform="translate(6 0)">
+                <path fill="var(--hk-hi,#cf9c4c)" d="M10 2 A7 7 0 0 0 3 9 V13 H10 Z" />
+                <rect x="3" y="2" width="14" height="24" rx="7" fill="none" stroke="currentColor" stroke-width="1.5" />
+                <path d="M10 2 V13 M3 13 H17" fill="none" stroke="currentColor" stroke-width="1.5" />
+              </g>
+            </symbol>
+            <symbol id="hk-mouse-scroll" viewBox="0 0 32 28">
+              <rect x="3" y="2" width="14" height="24" rx="7" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <path d="M10 2 V13 M3 13 H17" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <rect x="8.3" y="5.5" width="3.4" height="6.5" rx="1.7" fill="var(--hk-hi,#cf9c4c)" />
+              <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M23.5 9 26.5 5.5 29.5 9 M23.5 19 26.5 22.5 29.5 19" />
+            </symbol>
+          </defs>
+        </svg>
+
         <!-- STEP 1: Choose how to provide the plot plan -->
         <div class="plot-step is-active" data-step="1">
           <h3 class="plot-step__title">Provide Your Plot Plan</h3>
@@ -249,9 +286,16 @@
                 <span class="rotate-fine__readout" aria-live="polite"><span id="map-rotate-fine">0.0</span>&deg;</span>
                 <button type="button" class="rotate-fine__btn" id="rotate-fine-plus" aria-label="Rotate 0.1 degrees clockwise" title="Nudge 0.1&deg; clockwise">+0.1&deg;</button>
               </div>
+              <div class="map-loading" id="map-loading" aria-hidden="true">
+                <span class="map-loading__pill"><span class="map-loading__spinner"></span>Loading satellite imagery&hellip;</span>
+              </div>
 
             </div>
           </div>
+          <ul class="hotkey-bar" aria-label="Map controls">
+            <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Select your lot</span></li>
+            <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-drag" /></svg><span>Move the map</span></li>
+          </ul>
           <div class="plot-step__nav">
             <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
             <button type="button" class="btn btn--primary btn--sm" id="step2-next" disabled>Next: Orient</button>
@@ -316,6 +360,10 @@
             </div>
             -->
           </div>
+          <ul class="hotkey-bar" aria-label="Rotation controls">
+            <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-drag" /></svg><span>Drag to rotate</span></li>
+            <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-scroll" /></svg><span>Zoom</span></li>
+          </ul>
           <div class="plot-step__nav">
             <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
             <button type="button" class="btn btn--primary btn--sm" id="step3-next">Next: Draw plan</button>
@@ -349,12 +397,21 @@
               <span class="plot__edge plot__edge--bottom">Front Yard</span>
               <div class="plot__grid-wrap">
                 <div id="plot-konva-host" class="plot__konva-host" aria-label="Site plan drawing canvas"></div>
+                <div class="map-loading map-loading--plot" id="plot-aerial-loading" aria-hidden="true">
+                  <span class="map-loading__pill"><span class="map-loading__spinner"></span>Loading aerial imagery&hellip;</span>
+                </div>
               </div>
               <p class="plot__notice plot__notice--err" id="plot-fallback-msg" hidden>
                 Drawing tools couldn't load.
                 <button type="button" class="btn btn--ghost btn--sm" id="plot-use-upload" data-switch-upload>Upload a plot plan instead</button>
               </p>
             </div>
+            <ul class="hotkey-bar" aria-label="Drawing canvas controls">
+              <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Use the selected tool</span></li>
+              <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-right" /></svg><span>Quick erase</span></li>
+              <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-scroll" /></svg><span>Zoom</span></li>
+              <li><svg width="17" height="22" aria-hidden="true"><use href="#hk-mouse-mid" /></svg><span>Hold to pan</span></li>
+            </ul>
             <div class="plot__tools">
               <button type="button" class="btn btn--ghost btn--sm" id="plot-undo" disabled>Undo</button>
               <button type="button" class="btn btn--ghost btn--sm" id="plot-redo" disabled>Redo</button>
