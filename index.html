@@ -249,6 +249,7 @@
             <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
             <button type="button" class="btn btn--primary btn--sm" id="step2-next" disabled>Next: Orient</button>
           </div>
+          <p class="plot-step__bail">Rather not use the builder? <button type="button" class="linklike" data-switch-upload>Upload an existing plan instead</button> — nothing you've done here is lost if you switch back.</p>
         </div>
 
         <!-- STEP 3: Orient your property -->
@@ -312,12 +313,13 @@
             <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
             <button type="button" class="btn btn--primary btn--sm" id="step3-next">Next: Draw plan</button>
           </div>
+          <p class="plot-step__bail">Rather not use the builder? <button type="button" class="linklike" data-switch-upload>Upload an existing plan instead</button> — nothing you've done here is lost if you switch back.</p>
         </div>
 
         <!-- STEP 4: Draw your plan -->
         <div class="plot-step" data-step="4">
           <h3 class="plot-step__title">Draw Your Plan</h3>
-          <p class="plot-step__desc">The grid is drawn to scale — <strong>one square = one square foot</strong>. Pick a material and <strong>Paint</strong> to fill tiles (drag to paint; <strong>hold Shift</strong> for a straight line; set the brush width below), <strong>Rectangle</strong> to drag out a solid block, <strong>Fill</strong> to flood an area, or <strong>Erase</strong> to clear (right-click or Ctrl-click erases from any tool). Add <strong>Callout</strong> labels and <strong>Measure</strong> lines on top, then use <strong>Select</strong> to drag them into place. Pan with the scrollbars, the middle mouse button, or the <strong>Pan</strong> tool; zoom with the mouse wheel or the buttons.</p>
+          <p class="plot-step__desc">The grid is drawn to scale — <strong>one square = one square foot</strong>. Pick a material and a drawing tool below; a tip for the selected tool appears just above the canvas.</p>
           <p class="plot__notice" id="plot-migration-notice" hidden>Your previous site plan drawing needs to be redrawn — the drawing tool was upgraded. Everything else from your saved draft was restored.</p>
           <div class="plot">
             <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
@@ -334,6 +336,7 @@
                 <button type="button" class="btn btn--ghost btn--sm" id="plot-zoom-reset" title="Fit the whole lot in view">Fit</button>
               </div>
             </div>
+            <p class="plot__hint" id="tool-hint" aria-live="polite"></p>
             <div class="plot__stage">
               <span class="plot__edge plot__edge--top">Back Yard</span>
               <span class="plot__edge plot__edge--bottom">Front Yard</span>
@@ -342,7 +345,7 @@
               </div>
               <p class="plot__notice plot__notice--err" id="plot-fallback-msg" hidden>
                 Drawing tools couldn't load.
-                <button type="button" class="btn btn--ghost btn--sm" id="plot-use-upload">Upload a plot plan instead</button>
+                <button type="button" class="btn btn--ghost btn--sm" id="plot-use-upload" data-switch-upload>Upload a plot plan instead</button>
               </p>
             </div>
             <div class="plot__tools">
@@ -351,6 +354,7 @@
               <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
               <button type="button" class="btn btn--ghost btn--sm" data-back>Back to orientation</button>
             </div>
+            <p class="plot-step__bail">Drawing not working out? <button type="button" class="linklike" data-switch-upload>Upload an existing plan instead</button> — anything you've drawn is kept in case you switch back.</p>
           </div>
         </div>
       </section>
@@ -392,6 +396,13 @@
           <input type="file" id="neighbor-form-file" name="neighborForm" accept="image/*,application/pdf" multiple hidden />
         </div>
         <ul class="filelist" id="neighbor-filelist" hidden></ul>
+
+        <aside class="pause-note">
+          <strong>This step usually takes a few days — you don't have to finish it now.</strong>
+          Print the form, collect signatures in person, and come back: everything you've typed saves
+          automatically in this browser. Just attach the scanned form in the same sitting you submit —
+          the browser can't hold on to attached files between visits.
+        </aside>
       </section>
 
       <!-- ---------- PHOTOS ---------- -->
@@ -431,6 +442,13 @@
 
         <!-- Generated photo requests (grouped by area) -->
         <div class="photo-requests" id="photo-requests" hidden></div>
+
+        <aside class="pause-note">
+          <strong>Need daylight for these photos?</strong>
+          Come back anytime — your answers save automatically in this browser, so you can take the
+          photos when conditions are right. Just attach the files in the same sitting you submit —
+          the browser can't hold on to attached files between visits.
+        </aside>
       </section>
 
       <!-- ---------- REQUIRED SUBMISSIONS (confirm & attach) ---------- -->

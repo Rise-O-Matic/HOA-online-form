@@ -24,17 +24,17 @@ The submit bar's primary-styled "Email to Committee" opens an *empty* email; the
 - [x] Move "Download data (JSON)" out of the primary submit bar → "Export JSON" in the sidenav actions.
 - [x] Fix inconsistency: `#do-email` and `#email-btn` now share one `startEmailFlow()` that always validates.
 
-## Sprint 2 — Workflow temporality & friction
+## Sprint 2 — Workflow temporality & friction ✅ 2026-07-02 (code items; #3 awaits user content)
 
 The form looks single-sitting but embeds multi-day loops (neighbor wet signatures, daytime photos), and the Draw step frontloads a nine-tool manual nobody reads.
 
-- [ ] **Save-and-return messaging** at Sections 04 (neighbors) and 05 (photos): "print now → collect signatures → come back and attach; your draft is saved."
-- [ ] **Per-tool contextual hints** in the Draw step — one hint line near the canvas that changes with the selected tool ("Paint: drag to fill · Shift for a straight line"), replacing the wall-of-text intro paragraph.
-- [ ] **Progress meter counts packet items** — include plot, photos, neighbor form, not just `[required]` fields; "100%" must not be reachable with an empty packet.
-- [ ] `startBuilder()` empty-address error: also scroll to and focus `#property-address`.
-- [ ] Default `#ack-date` to today.
-- [ ] Graceful build→upload bail-out: a user who abandons drawing mid-wizard should land in the upload path without feeling like they're starting over.
-- [ ] ISSUES #3 — replace the ✓/✗ photo placeholder frames with real comparison images (content task; needs images from the user).
+- [x] **Save-and-return messaging** at Sections 04 (neighbors) and 05 (photos) — `.pause-note` asides: draft text saves automatically, come back anytime; honest that file attachments can't persist between browser sessions, so attach in the sitting you submit.
+- [x] **Per-tool contextual hints** in the Draw step — one hint line (`#tool-hint`) above the canvas swaps with the selected tool, driven by a `hint` string on each `TOOL_MODES` entry; the wall-of-text intro paragraph reduced to two sentences.
+- [x] **Progress meter counts packet items** — plot, photos (questionnaire answered + all requested shots attached), and neighbor form add three slots to the denominator; "100%" is structurally unreachable with an empty packet.
+- [x] `startBuilder()` empty-address error: paints a field error and scrolls to / focuses `#property-address`.
+- [x] Default `#ack-date` to today (local time), unless the restored draft carried a value.
+- [x] Graceful build→upload bail-out — "Upload an existing plan instead" links on wizard steps 2–4 (and the Konva-failure notice) share one `data-switch-upload` handler: switches to the upload path back on step 1, preserving parcel selection and drawn state for a switch back.
+- [ ] ISSUES #3 — replace the ✓/✗ photo placeholder frames with real comparison images (content task; **needs images from the user** — the one Sprint 2 item left open).
 
 ## Sprint 3 — Robustness & external-dependency hardening
 

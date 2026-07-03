@@ -293,6 +293,20 @@ address { font-style: normal; }
 }
 .card__sub { margin: .3rem 0 0; color: var(--ink-soft); font-size: .9rem; }
 
+/* "Save and come back later" reassurance for the multi-day steps (Sections 04 & 05) */
+.pause-note {
+  margin-top: 1.4rem;
+  padding: .75rem 1rem;
+  font-size: .84rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius-sm);
+}
+.pause-note strong { display: block; color: var(--ink); }
+
 /* ===================== FIELDS ===================== */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem 1.4rem; }
 .field { margin-bottom: 1.1rem; }
@@ -565,7 +579,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
   margin-top: 1rem;
 }
-.plot__hint { font-size: .78rem; color: var(--ink-faint); }
+/* Contextual one-line tip for the selected drawing tool, shown just above the canvas */
+.plot__hint {
+  margin: 0 0 .7rem;
+  font-size: .82rem;
+  color: var(--ink-soft);
+  min-height: 1.3em; /* reserve the line so the canvas doesn't jump when the hint changes */
+}
+.plot__hint strong { color: var(--ink); }
 .plot__notice {
   margin: 0 0 .9rem;
   padding: .65rem .9rem;
@@ -622,6 +643,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: flex; justify-content: space-between; align-items: center;
   margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line);
 }
+/* "Bail out to the upload path" footnote at the bottom of each builder step */
+.plot-step__bail { margin: .8rem 0 0; font-size: .8rem; color: var(--ink-faint); }
+.linklike {
+  background: none; border: none; padding: 0;
+  font: inherit; color: var(--crimson);
+  text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer;
+}
+.linklike:hover { color: var(--crimson-dk); }
 
 /* Plan method choice (build vs. upload) */
 .plan-choice {

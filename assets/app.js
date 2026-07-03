@@ -51,16 +51,27 @@
     line: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.7" fill="currentColor" stroke="none"/></svg>'
   };
 
+  // Each tool's one-line hint is shown above the canvas while that tool is selected
+  // (replaces the old wall-of-text intro paragraph). Edit the copy here, not the DOM.
   const TOOL_MODES = [
-    { id: "paint",    label: "Paint",    icon: ICON.paint },
-    { id: "rect",     label: "Rectangle", icon: ICON.rect },
-    { id: "erase",    label: "Erase",    icon: ICON.erase },
-    { id: "fill",     label: "Fill",     icon: ICON.fill },
-    { id: "line",     label: "Line",     icon: ICON.line },
-    { id: "callout",  label: "Callout",  icon: ICON.callout },
-    { id: "measure",  label: "Measure",  icon: ICON.measure },
-    { id: "select",   label: "Select",   icon: ICON.select },
-    { id: "pan",      label: "Pan",      icon: ICON.pan }
+    { id: "paint",    label: "Paint",    icon: ICON.paint,
+      hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; set the brush width above. Right-click erases from any tool." },
+    { id: "rect",     label: "Rectangle", icon: ICON.rect,
+      hint: "Drag diagonally to fill a solid block with the selected material." },
+    { id: "erase",    label: "Erase",    icon: ICON.erase,
+      hint: "Drag to clear painted tiles. Click a line, callout, or measurement to delete it." },
+    { id: "fill",     label: "Fill",     icon: ICON.fill,
+      hint: "Click an enclosed area to flood it with the selected material — <strong>Line</strong> edges act as walls." },
+    { id: "line",     label: "Line",     icon: ICON.line,
+      hint: "Drag between two points to draw an edge line. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
+    { id: "callout",  label: "Callout",  icon: ICON.callout,
+      hint: "Press where the label should sit, drag to the thing it points at, release, then type the text." },
+    { id: "measure",  label: "Measure",  icon: ICON.measure,
+      hint: "Drag between two points to add a dimension arrow labeled with the distance in feet." },
+    { id: "select",   label: "Select",   icon: ICON.select,
+      hint: "Drag a line, callout, or measurement to reposition it." },
+    { id: "pan",      label: "Pan",      icon: ICON.pan,
+      hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms." }
   ];
 
   const DATES = [
@@ -964,6 +975,13 @@
     });
   }
 
+  // One contextual hint line above the canvas, swapped as the tool changes.
+  function updateToolHint(mode) {
+    const hintEl = $("#tool-hint");
+    const t = TOOL_MODES.find(x => x.id === mode);
+    if (hintEl && t) hintEl.innerHTML = "<strong>" + t.label + ":</strong> " + t.hint;
+  }
+
   function setActiveMode(mode) {
     if (calloutDraft && mode !== "callout") {
       calloutDraft = null;
@@ -978,6 +996,7 @@
     if (rectDraft) { rectDraft = null; if (rectGhost) { rectGhost.destroy(); rectGhost = null; overlayLayer?.batchDraw(); } }
     if (mode !== "select") clearSelection();
     activeMode = mode;
+    updateToolHint(mode);
     $$("#tool-palette button").forEach(x => x.classList.toggle("is-active", x.dataset.mode === mode));
     // Annotations intercept pointer events in Erase (click removes) and Select (click/drag to
     // move) modes, and are draggable only in Select; otherwise they're inert so a paint stroke
@@ -1482,7 +1501,8 @@
   $("#plot-clear").addEventListener("click", clearPlot);
   $("#plot-undo").addEventListener("click", undo);
   $("#plot-redo").addEventListener("click", redo);
-  $("#plot-use-upload")?.addEventListener("click", () => setPlanMode("upload"));
+  // (#plot-use-upload in the Konva-fallback notice carries data-switch-upload and is
+  // wired with the other mid-wizard bail-out buttons in the plan-mode section below.)
   const brushInput = $("#brush-size");
   if (brushInput) {
     const brushOut = $("#brush-size-val");
@@ -2009,10 +2029,15 @@
   }
 
   function startBuilder() {
-    const address = $("#property-address").value.trim();
+    const addressEl = $("#property-address");
+    const address = addressEl.value.trim();
     if (!address) {
       planChoiceMsg.textContent = "Enter your property address in Applicant Information above so we can locate your parcel.";
       planChoiceMsg.className = "plot-choice-msg err";
+      // Take the user to the field that needs filling, not just tell them about it.
+      setFieldError(addressEl, "Enter your address here first — the plot builder uses it to find your parcel.");
+      addressEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      addressEl.focus({ preventScroll: true });
       return;
     }
     planChoiceMsg.textContent = "";
@@ -2033,6 +2058,20 @@
 
   // Next button on step 1 (visible once "Build a plan" is chosen)
   $("#step1-next").addEventListener("click", startBuilder);
+
+  // Mid-wizard bail-out: a user who abandons the builder on any of steps 2–4 (or hits the
+  // Konva-load failure notice) lands back on step 1 with the upload panel open — without
+  // losing their parcel selection or anything already drawn, in case they switch back.
+  $$("#siteplan [data-switch-upload]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      setPlanMode("upload");
+      showStep(1);
+      planChoiceMsg.textContent = "No problem — attach your plan file below. Your parcel selection and anything you've drawn are kept in case you switch back to the builder.";
+      planChoiceMsg.className = "plot-choice-msg";
+      planUploadPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+      plotUploadInput.focus({ preventScroll: true });
+    });
+  });
 
   // Uploaded plan file list
   plotUploadInput.addEventListener("change", () => {
@@ -2424,6 +2463,14 @@
     // count the ack signature as required-ish
     let total = required.length + 1;
     if (!sigPads.ownerAckSignature.isEmpty()) done++;
+    // Packet items count too — 100% must not be reachable with an empty packet.
+    // Three items: the plot plan, the requested photos (questionnaire answered AND
+    // every requested shot attached), and the signed neighbor form.
+    total += 3;
+    if (plotProvided().ok) done++;
+    const reqPhotos = photoChecklist();
+    if (reqPhotos.length > 0 && reqPhotos.every(p => p.file)) done++;
+    if (neighborFormFiles().length > 0) done++;
     const pct = Math.round((done / total) * 100);
     $("#progress-fill").style.width = pct + "%";
     $("#progress-text").textContent = pct + "% complete";
@@ -3404,5 +3451,13 @@
   // Returning users with a saved draft skip the landing and go straight to the form.
   const hadDraft = restoreDraft();
   if (hadDraft) enterForm();
+  // Default the acknowledgment date to today (local time) unless the draft carried one.
+  const ackDateEl = $("#ack-date");
+  if (ackDateEl && !ackDateEl.value) {
+    const now = new Date();
+    ackDateEl.value = now.getFullYear() + "-" +
+      String(now.getMonth() + 1).padStart(2, "0") + "-" +
+      String(now.getDate()).padStart(2, "0");
+  }
   updateProgress();
 })();
