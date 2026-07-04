@@ -219,21 +219,65 @@ neighborFormInput.addEventListener("change", () => {
 /* ------------------------------------------------------
    PROPOSED IMPROVEMENTS  (Section 02 — item repeater)
    Replaces the old single free-text proposal: each change is
-   its own item (action / short name / materials & color /
+   its own item (category / action / short name / materials /
    dimensions / example-or-catalog picture), so the committee's
    "must include" list is structured and checkable instead of
-   hoped-for in a prose blob. A Remove item skips materials, and
-   its picture becomes an optional "what's being removed" shot.
+   hoped-for in a prose blob.
+
+   The CATEGORY drives which of the two flexible fields show and
+   how they're labeled — a plant needs "plant type & quantity",
+   not "materials & color / 12×24 dimensions"; a paint change is
+   a color code, not dimensions. Same data-driven discipline as
+   PALETTE/PHOTO_SPECS: edit CATEGORIES to change the questions.
+   A Remove item additionally hides materials, and its picture
+   becomes an optional "what's being removed" shot.
 ------------------------------------------------------ */
 const improvementList = $("#improvement-list");
 let improvementCount = 0;
 
+// Per-category field schema. `materials` and `dims` describe the two flexible
+// slots: label + placeholder, and `dims: null` hides the dimensions slot for
+// that category. Placeholders are assigned to input.placeholder as raw strings,
+// so use real characters (× ′), not HTML entities.
+const CATEGORIES = [
+  { id: "structure", label: "Structure (patio cover, pergola, shed, addition)",
+    materials: { label: "Materials & color", ph: "Material, color name & code, manufacturer / vendor" },
+    dims: { label: "Dimensions", ph: "e.g. 12′ × 24′, 10′ tall" } },
+  { id: "hardscape", label: "Hardscape (pavers, concrete, wall, walkway)",
+    materials: { label: "Materials & color", ph: "Material, color name & code, manufacturer / vendor" },
+    dims: { label: "Dimensions / area", ph: "e.g. 200 sq ft, or 8′ × 25′" } },
+  { id: "landscape", label: "Plants and landscaping (trees, shrubs, turf)",
+    materials: { label: "Plant type & quantity", ph: "e.g. 3 × 15-gal Texas sage, 1 × 24-in box olive tree" },
+    dims: { label: "Mature size / spread (optional)", ph: "e.g. ~6′ tall at maturity" } },
+  { id: "paint", label: "Paint or exterior color",
+    materials: { label: "Color name, code & manufacturer", ph: "e.g. Dunn-Edwards 'Cliffside' DE6216, from a paint retailer" },
+    dims: null },
+  { id: "equipment", label: "Equipment (solar, AC, EV charger, dish)",
+    materials: { label: "Make / model", ph: "Manufacturer & model number" },
+    dims: { label: "Dimensions / location", ph: "Size, and where it's mounted or placed" } },
+  { id: "pool", label: "Pool, spa or water feature",
+    materials: { label: "Materials & finish", ph: "Shell / deck material, color, manufacturer" },
+    dims: { label: "Dimensions", ph: "e.g. 15′ × 30′, 6′ deep" } },
+  { id: "other", label: "Other",
+    materials: { label: "Materials / details", ph: "Describe the materials, colors, finishes" },
+    dims: { label: "Dimensions", ph: "Size or extent, if applicable" } }
+];
+const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
+const DEFAULT_CATEGORY = "structure";
+// Short label for the output table's "Type" column (drops the "(examples…)" tail)
+const categoryLabelShort = id => (CATEGORY_MAP[id]?.label || "").replace(/\s*\(.*$/, "");
+
 function improvementTemplate(idx) {
+  const cats = CATEGORIES.map(c => `<option value="${c.id}">${c.label}</option>`).join("");
   return `
     <div class="improvement" data-improvement="${idx}">
       <button type="button" class="improvement__remove" aria-label="Remove improvement" title="Remove">&times;</button>
       <div class="improvement__num">Improvement ${idx}</div>
       <div class="grid-2">
+        <div class="field">
+          <label for="imp_cat_${idx}">Type of change</label>
+          <select id="imp_cat_${idx}" name="imp_cat_${idx}" data-imp-category>${cats}</select>
+        </div>
         <div class="field">
           <label for="imp_action_${idx}">Action</label>
           <select id="imp_action_${idx}" name="imp_action_${idx}" data-imp-action>
@@ -242,17 +286,17 @@ function improvementTemplate(idx) {
             <option value="remove">Remove</option>
           </select>
         </div>
-        <div class="field">
-          <label for="imp_name_${idx}">What is it?</label>
-          <input type="text" id="imp_name_${idx}" name="imp_name_${idx}" data-imp-name required placeholder="e.g. Alumawood patio cover" />
-        </div>
+      </div>
+      <div class="field">
+        <label for="imp_name_${idx}">What is it?</label>
+        <input type="text" id="imp_name_${idx}" name="imp_name_${idx}" data-imp-name required placeholder="e.g. Alumawood patio cover" />
       </div>
       <div class="grid-2">
         <div class="field" data-imp-materials-field>
           <label for="imp_materials_${idx}">Materials &amp; color</label>
           <input type="text" id="imp_materials_${idx}" name="imp_materials_${idx}" data-imp-materials placeholder="Material, color name &amp; code, manufacturer / vendor" />
         </div>
-        <div class="field">
+        <div class="field" data-imp-dims-field>
           <label for="imp_dims_${idx}">Dimensions</label>
           <input type="text" id="imp_dims_${idx}" name="imp_dims_${idx}" data-imp-dims placeholder="e.g. 12&#8242; &#215; 24&#8242;" />
         </div>
@@ -265,13 +309,37 @@ function improvementTemplate(idx) {
     </div>`;
 }
 
-// Reflect the chosen action: Remove hides the materials field and relabels the
-// picture as an optional "what's being removed" shot; Add/Replace ask for a
-// catalog/example picture. Called on build and on every action change.
-function applyImprovementAction(node) {
+// Reflect the chosen category + action onto the row's flexible fields:
+//  - the category relabels the materials/dimensions slots and hides dimensions
+//    for categories that don't need them (paint);
+//  - Remove overrides: hide the materials field entirely and relabel the picture
+//    as an optional "what's being removed" shot.
+// Hiding uses the `hidden` attribute (safe: .field sets no display). Called on
+// build, on category change, and on action change.
+function applyImprovementSchema(node) {
+  const cat = CATEGORY_MAP[$("[data-imp-category]", node)?.value] || CATEGORY_MAP[DEFAULT_CATEGORY];
   const removing = ($("[data-imp-action]", node)?.value) === "remove";
+
   const matField = $("[data-imp-materials-field]", node);
-  if (matField) matField.hidden = removing;
+  if (matField) {
+    const matLabel = $("label", matField);
+    const matInput = $("[data-imp-materials]", node);
+    if (matLabel) matLabel.textContent = cat.materials.label;
+    if (matInput) matInput.placeholder = cat.materials.ph;
+    matField.hidden = removing; // Remove skips materials; every category otherwise shows it
+  }
+
+  const dimsField = $("[data-imp-dims-field]", node);
+  if (dimsField) {
+    if (cat.dims) {
+      const dimsLabel = $("label", dimsField);
+      const dimsInput = $("[data-imp-dims]", node);
+      if (dimsLabel) dimsLabel.textContent = cat.dims.label;
+      if (dimsInput) dimsInput.placeholder = cat.dims.ph;
+    }
+    dimsField.hidden = !cat.dims; // paint has no dimensions
+  }
+
   const label = $("[data-imp-photo-label]", node);
   const idx = node.dataset.improvement;
   const input = $(`[data-imp-photo="${idx}"]`, node);
@@ -295,13 +363,14 @@ function addImprovement() {
     if (!$$(".improvement", improvementList).length) addImprovement();
     updateProgress();
   });
+  $("[data-imp-category]", node).addEventListener("change", () => applyImprovementSchema(node));
   $("[data-imp-action]", node).addEventListener("change", () => {
-    applyImprovementAction(node);
+    applyImprovementSchema(node);
     updateImprovementStatus(node.dataset.improvement);
   });
   $(`[data-imp-photo="${improvementCount}"]`, node)
     .addEventListener("change", () => updateImprovementStatus(node.dataset.improvement));
-  applyImprovementAction(node);
+  applyImprovementSchema(node);
   return node;
 }
 $("#add-improvement").addEventListener("click", () => addImprovement());
@@ -336,6 +405,7 @@ function improvementItems() {
     const idx = node.dataset.improvement;
     const input = $(`[data-imp-photo="${idx}"]`, node);
     return {
+      category: $("[data-imp-category]", node)?.value || DEFAULT_CATEGORY,
       action: $("[data-imp-action]", node)?.value || "add",
       name: $("[data-imp-name]", node)?.value.trim() || "",
       materials: $("[data-imp-materials]", node)?.value.trim() || "",
@@ -972,12 +1042,14 @@ function restoreDraft() {
     d.items.forEach(it => {
       const node = addImprovement();
       const idx = node.dataset.improvement;
+      const catSel = $("[data-imp-category]", node);
+      if (catSel && it.category && CATEGORY_MAP[it.category]) catSel.value = it.category;
       const actionSel = $("[data-imp-action]", node);
       if (actionSel && it.action) actionSel.value = it.action;
       $(`[name=imp_name_${idx}]`, node).value = it.name || "";
       $(`[name=imp_materials_${idx}]`, node).value = it.materials || "";
       $(`[name=imp_dims_${idx}]`, node).value = it.dimensions || "";
-      applyImprovementAction(node);
+      applyImprovementSchema(node);
       if (it.photo) {
         const st = $(`[data-imp-status="${idx}"]`, node);
         if (st) {
@@ -1226,10 +1298,11 @@ function plotLegendHTML(cls) {
 }
 
 /* ----- Proposed-improvements table (shared by preview + print) -----
-   Renders the Section 02 item list as a structured table — action / item /
-   materials / dimensions / picture filename — so the committee's "Must Include:
-   Materials, Dimensions, and Example Pictures" list is visibly satisfied instead
-   of buried in a prose blob. Remove items show n/a for materials. */
+   Renders the Section 02 item list as a structured table — action / type / item /
+   materials-or-details / dimensions / picture filename — so the committee's "Must
+   Include: Materials, Dimensions, and Example Pictures" list is visibly satisfied
+   instead of buried in a prose blob. Per category, Remove shows n/a for materials
+   and paint shows n/a for dimensions (it has no dimensions field). */
 const ACTION_LABEL = { add: "Add", replace: "Replace", remove: "Remove" };
 function improvementRows(d) {
   return (d.items || []).filter(it => it.name || it.materials || it.dimensions || it.photo);
@@ -1244,16 +1317,19 @@ function improvementsTableHTML(d, opts) {
   if (!rows.length) return `<p class="no">No improvement items listed.</p>` + notes;
   const body = rows.map(it => {
     const remove = it.action === "remove";
+    const cat = CATEGORY_MAP[it.category];
+    const noDims = !!cat && !cat.dims; // paint: no dimensions field at all
     return `<tr>
       <td>${esc(ACTION_LABEL[it.action] || it.action || "—")}</td>
+      <td>${esc(categoryLabelShort(it.category)) || no("—")}</td>
       <td>${esc(it.name) || no("—")}</td>
       <td>${remove ? no("n/a") : (esc(it.materials) || no("—"))}</td>
-      <td>${esc(it.dimensions) || no("—")}</td>
+      <td>${noDims ? no("n/a") : (esc(it.dimensions) || no("—"))}</td>
       <td>${it.photo ? esc(it.photo) : (remove ? no("—") : no("not attached"))}</td>
     </tr>`;
   }).join("");
   return `<table class="${cls}">
-      <thead><tr><th>Action</th><th>Item</th><th>Materials &amp; color</th><th>Dimensions</th><th>Example picture</th></tr></thead>
+      <thead><tr><th>Action</th><th>Type</th><th>Item</th><th>Materials / details</th><th>Dimensions</th><th>Example picture</th></tr></thead>
       <tbody>${body}</tbody>
     </table>` + notes;
 }
