@@ -106,7 +106,7 @@
       <ol>
         <li><a href="#applicant" class="is-active">Applicant Information</a></li>
         <li><a href="#siteplan">Site / Plot Plan</a></li>
-        <li><a href="#description">Proposed Change</a></li>
+        <li><a href="#description">Proposed Improvements</a></li>
         <li><a href="#neighbors">Adjacent Owners</a></li>
         <li><a href="#photos-section">Photos</a></li>
         <li><a href="#acknowledgments">Acknowledgments</a></li>
@@ -442,15 +442,18 @@
         <header class="card__head">
           <span class="card__num">03</span>
           <div>
-            <h2>Description of Proposed Change</h2>
-            <p class="card__sub">Please be specific — include colors, style, location, size, and materials to be used.</p>
+            <h2>Proposed Improvements</h2>
+            <p class="card__sub">List each change as its own item. For every one, the committee needs the <strong>materials &amp; color</strong>, the <strong>dimensions</strong>, and an <strong>example or catalog picture</strong> — the same &ldquo;must include&rdquo; list printed on the ARC template.</p>
           </div>
         </header>
 
-        <div class="field">
-          <label for="proposal" class="sr-only">Description of proposed change</label>
-          <textarea id="proposal" name="proposal" rows="8" maxlength="3000" required
-            placeholder="Example: Install an Alumawood patio cover (12' × 24') in the back yard, color 'Sandstone'. Add 80 sq. ft. of turf and a metal storage shed (10' × 12') along the rear fence…"></textarea>
+        <div id="improvement-list" class="improvement-list"></div>
+        <button type="button" class="btn btn--ghost" id="add-improvement">+ Add another improvement</button>
+
+        <div class="field improvement-notes">
+          <label for="proposal">Anything else the committee should know? <span class="muted">(optional)</span></label>
+          <textarea id="proposal" name="proposal" rows="4" maxlength="3000"
+            placeholder="Optional notes — context, timing, or anything not captured by the items above."></textarea>
           <div class="field__meta"><span id="proposal-count">0</span> / 3000 characters</div>
         </div>
       </section>

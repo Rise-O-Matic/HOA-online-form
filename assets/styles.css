@@ -1189,6 +1189,38 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .neighbor-form-actions label.btn { cursor: pointer; }
 
+/* ===================== PROPOSED IMPROVEMENTS ===================== */
+.improvement-list { display: grid; gap: 1rem; margin-bottom: 1.1rem; }
+.improvement {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 1.1rem 1.2rem 1.2rem;
+  background: var(--paper);
+  position: relative;
+}
+.improvement.is-attached { border-color: #c5d8bd; background: #f6faf4; }
+.improvement__num {
+  font-family: var(--font-disp); font-style: italic;
+  color: var(--crimson); font-size: .85rem; margin-bottom: .7rem;
+}
+.improvement__remove {
+  position: absolute; top: .8rem; right: .8rem;
+  background: none; border: none; color: var(--ink-faint);
+  font-size: 1.2rem; cursor: pointer; line-height: 1;
+}
+.improvement__remove:hover { color: var(--crimson); }
+.improvement .grid-2 { gap: .9rem 1.2rem; }
+.improvement .grid-2 + .grid-2 { margin-top: .3rem; }
+.improvement__upload {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap;
+  margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line);
+}
+.improvement__upload label.btn { cursor: pointer; }
+.improvement__status { font-size: .82rem; color: var(--ink-faint); }
+.improvement__status.is-attached { color: var(--green); font-weight: 600; }
+.improvement__status.is-prior { color: var(--gold); font-style: italic; }
+.improvement-notes { margin-top: 1.4rem; }
+
 /* ===================== PHOTOS ===================== */
 .photo-quiz {
   border: 1px solid var(--line);
@@ -1533,6 +1565,10 @@ ul.tight li { margin-bottom: .25rem; }
 .doc .doc-list { padding-left: 1.1rem; margin: .3rem 0; }
 .doc .yes { color: var(--green); font-weight: 600; }
 .doc .no  { color: var(--ink-faint); }
+.doc .doc-table { width: 100%; border-collapse: collapse; font-size: .82rem; margin: .3rem 0; }
+.doc .doc-table th, .doc .doc-table td { border: 1px solid var(--line); padding: .35rem .5rem; text-align: left; vertical-align: top; }
+.doc .doc-table th { background: var(--paper); font-weight: 600; color: var(--ink-soft); font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; }
+.doc .doc-note { margin: .5rem 0 0; }
 
 /* ===================== REVEAL ANIMATION ===================== */
 .reveal { opacity: 0; transform: translateY(18px); }

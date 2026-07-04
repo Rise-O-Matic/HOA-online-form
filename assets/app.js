@@ -217,6 +217,135 @@ neighborFormInput.addEventListener("change", () => {
 });
 
 /* ------------------------------------------------------
+   PROPOSED IMPROVEMENTS  (Section 03 — item repeater)
+   Replaces the old single free-text proposal: each change is
+   its own item (action / short name / materials & color /
+   dimensions / example-or-catalog picture), so the committee's
+   "must include" list is structured and checkable instead of
+   hoped-for in a prose blob. A Remove item skips materials, and
+   its picture becomes an optional "what's being removed" shot.
+------------------------------------------------------ */
+const improvementList = $("#improvement-list");
+let improvementCount = 0;
+
+function improvementTemplate(idx) {
+  return `
+    <div class="improvement" data-improvement="${idx}">
+      <button type="button" class="improvement__remove" aria-label="Remove improvement" title="Remove">&times;</button>
+      <div class="improvement__num">Improvement ${idx}</div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="imp_action_${idx}">Action</label>
+          <select id="imp_action_${idx}" name="imp_action_${idx}" data-imp-action>
+            <option value="add">Add (new)</option>
+            <option value="replace">Replace existing</option>
+            <option value="remove">Remove</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="imp_name_${idx}">What is it?</label>
+          <input type="text" id="imp_name_${idx}" name="imp_name_${idx}" data-imp-name required placeholder="e.g. Alumawood patio cover" />
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field" data-imp-materials-field>
+          <label for="imp_materials_${idx}">Materials &amp; color</label>
+          <input type="text" id="imp_materials_${idx}" name="imp_materials_${idx}" data-imp-materials placeholder="Material, color name &amp; code, manufacturer / vendor" />
+        </div>
+        <div class="field">
+          <label for="imp_dims_${idx}">Dimensions</label>
+          <input type="text" id="imp_dims_${idx}" name="imp_dims_${idx}" data-imp-dims placeholder="e.g. 12&#8242; &#215; 24&#8242;" />
+        </div>
+      </div>
+      <div class="improvement__upload">
+        <label class="btn btn--ghost btn--sm" for="imp_photo_${idx}" data-imp-photo-label>Attach example / catalog picture</label>
+        <input type="file" id="imp_photo_${idx}" name="imp_photo_${idx}" data-imp-photo="${idx}" accept="image/*,application/pdf" hidden />
+        <span class="improvement__status" data-imp-status="${idx}">No picture attached yet.</span>
+      </div>
+    </div>`;
+}
+
+// Reflect the chosen action: Remove hides the materials field and relabels the
+// picture as an optional "what's being removed" shot; Add/Replace ask for a
+// catalog/example picture. Called on build and on every action change.
+function applyImprovementAction(node) {
+  const removing = ($("[data-imp-action]", node)?.value) === "remove";
+  const matField = $("[data-imp-materials-field]", node);
+  if (matField) matField.hidden = removing;
+  const label = $("[data-imp-photo-label]", node);
+  const idx = node.dataset.improvement;
+  const input = $(`[data-imp-photo="${idx}"]`, node);
+  const hasFile = !!(input && input.files && input.files.length);
+  if (label && !hasFile) {
+    label.textContent = removing
+      ? "Attach a photo of what's being removed (optional)"
+      : "Attach example / catalog picture";
+  }
+}
+
+function addImprovement() {
+  improvementCount++;
+  const wrap = document.createElement("div");
+  wrap.innerHTML = improvementTemplate(improvementCount).trim();
+  const node = wrap.firstChild;
+  improvementList.appendChild(node);
+  $(".improvement__remove", node).addEventListener("click", () => {
+    node.remove();
+    // Keep at least one item so "name required per item" always demands one named change.
+    if (!$$(".improvement", improvementList).length) addImprovement();
+    updateProgress();
+  });
+  $("[data-imp-action]", node).addEventListener("change", () => {
+    applyImprovementAction(node);
+    updateImprovementStatus(node.dataset.improvement);
+  });
+  $(`[data-imp-photo="${improvementCount}"]`, node)
+    .addEventListener("change", () => updateImprovementStatus(node.dataset.improvement));
+  applyImprovementAction(node);
+  return node;
+}
+$("#add-improvement").addEventListener("click", () => addImprovement());
+// start with one improvement block
+addImprovement();
+
+function updateImprovementStatus(idx) {
+  const node = $(`.improvement[data-improvement="${idx}"]`, improvementList);
+  if (!node) return;
+  const input = $(`[data-imp-photo="${idx}"]`, node);
+  const statusEl = $(`[data-imp-status="${idx}"]`, node);
+  if (!input || !statusEl) return;
+  const removing = ($("[data-imp-action]", node)?.value) === "remove";
+  statusEl.classList.remove("is-prior");
+  if (input.files && input.files.length) {
+    const f = input.files[0];
+    statusEl.textContent = `Attached: ${f.name} (${Math.round(f.size / 1024)} KB)`;
+    statusEl.classList.add("is-attached");
+    node.classList.add("is-attached");
+  } else {
+    statusEl.textContent = removing ? "Optional — no picture attached." : "No picture attached yet.";
+    statusEl.classList.remove("is-attached");
+    node.classList.remove("is-attached");
+  }
+}
+
+// Single DOM->data source for the item list. `photo` is the real attached filename
+// or "" — a restored draft can't repopulate a file input (same browser limit as
+// photos), so an un-reattached picture is dropped on the next save by design.
+function improvementItems() {
+  return $$(".improvement", improvementList).map(node => {
+    const idx = node.dataset.improvement;
+    const input = $(`[data-imp-photo="${idx}"]`, node);
+    return {
+      action: $("[data-imp-action]", node)?.value || "add",
+      name: $("[data-imp-name]", node)?.value.trim() || "",
+      materials: $("[data-imp-materials]", node)?.value.trim() || "",
+      dimensions: $("[data-imp-dims]", node)?.value.trim() || "",
+      photo: (input && input.files && input.files.length) ? input.files[0].name : ""
+    };
+  });
+}
+
+/* ------------------------------------------------------
    ACKNOWLEDGMENTS
 ------------------------------------------------------ */
 const acksEl = $("#acks");
@@ -469,13 +598,17 @@ export function updateProgress() {
   let total = required.length + 1;
   if (ownerSignatureProvided()) done++;
   // Packet items count too — 100% must not be reachable with an empty packet.
-  // Three items: the plot plan, the requested photos (questionnaire answered AND
-  // every requested shot attached), and the signed neighbor form.
-  total += 3;
+  // Four items: the plot plan, the requested photos (questionnaire answered AND
+  // every requested shot attached), the signed neighbor form, and the example
+  // pictures for every Add/Replace improvement item.
+  total += 4;
   if (plotProvided().ok) done++;
   const reqPhotos = photoChecklist();
   if (reqPhotos.length > 0 && reqPhotos.every(p => p.file)) done++;
   if (neighborFormFiles().length > 0) done++;
+  // Lenient: a Remove-only (or empty) item list needs no catalog pictures, so [].every() -> done;
+  // the always-required item name still keeps the denominator honest for an empty packet.
+  if (improvementChecklist().every(r => r.file)) done++;
   const pct = Math.round((done / total) * 100);
   $("#progress-fill").style.width = pct + "%";
   $("#progress-text").textContent = pct + "% complete";
@@ -519,6 +652,14 @@ function photoChecklist() {
   return rows;
 }
 
+// Add/Replace items expect an example/catalog picture (the committee's "must include");
+// Remove items don't (their picture is optional). Rows carry the attached filename or null.
+function improvementChecklist() {
+  return improvementItems()
+    .filter(it => it.action !== "remove" && it.name)
+    .map(it => ({ name: it.name, action: it.action, file: it.photo || null }));
+}
+
 function neighborFormFiles() {
   return neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : [];
 }
@@ -543,6 +684,8 @@ function packetMissingList(includePdf) {
   const photos = photoChecklist();
   if (!photos.length) missing.push("Property photos — the questionnaire in Section 05 hasn't been answered");
   else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
+  improvementChecklist().filter(it => !it.file).forEach(it =>
+    missing.push("Example/catalog picture — " + it.name + " (Section 03)"));
   if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 04)");
   if (!sketchesConfirmed()) missing.push("Sketches, dimensions & material examples (confirm in the Review & Submit checklist)");
   return missing;
@@ -633,6 +776,19 @@ function renderPacket() {
       href: "#siteplan"
     });
   }
+  // Example / catalog pictures for each Add/Replace improvement item (Section 03).
+  // Remove-only lists need none, so the row only appears when pictures are expected.
+  const impReq = improvementChecklist();
+  if (impReq.length) {
+    const impAttached = impReq.filter(r => r.file).length;
+    items.push({
+      label: `Example / catalog pictures — ${impAttached} of ${impReq.length} attached`,
+      ok: impAttached === impReq.length,
+      note: "One picture per Add/Replace item — attach each to your email.",
+      href: "#description",
+      subs: impReq.map(r => ({ label: r.name, ok: !!r.file, note: r.file }))
+    });
+  }
   if (!photos.length) {
     items.push({
       label: "Property photos",
@@ -706,6 +862,7 @@ function collect() {
     ownerPhone: $("#owner-phone").value.trim(),
     ownerEmail: $("#owner-email").value.trim(),
     submissions: {},
+    items: improvementItems(),
     proposal: proposal.value.trim(),
     neighbors: [],
     acks: {},
@@ -806,6 +963,31 @@ function restoreDraft() {
   $("#owner-email").value = d.ownerEmail || "";
   proposal.value = d.proposal || ""; proposalCount.textContent = proposal.value.length;
   $("#ack-date").value = d.ackDate || "";
+  // improvements (Section 03 item list). Additive to .v4: older drafts have no `items`,
+  // so the always-present starter row stays and only the migrated `proposal` text lands
+  // in the notes field above. A picture's filename shows as is-prior (browser can't
+  // repopulate a file input — same as photos).
+  if (Array.isArray(d.items) && d.items.length) {
+    improvementList.innerHTML = ""; improvementCount = 0;
+    d.items.forEach(it => {
+      const node = addImprovement();
+      const idx = node.dataset.improvement;
+      const actionSel = $("[data-imp-action]", node);
+      if (actionSel && it.action) actionSel.value = it.action;
+      $(`[name=imp_name_${idx}]`, node).value = it.name || "";
+      $(`[name=imp_materials_${idx}]`, node).value = it.materials || "";
+      $(`[name=imp_dims_${idx}]`, node).value = it.dimensions || "";
+      applyImprovementAction(node);
+      if (it.photo) {
+        const st = $(`[data-imp-status="${idx}"]`, node);
+        if (st) {
+          st.textContent = `Previously attached: ${it.photo} — re-attach to include it again.`;
+          st.classList.add("is-prior");
+          st.classList.remove("is-attached");
+        }
+      }
+    });
+  }
   // Sketches confirm (the one manual packet checkbox; older drafts' derived/fee keys just find no element)
   if (d.submissions) Object.entries(d.submissions).forEach(([k, v]) => { const el = $(`#packet .packet-confirm [name="${k}"]`); if (el) el.checked = v; });
   if (d.acks) Object.entries(d.acks).forEach(([k, v]) => { const el = $(`#acks [name="${k}"]`); if (el) el.checked = v; });
@@ -1043,6 +1225,39 @@ function plotLegendHTML(cls) {
   return `<ul class="${cls}" aria-label="Site plan legend">${items.join("")}</ul>`;
 }
 
+/* ----- Proposed-improvements table (shared by preview + print) -----
+   Renders the Section 03 item list as a structured table — action / item /
+   materials / dimensions / picture filename — so the committee's "Must Include:
+   Materials, Dimensions, and Example Pictures" list is visibly satisfied instead
+   of buried in a prose blob. Remove items show n/a for materials. */
+const ACTION_LABEL = { add: "Add", replace: "Replace", remove: "Remove" };
+function improvementRows(d) {
+  return (d.items || []).filter(it => it.name || it.materials || it.dimensions || it.photo);
+}
+function improvementsTableHTML(d, opts) {
+  const rows = improvementRows(d);
+  const cls = opts.cls;
+  const no = txt => `<span class="no">${txt}</span>`;
+  const notes = d.proposal
+    ? `<p class="${opts.noteCls}"><strong>Additional notes:</strong> ${esc(d.proposal)}</p>`
+    : "";
+  if (!rows.length) return `<p class="no">No improvement items listed.</p>` + notes;
+  const body = rows.map(it => {
+    const remove = it.action === "remove";
+    return `<tr>
+      <td>${esc(ACTION_LABEL[it.action] || it.action || "—")}</td>
+      <td>${esc(it.name) || no("—")}</td>
+      <td>${remove ? no("n/a") : (esc(it.materials) || no("—"))}</td>
+      <td>${esc(it.dimensions) || no("—")}</td>
+      <td>${it.photo ? esc(it.photo) : (remove ? no("—") : no("not attached"))}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="${cls}">
+      <thead><tr><th>Action</th><th>Item</th><th>Materials &amp; color</th><th>Dimensions</th><th>Example picture</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>` + notes;
+}
+
 function buildPreview(d) {
   // Submission items are derived/attested state, not checkboxes — "missing" reads better than "not checked"
   const subYn = b => b ? '<span class="yes">✓ Included</span>' : '<span class="no">— missing</span>';
@@ -1087,8 +1302,8 @@ function buildPreview(d) {
       <h3>Photos</h3>
       ${photoPreviewHTML(d)}
 
-      <h3>Description of Proposed Change</h3>
-      <div class="doc-block">${esc(d.proposal) || "—"}</div>
+      <h3>Proposed Improvements</h3>
+      ${improvementsTableHTML(d, { cls: "doc-table improvements-table", noteCls: "doc-note" })}
 
       <h3>Adjacent Property Owners</h3>
       ${neighbors}
@@ -1163,9 +1378,6 @@ function buildPrintHTML(d) {
         <div class="print-col">
           <h4>Required Submissions</h4>
           <table class="print-checklist">${subs}</table>
-
-          <h4>Description of Proposed Change</h4>
-          <div class="print-proposal">${esc(d.proposal) || "—"}</div>
         </div>
         <div class="print-col">
           <h4>Site / Plot Plan</h4>
@@ -1174,6 +1386,10 @@ function buildPrintHTML(d) {
             : (plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />${plotLegendHTML("print-legend")}` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
         </div>
       </div>
+
+      <!-- Proposed improvements -->
+      <h4>Proposed Improvements</h4>
+      ${improvementsTableHTML(d, { cls: "print-table print-improvements", noteCls: "print-ack-summary" })}
 
       <!-- Photos -->
       <h4>Photos</h4>
@@ -1265,7 +1481,9 @@ function printPreview() {
       .print-checklist td { padding: 1px 4px; border: none; vertical-align: top; }
       .print-columns { display: flex; gap: 14px; }
       .print-col { flex: 1; min-width: 0; }
-      .print-proposal { font-size: 10px; white-space: pre-wrap; background: #faf8f4; padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; max-height: 120px; overflow: hidden; }
+      .print-improvements { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 4px; }
+      .print-improvements th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 2px 5px; border: 1px solid #ddd; }
+      .print-improvements td { padding: 2px 5px; border: 1px solid #ddd; vertical-align: top; }
       .print-plot { width: 100%; border: 1px solid #ccc; }
       .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 0; padding: 0; font-size: 9px; }
       .print-legend li { display: flex; align-items: center; gap: 4px; }
@@ -1399,6 +1617,8 @@ function openMailto(d) {
     (plot.mode !== "upload" && plot.ok ? "; includes the drawn plot plan" : "") + ")"
   ];
   if (plot.mode === "upload" && plot.names.length) attach.push("Plot plan: " + plot.names.join(", "));
+  improvementChecklist().filter(it => it.file).forEach(it =>
+    attach.push("Example/catalog picture \u2014 " + it.name + ": " + it.file));
   photos.filter(p => p.file).forEach(p => attach.push("Photo \u2014 " + p.title + ": " + p.file));
   if (nf.length) attach.push("Signed neighbor signature form: " + nf.join(", "));
   if (sketchesConfirmed()) attach.push("Sketches, dimensions & material examples for the proposed change");
