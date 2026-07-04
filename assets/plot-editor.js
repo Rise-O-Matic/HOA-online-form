@@ -117,7 +117,7 @@ const TOOL_MODES = [
   { id: "erase",    label: "Erase",    icon: ICON.erase,
     hint: "Drag to clear painted tiles. Click an outline, callout, or measurement to delete it." },
   { id: "fill",     label: "Fill",     icon: ICON.fill,
-    hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls." },
+    hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls. Right-click floods it back to empty." },
   { id: "stamp",    label: "Stamp",    icon: ICON.stamp,
     hint: "Pick a symbol here in this bar, then click the plan to place it — <strong>Select</strong> moves one, <strong>Erase</strong> removes it." },
   { id: "line",     label: "Outline",  icon: ICON.line,
@@ -320,6 +320,7 @@ function initPlotStage() {
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     if (!plotHost || plotHost.offsetParent === null) return;
+    if (plotConfirmedFlag) return;   // locked plan: undo/redo disabled until "Make changes"
     e.preventDefault();
     if (k === "y" || e.shiftKey) redo(); else undo();
   });
@@ -345,7 +346,7 @@ function onHostPointerUp(e) {
   if (!panActive) return;
   panActive = false;
   try { plotHost.releasePointerCapture(e.pointerId); } catch (_) {}
-  plotHost.style.cursor = cursorForMode(activeMode);
+  plotHost.style.cursor = plotConfirmedFlag ? "default" : cursorForMode(activeMode);
 }
 
 /* --- Touch: two-finger pinch-zoom + pan (one finger keeps using the active tool) --- */
@@ -1162,6 +1163,7 @@ function buildLineNode(a, b) {
 
 function onStagePointerDown(e) {
   if (!stageReady || activeMode === "pan") return;          // pan is handled by the host scroll pan
+  if (plotConfirmedFlag) return;                            // plan marked Done: canvas is locked until "Make changes"
   if (pinch || touchPts.size >= 2) return;                  // two fingers = pinch-zoom, never a draw
   const evt = e && e.evt;
   // Right-click or Ctrl(⌘)+click is a quick eraser on the painted grid, available from any tool.
@@ -1181,6 +1183,16 @@ function onStagePointerDown(e) {
     });
     overlayLayer.add(rectGhost);
     overlayLayer.batchDraw();
+    return;
+  }
+  if (activeMode === "fill") {
+    // Fill floods the clicked region; right-click / Ctrl(⌘) floods it back to empty (bucket eraser).
+    const cell = cellFromPointer();
+    if (!cell) return;
+    recordUndoPoint();
+    floodFill(cell.c, cell.r, eraseGesture ? null : activeMaterial, contentPos());
+    gridLayer.batchDraw();
+    scheduleAutosave();
     return;
   }
   if (eraseGesture || activeMode === "paint" || activeMode === "erase") {
@@ -1204,15 +1216,6 @@ function onStagePointerDown(e) {
     painting = true; lastCell = cell;
     paintBrush(cell.c, cell.r, id);
     gridLayer.batchDraw();
-    return;
-  }
-  if (activeMode === "fill") {
-    const cell = cellFromPointer();
-    if (!cell) return;
-    recordUndoPoint();
-    floodFill(cell.c, cell.r, activeMaterial, contentPos());
-    gridLayer.batchDraw();
-    scheduleAutosave();
     return;
   }
   const pos = contentPos();
@@ -1243,7 +1246,7 @@ function onStagePointerDown(e) {
 }
 
 function onStagePointerMove() {
-  if (!stageReady || pinch) return;
+  if (!stageReady || pinch || plotConfirmedFlag) return;    // locked plan: no hover ghosts / in-progress shapes
   if (rectDraft && rectGhost) {
     const cell = cellFromPointer();
     if (cell) {
@@ -1371,7 +1374,11 @@ export function setPlotConfirmed(v) {
   v = !!v;
   if (v === plotConfirmedFlag) return;
   plotConfirmedFlag = v;
-  updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list
+  // Locking hides the tools/hints (via the .plot.is-locked class in refreshPlotDoneUI) and
+  // freezes the canvas (pointer/keyboard guards read plotConfirmedFlag); reset the host cursor
+  // so a paint/bucket glyph doesn't linger over a plan you can no longer edit.
+  if (plotHost) plotHost.style.cursor = v ? "default" : cursorForMode(activeMode);
+  updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list, lock class
   scheduleAutosave();
 }
 

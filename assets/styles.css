@@ -900,6 +900,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   box-shadow: 0 8px 20px -8px rgba(47,93,74,.6);
 }
 #plot-done.is-confirmed:hover { background: var(--green); }
+#plot-done.is-confirmed:disabled { opacity: 1; cursor: default; color: #fff; } /* it's a status badge now, not muted */
+/* "Done — use this plan" locks the surface: the material palette, tool rail, and status/hints
+   strip are hidden and the canvas is frozen (behavioral guards live in plot-editor.js), leaving
+   just the plan + zoom/scale aids for review. "Make changes" clears the flag to edit again. */
+.plot.is-locked #palette,
+.plot.is-locked .palette-pop,
+.plot.is-locked .tool-rail,
+.plot.is-locked .plot-status { display: none; }
+.plot.is-locked .plot__konva-host { cursor: default; }
 .linklike {
   background: none; border: none; padding: 0;
   font: inherit; color: var(--crimson);

@@ -886,6 +886,13 @@ $("#plot-done").addEventListener("click", () => {
   $("#photos-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
+// "Make changes" — re-open the locked plan for editing: drop the completion flag (which reveals
+// the tools/hints and unfreezes the canvas via refreshPlotDoneUI), until Done is pressed again.
+$("#plot-edit").addEventListener("click", () => {
+  setPlotConfirmed(false);
+  $("#siteplan")?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 // Rotation panel — slider + quick-adjust buttons, all drive parcelBearing
 const mapRotate = $("#map-rotate");
 const mapRotateValue = $("#map-rotate-value");

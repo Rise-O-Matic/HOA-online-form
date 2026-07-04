@@ -1082,15 +1082,25 @@ function refreshFinishSteps() {
 // declared-completion state (see plot-editor's isPlotConfirmed). Runs from every
 // updateProgress(), so a paint stroke / Clear / Done click all repaint it.
 function refreshPlotDoneUI() {
+  const confirmed = isPlotConfirmed();
   const btn = $("#plot-done");
   if (btn) {
-    const confirmed = isPlotConfirmed();
-    btn.disabled = !plotUsed();
+    // Once confirmed the Done CTA becomes a static "added" badge (disabled); "Make changes" is
+    // the way back into editing, so it — not Done/Clear — is the live control while locked.
+    btn.disabled = confirmed || !plotUsed();
     btn.classList.toggle("is-confirmed", confirmed);
     btn.textContent = confirmed ? "✓ Plan added to your packet" : "Done — use this plan";
   }
+  const clearBtn = $("#plot-clear");
+  if (clearBtn) clearBtn.hidden = confirmed;      // no clearing a locked plan
+  const editBtn = $("#plot-edit");
+  if (editBtn) editBtn.hidden = !confirmed;       // unlock control, shown only while locked
+  // Lock the drawing surface: hide the material palette, tool rail, and status/hints strip,
+  // and freeze the canvas (behavioral guards live in plot-editor's pointer/keyboard handlers).
+  const plotEl = $(".plot");
+  if (plotEl) plotEl.classList.toggle("is-locked", confirmed);
   const drawDot = $('.plot-steps-nav__dot[data-goto="4"]');
-  if (drawDot) drawDot.classList.toggle("is-done", isPlotConfirmed());
+  if (drawDot) drawDot.classList.toggle("is-done", confirmed);
 }
 
 export function refreshPacketUI() {
