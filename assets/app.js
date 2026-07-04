@@ -276,15 +276,18 @@ const PHOTO_SPECS = {
       { id: "front_street", title: "From the center of the street",
         instr: "Stand safely in the middle of the street and capture the full front of your property, property line to property line. No vehicles or people in the frame.",
         good: "Whole front yard, taken straight on from the street.",
-        bad: "Too close, sharply angled, or with a car blocking the yard." },
+        bad: "Too close, sharply angled, or with a car blocking the yard.",
+        goodImg: "assets/photo-examples/front_street-good.jpg", badImg: "assets/photo-examples/front_street-bad.jpg" },
       { id: "front_left", title: "From the left curb",
         instr: "From the curb at the left edge of your yard, capture the home and yard looking across the front.",
         good: "Yard and house visible from the left corner.",
-        bad: "Only a slice of the yard, or shot from the porch." },
+        bad: "Only a slice of the yard, or shot from the porch.",
+        goodImg: "assets/photo-examples/front_left-good.jpg", badImg: "assets/photo-examples/front_left-bad.jpg" },
       { id: "front_right", title: "From the right curb",
         instr: "From the curb at the right edge of your yard, capture the home and yard looking across the front.",
         good: "Yard and house visible from the right corner.",
-        bad: "Only a slice of the yard, or shot from the porch." }
+        bad: "Only a slice of the yard, or shot from the porch.",
+        goodImg: "assets/photo-examples/front_right-good.jpg", badImg: "assets/photo-examples/front_right-bad.jpg" }
     ]
   },
   back: {
@@ -293,19 +296,23 @@ const PHOTO_SPECS = {
       { id: "back_full", title: "Full yard from the farthest point",
         instr: "Stand at the point farthest from the house and capture the entire back yard in one frame.",
         good: "Entire back yard, fence to fence, in one shot.",
-        bad: "Standing near the house so half the yard is cut off." },
+        bad: "Standing near the house so half the yard is cut off.",
+        goodImg: "assets/photo-examples/back_full-good.jpg" },
       { id: "back_left", title: "From the left side",
         instr: "From the left side of the yard, capture the entire space, property line to property line.",
         good: "Full left-to-right view of the yard.",
-        bad: "Zoomed in on a single corner." },
+        bad: "Zoomed in on a single corner.",
+        goodImg: "assets/photo-examples/back_left-good.jpg", badImg: "assets/photo-examples/back_left-bad.jpg" },
       { id: "back_right", title: "From the right side",
         instr: "From the right side of the yard, capture the entire space, property line to property line.",
         good: "Full right-to-left view of the yard.",
-        bad: "Zoomed in on a single corner." },
+        bad: "Zoomed in on a single corner.",
+        goodImg: "assets/photo-examples/back_right-good.jpg", badImg: "assets/photo-examples/back_right-bad.jpg" },
       { id: "back_closeup", title: "Close-up of the work area",
         instr: "A closer photo of the exact spot where the change will go, so existing conditions are clear.",
         good: "Clear view of precisely where the change will be made.",
-        bad: "A wide shot where the spot can't be identified." }
+        bad: "A wide shot where the spot can't be identified.",
+        goodImg: "assets/photo-examples/back_closeup-good.jpg", badImg: "assets/photo-examples/back_closeup-bad.jpg" }
     ]
   },
   side: {
@@ -314,7 +321,8 @@ const PHOTO_SPECS = {
       { id: "side_full", title: "Full length of the side yard",
         instr: "Capture the full length of the affected side yard, fence line to fence line. Take one for each side if both are affected.",
         good: "Whole side-yard run, visible end to end.",
-        bad: "A single fence panel or a cropped section." }
+        bad: "A single fence panel or a cropped section.",
+        goodImg: "assets/photo-examples/side_full-good.jpg", badImg: "assets/photo-examples/side_full-bad.jpg" }
     ]
   },
   exterior: {
@@ -323,7 +331,8 @@ const PHOTO_SPECS = {
       { id: "ext_elevation", title: "Affected wall or elevation",
         instr: "Photograph the wall, roof section, or elevation of the home that the change affects, straight on and evenly lit.",
         good: "The full affected face of the home, evenly lit.",
-        bad: "Sharp angle, deep shadow, or only part of the wall." }
+        bad: "Sharp angle, deep shadow, or only part of the wall.",
+        goodImg: "assets/photo-examples/ext_elevation-good.jpg", badImg: "assets/photo-examples/ext_elevation-bad.jpg" }
     ]
   }
 };
@@ -342,6 +351,12 @@ function photoTitle(id) { return PHOTO_TITLE[id] || id; }
 const photoRequestsEl = $("#photo-requests");
 const photoEmptyEl = $("#photo-empty");
 
+function exampleFrame(kind, caption, imgSrc) {
+  return imgSrc
+    ? `<img src="${esc(imgSrc)}" alt="Example: ${esc(caption)}" loading="lazy">`
+    : `<span class="photo-example__ph">Example image</span>`;
+}
+
 function photoRequestBlock(shot) {
   const block = document.createElement("div");
   block.className = "photo-request";
@@ -353,11 +368,11 @@ function photoRequestBlock(shot) {
     </div>
     <div class="photo-examples" aria-hidden="true">
       <figure class="photo-example photo-example--good">
-        <div class="photo-example__frame"><span class="photo-example__ph">Example image</span></div>
+        <div class="photo-example__frame">${exampleFrame("good", shot.good, shot.goodImg)}</div>
         <figcaption><span class="photo-example__tag photo-example__tag--good">&#10003; Do this</span>${shot.good}</figcaption>
       </figure>
       <figure class="photo-example photo-example--bad">
-        <div class="photo-example__frame"><span class="photo-example__ph">Example image</span></div>
+        <div class="photo-example__frame">${exampleFrame("bad", shot.bad, shot.badImg)}</div>
         <figcaption><span class="photo-example__tag photo-example__tag--bad">&#10007; Not this</span>${shot.bad}</figcaption>
       </figure>
     </div>

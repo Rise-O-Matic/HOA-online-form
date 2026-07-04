@@ -1255,7 +1255,9 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: grid; place-items: center;
   border: 2px solid var(--line-2);
   background: repeating-linear-gradient(45deg, #f0ece3, #f0ece3 8px, #ece7dc 8px, #ece7dc 16px);
+  overflow: hidden;
 }
+.photo-example__frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-example--good .photo-example__frame { border-color: #9bc48c; }
 .photo-example--bad .photo-example__frame { border-color: #dd9999; }
 .photo-example__ph { font-size: .72rem; color: var(--ink-faint); letter-spacing: .04em; text-transform: uppercase; }
