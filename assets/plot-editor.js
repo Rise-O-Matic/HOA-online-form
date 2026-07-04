@@ -61,7 +61,7 @@ const STAMP_MAP = Object.fromEntries(STAMPS.map(s => [s.id, s]));
 
 // Inline stroke icons (18px, currentColor) — one per tool.
 const ICON = {
-  paint: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5 4 20c-.7.7-.2 2 .8 2 1.6 0 3.2-.6 4.4-1.8L14 15.5"/><path d="m12 12 6.5-6.5a2.1 2.1 0 0 1 3 3L15 15"/></svg>',
+  marker: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 3.5 20.5 6.5 10 17 5.5 18.5 7 14 17.5 3.5Z"/><path d="M4.5 20.5h5"/></svg>',
   rect: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/></svg>',
   erase: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16"/><path d="M15.5 5.5 20 10l-7.5 7.5H8.5L4 13a2 2 0 0 1 0-2.8l6.7-6.7a2 2 0 0 1 2.8 0z"/></svg>',
   fill: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m11 3 8 8-7.3 7.3a2 2 0 0 1-2.8 0L4 13.8a2 2 0 0 1 0-2.8z"/><path d="M8 6 5 9"/><path d="M20 15c0 1.5 1.2 2.6 1.2 4a1.2 1.2 0 0 1-2.4 0c0-1.4 1.2-2.5 1.2-4z"/></svg>',
@@ -76,7 +76,7 @@ const ICON = {
 // Each tool's one-line hint is shown above the canvas while that tool is selected
 // (replaces the old wall-of-text intro paragraph). Edit the copy here, not the DOM.
 const TOOL_MODES = [
-  { id: "paint",    label: "Paint",    icon: ICON.paint,
+  { id: "paint",    label: "Marker",    icon: ICON.marker,
     hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; the brush width control is here in this bar. Right-click erases from any tool." },
   { id: "rect",     label: "Rectangle", icon: ICON.rect,
     hint: "Drag diagonally to fill a solid block with the selected material." },
@@ -97,6 +97,34 @@ const TOOL_MODES = [
   { id: "pan",      label: "Pan",      icon: ICON.pan,
     hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
+
+// Per-tool canvas cursor: the same glyph shown on the tool's rail button, rendered as a small
+// white-halo + dark-stroke cursor image (same treatment as a Stamp on the canvas) so it reads
+// over both the aerial photo and painted tiles. HOTSPOT is where in the 26x26 glyph the tool's
+// "active point" sits (e.g. a marker's tip, an arrow's point); tools without a natural tip just
+// use the glyph's center. Pan keeps the native grab/grabbing hand — that's already a
+// conventional, dynamic (idle vs. dragging) pan affordance a static glyph can't reproduce.
+const CURSOR_SIZE = 26;
+const CURSOR_HOTSPOT = {
+  paint: [6, 20], callout: [6, 21], select: [5, 3]
+};
+const cursorCache = {};
+function cursorForMode(mode) {
+  if (mode === "pan") return "grab";
+  if (cursorCache[mode]) return cursorCache[mode];
+  const t = TOOL_MODES.find(x => x.id === mode);
+  const fallback = mode === "erase" ? "cell" : (mode === "select" ? "default" : "crosshair");
+  if (!t || !t.icon) return fallback;
+  const inner = (t.icon.match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [, ""])[1];
+  const [hx, hy] = CURSOR_HOTSPOT[mode] || [CURSOR_SIZE / 2, CURSOR_SIZE / 2];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${CURSOR_SIZE}" height="${CURSOR_SIZE}">`
+    + `<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
+    + `<g fill="none" stroke="#1c1c1c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
+    + `</svg>`;
+  const cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hx} ${hy}, ${fallback}`;
+  cursorCache[mode] = cursor;
+  return cursor;
+}
 
 // Fixed real-world scale (1 grid tile = 1 sq ft, CELL_SIZE px at 100% zoom) — the scale
 // constants and the projection math live in geometry.js.
@@ -255,7 +283,7 @@ function onHostPointerUp(e) {
   if (!panActive) return;
   panActive = false;
   try { plotHost.releasePointerCapture(e.pointerId); } catch (_) {}
-  plotHost.style.cursor = activeMode === "pan" ? "grab" : "";
+  plotHost.style.cursor = cursorForMode(activeMode);
 }
 
 /* --- Touch: two-finger pinch-zoom + pan (one finger keeps using the active tool) --- */
@@ -767,8 +795,7 @@ function setActiveMode(mode) {
     n.listening(mode === "erase" || mode === "select");
     n.draggable(mode === "select");
   });
-  if (plotHost) plotHost.style.cursor =
-    mode === "pan" ? "grab" : (mode === "erase" ? "cell" : (mode === "select" ? "move" : (mode === "fill" || mode === "stamp" ? "pointer" : "crosshair")));
+  if (plotHost) plotHost.style.cursor = cursorForMode(mode);
 }
 
 /* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
