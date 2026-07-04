@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="title desc">
+  <title id="title">Raised planter</title>
+  <desc id="desc">Raised garden or planter box with small plant rows.</desc>
+  <metadata>{"title": "Raised planter", "tags": ["planter", "raised bed", "garden", "plant"]}</metadata>
+  <defs>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.25" stdDeviation="1.25" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <g filter="url(#softShadow)" stroke-linecap="round" stroke-linejoin="round">
+<rect x="12" y="19" width="40" height="29" rx="4" fill="#A66A3F" stroke="#1F2937" stroke-width="2.2"/>
+<rect x="16" y="23" width="32" height="21" rx="3" fill="#5B3A29" stroke="#1F2937" stroke-width="1.6"/>
+<path d="M23 41 C20 34 25 29 23 25" fill="none" stroke="#77B255" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 41 C29 34 34 29 32 25" fill="none" stroke="#77B255" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M41 41 C38 34 43 29 41 25" fill="none" stroke="#77B255" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="22" cy="30" r="2.2" fill="#84CC16" stroke="#1F2937" stroke-width="0.8"/>
+<circle cx="29" cy="35" r="2.2" fill="#84CC16" stroke="#1F2937" stroke-width="0.8"/>
+<circle cx="38" cy="29" r="2.2" fill="#84CC16" stroke="#1F2937" stroke-width="0.8"/>
+<circle cx="43" cy="37" r="2.2" fill="#84CC16" stroke="#1F2937" stroke-width="0.8"/>
+  </g>
+</svg>

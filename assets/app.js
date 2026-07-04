@@ -341,7 +341,8 @@ const PHOTO_MATERIAL = {
   id: "material_sample", title: "Paint color / material sample",
   instr: "Photograph the manufacturer's color chip or material sample, clearly showing the printed name and code.",
   good: "Sample with the name/code legible.",
-  bad: "Blurry chip, or a screen photo without the code."
+  bad: "Blurry chip, or a screen photo without the code.",
+  goodImg: "assets/photo-examples/material_sample-good.jpg", badImg: "assets/photo-examples/material_sample-bad.jpg"
 };
 // id -> human label, for preview/print summaries
 const PHOTO_TITLE = {};
@@ -1067,9 +1068,10 @@ function plotLegendHTML(cls) {
   if (!materials.length && !stamps.length) return "";
   const items = materials.map(m =>
     `<li><span class="${cls}__swatch" style="background:${esc(m.color)}"></span>${esc(m.label)}</li>`
-  ).concat(stamps.map(s =>
-    `<li><svg viewBox="0 0 24 24" fill="none" stroke="#1e1a14" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>${esc(s.label)}</li>`
-  ));
+  ).concat(stamps.map(s => `<li>${s.img
+    ? `<img src="${esc(s.img)}" alt="" aria-hidden="true" />`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="#1e1a14" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>`
+  }${esc(s.label)}</li>`));
   return `<ul class="${cls}" aria-label="Site plan legend">${items.join("")}</ul>`;
 }
 
@@ -1300,7 +1302,7 @@ function printPreview() {
       .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 0; padding: 0; font-size: 9px; }
       .print-legend li { display: flex; align-items: center; gap: 4px; }
       .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #999; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-legend svg { flex: none; width: 12px; height: 12px; }
+      .print-legend svg, .print-legend img { flex: none; width: 12px; height: 12px; }
       .print-neighbors th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; }
       .print-ack-summary { font-size: 10px; margin: 2px 0 6px; }
       .print-sig-block { margin-top: 10px; }

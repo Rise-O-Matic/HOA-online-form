@@ -42,21 +42,53 @@ const RETIRED_MATERIALS = [
 const PALETTE_MAP = Object.fromEntries([...PALETTE, ...RETIRED_MATERIALS].map(p => [p.id, p]));
 let customMaterials = []; // { id, label, color } user-defined, persisted as plot.customMaterials
 
-// Point-object plan symbols placed by the Stamp tool. `d` is an SVG path in a 24×24 box
-// (stroke-only, round caps) shared by the picker button, the legend, and the Konva.Path
-// pair on the canvas; `ft` is the real-world footprint the 24-box is scaled to (trees get
-// their true canopy, hardware gets a legible symbolic size).
+// Point-object plan symbols placed by the Stamp tool. Two kinds share the STAMPS list:
+// image stamps (`img`, a full-color top-down SVG in a `box`×`box` viewBox — the plant/
+// landscape catalog in assets/stamps/) and path stamps (`d`, a 24×24 stroke-only path,
+// default `box` 24 — the legacy hardware symbols, drawn twice as a white-halo-under-black-
+// stroke pair). `ft` is the real-world footprint the box is scaled to.
 const STAMPS = [
-  { id: "tree",    label: "Tree",        ft: 15, d: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18M12 8v8M8 12h8" },
-  { id: "palm",    label: "Palm",        ft: 10, d: "M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4M12 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 1 0 0-3" },
-  { id: "shrub",   label: "Shrub",       ft: 4,  d: "M21 12a4.5 4.5 0 0 1-4.5 7.8 4.5 4.5 0 0 1-9 0A4.5 4.5 0 0 1 3 12a4.5 4.5 0 0 1 4.5-7.8 4.5 4.5 0 0 1 9 0A4.5 4.5 0 0 1 21 12z" },
-  { id: "cactus",  label: "Cactus / Agave", ft: 4, d: "M12 21V3M12 14c-2.8 0-5-2.2-5-5V7M12 17c2.8 0 5-2.2 5-5v-2" },
-  { id: "xeri",    label: "Xeriscape groundcover", ft: 8, d: "M4 9l2-2 2 2M14 6l2-2 2 2M8 16l2-2 2 2M16 15l2-2 2 2M5 21l2-2 2 2M13 20l2-2 2 2" },
-  { id: "boulder", label: "Boulder",     ft: 5,  d: "M4 13l3-7 8-2 5 8-4 7H7zM10 11l2 8" },
+  { id: "canopy_tree",        label: "Canopy tree",        ft: 20, box: 64, img: "assets/stamps/canopy_tree.svg" },
+  { id: "ornamental_tree",    label: "Ornamental tree",    ft: 10, box: 64, img: "assets/stamps/ornamental_tree.svg" },
+  { id: "fruit_tree",         label: "Fruit tree",         ft: 12, box: 64, img: "assets/stamps/fruit_tree.svg" },
+  { id: "palm",                label: "Palm",               ft: 10, box: 64, img: "assets/stamps/palm.svg" },
+  { id: "conifer",             label: "Conifer",            ft: 10, box: 64, img: "assets/stamps/conifer.svg" },
+  { id: "round_shrub",         label: "Round shrub",        ft: 4,  box: 64, img: "assets/stamps/round_shrub.svg" },
+  { id: "hedge",               label: "Hedge",              ft: 6,  box: 64, img: "assets/stamps/hedge.svg" },
+  { id: "shrub_row",           label: "Shrub row",          ft: 8,  box: 64, img: "assets/stamps/shrub_row.svg" },
+  { id: "groundcover",         label: "Groundcover",        ft: 6,  box: 64, img: "assets/stamps/groundcover.svg" },
+  { id: "turf_lawn",           label: "Turf lawn",          ft: 8,  box: 64, img: "assets/stamps/turf_lawn.svg" },
+  { id: "ornamental_grass",    label: "Ornamental grass",   ft: 4,  box: 64, img: "assets/stamps/ornamental_grass.svg" },
+  { id: "flower_bed",          label: "Flower bed",         ft: 6,  box: 64, img: "assets/stamps/flower_bed.svg" },
+  { id: "succulent_rosette",   label: "Succulent rosette",  ft: 2,  box: 64, img: "assets/stamps/succulent_rosette.svg" },
+  { id: "agave",               label: "Agave",              ft: 3,  box: 64, img: "assets/stamps/agave.svg" },
+  { id: "cactus",              label: "Cactus",             ft: 4,  box: 64, img: "assets/stamps/cactus.svg" },
+  { id: "yucca",               label: "Yucca",              ft: 4,  box: 64, img: "assets/stamps/yucca.svg" },
+  { id: "vine_trellis",        label: "Vine / trellis",     ft: 4,  box: 64, img: "assets/stamps/vine_trellis.svg" },
+  { id: "raised_planter",      label: "Raised planter",     ft: 6,  box: 64, img: "assets/stamps/raised_planter.svg" },
+  { id: "potted_plant",        label: "Potted plant",       ft: 2,  box: 64, img: "assets/stamps/potted_plant.svg" },
+  { id: "native_planting_mix", label: "Native planting mix", ft: 8, box: 64, img: "assets/stamps/native_planting_mix.svg" },
+  { id: "mulch_bed",           label: "Mulch bed",          ft: 6,  box: 64, img: "assets/stamps/mulch_bed.svg" },
+  { id: "gravel_rock_bed",     label: "Gravel / rock bed",  ft: 6,  box: 64, img: "assets/stamps/gravel_rock_bed.svg" },
+  { id: "boulder",             label: "Boulder",            ft: 4,  box: 64, img: "assets/stamps/boulder.svg" },
+  { id: "plant_remove",        label: "Plant to remove",    ft: 3,  box: 64, img: "assets/stamps/plant_remove.svg" },
   { id: "camera",  label: "Camera",      ft: 3,  d: "M3 8h11v8H3zM14 11l6-3v8l-6-3" },
   { id: "light",   label: "Yard Light",  ft: 3,  d: "M12 5a3 3 0 1 0 0 6 3 3 0 1 0 0-6M12 11v10M8.5 21h7M12 1.5V3M7.4 4.4l1.1 1.1M16.6 4.4l-1.1 1.1" },
   { id: "ac",      label: "AC Unit",     ft: 4,  d: "M4 4h16v16H4zM12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8M12 11.2v1.6" }
 ];
+
+// Preloaded <img> elements backing image stamps, keyed by stamp id — same-origin static
+// SVGs (assets/stamps/), loaded once at module init. A stamp Konva.Image can be created
+// before its element finishes loading; the onload here just triggers a redraw so it
+// appears as soon as it's ready instead of waiting on the next unrelated draw.
+const STAMP_IMG_CACHE = {};
+STAMPS.forEach(s => {
+  if (!s.img) return;
+  const el = new Image();
+  el.onload = () => { drawLayer?.batchDraw(); overlayLayer?.batchDraw(); };
+  el.src = s.img;
+  STAMP_IMG_CACHE[s.id] = el;
+});
 const STAMP_MAP = Object.fromEntries(STAMPS.map(s => [s.id, s]));
 
 // Inline stroke icons (18px, currentColor) — one per tool.
@@ -77,7 +109,7 @@ const ICON = {
 // (replaces the old wall-of-text intro paragraph). Edit the copy here, not the DOM.
 const TOOL_MODES = [
   { id: "paint",    label: "Marker",    icon: ICON.marker,
-    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; the brush width control is here in this bar. Right-click erases from any tool." },
+    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; the thickness control is here in this bar. Right-click erases from any tool." },
   { id: "rect",     label: "Rectangle", icon: ICON.rect,
     hint: "Drag diagonally to fill a solid block with the selected material." },
   { id: "erase",    label: "Erase",    icon: ICON.erase,
@@ -98,16 +130,19 @@ const TOOL_MODES = [
     hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
 
-// Per-tool canvas cursor: the same glyph shown on the tool's rail button, rendered as a small
-// white-halo + dark-stroke cursor image (same treatment as a Stamp on the canvas) so it reads
-// over both the aerial photo and painted tiles. HOTSPOT is where in the 26x26 glyph the tool's
-// "active point" sits (e.g. a marker's tip, an arrow's point); tools without a natural tip just
-// use the glyph's center. Pan keeps the native grab/grabbing hand — that's already a
+// Per-tool canvas cursor. Select/Pan/Stamp/Fill/Marker keep the full glyph-as-cursor treatment
+// (a white-halo + dark-stroke rendering of the tool's rail icon, same look as a Stamp on the
+// canvas) since those tools' "active point" isn't obvious from a crosshair alone. HOTSPOT is
+// where in the 26x26 glyph the tool's active point sits (e.g. a marker's tip); tools without a
+// natural tip use the glyph's center. Pan keeps the native grab/grabbing hand — that's already a
 // conventional, dynamic (idle vs. dragging) pan affordance a static glyph can't reproduce.
+// Every other tool gets a plain crosshair with the tool's glyph badged above-and-right of it, so
+// the click point stays exact while still showing which tool is active.
 const CURSOR_SIZE = 26;
 const CURSOR_HOTSPOT = {
-  paint: [6, 20], callout: [6, 21], select: [5, 3]
+  paint: [6, 20], select: [5, 3]
 };
+const KEEP_ICON_CURSOR = new Set(["select", "pan", "stamp", "fill", "paint"]);
 const cursorCache = {};
 function cursorForMode(mode) {
   if (mode === "pan") return "grab";
@@ -116,11 +151,31 @@ function cursorForMode(mode) {
   const fallback = mode === "erase" ? "cell" : (mode === "select" ? "default" : "crosshair");
   if (!t || !t.icon) return fallback;
   const inner = (t.icon.match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [, ""])[1];
-  const [hx, hy] = CURSOR_HOTSPOT[mode] || [CURSOR_SIZE / 2, CURSOR_SIZE / 2];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${CURSOR_SIZE}" height="${CURSOR_SIZE}">`
-    + `<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
-    + `<g fill="none" stroke="#1c1c1c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
-    + `</svg>`;
+  let svg, hx, hy;
+  if (KEEP_ICON_CURSOR.has(mode)) {
+    [hx, hy] = CURSOR_HOTSPOT[mode] || [CURSOR_SIZE / 2, CURSOR_SIZE / 2];
+    svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${CURSOR_SIZE}" height="${CURSOR_SIZE}">`
+      + `<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
+      + `<g fill="none" stroke="#1c1c1c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
+      + `</svg>`;
+  } else {
+    const SIZE = 36, cx = 10, cy = 26, arm = 7, gap = 2, iconSize = 15;
+    hx = cx; hy = cy;
+    const cross = `
+      <line x1="${cx}" y1="${cy - arm}" x2="${cx}" y2="${cy - gap}" />
+      <line x1="${cx}" y1="${cy + gap}" x2="${cx}" y2="${cy + arm}" />
+      <line x1="${cx - arm}" y1="${cy}" x2="${cx - gap}" y2="${cy}" />
+      <line x1="${cx + gap}" y1="${cy}" x2="${cx + arm}" y2="${cy}" />`;
+    const iconX = cx + 5, iconY = cy - arm - iconSize - 1;
+    svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}">`
+      + `<g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round">${cross}</g>`
+      + `<g fill="none" stroke="#1c1c1c" stroke-width="1.4" stroke-linecap="round">${cross}</g>`
+      + `<g transform="translate(${iconX},${iconY}) scale(${iconSize / 24})">`
+      + `<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
+      + `<g fill="none" stroke="#1c1c1c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
+      + `</g>`
+      + `</svg>`;
+  }
   const cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hx} ${hy}, ${fallback}`;
   cursorCache[mode] = cursor;
   return cursor;
@@ -164,7 +219,7 @@ let cellState = new Map();     // "c,r" -> material id (sparse; big lots are mos
 let stageReady = false;
 let activeMaterial = "turf";
 let activeMode = "rect";
-let brushSize = 3;             // square paint brush, in tiles (= feet)
+let brushSize = 1;             // square paint brush, in tiles (= feet)
 let painting = false, lastCell = null; // in-progress freehand paint/erase stroke
 let eraseGesture = false;              // right-click / Ctrl(⌘)+click forces erase regardless of tool
 let lineDraft = null, lineGhost = null; // shift-held straight-line paint stroke
@@ -175,7 +230,7 @@ let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in re
 let dragOrigin = null, ghostNode = null;         // measure drag
 let calloutDraft = null, calloutGhost = null;    // callout
 let selectedNode = null, selectionRect = null;   // Select/move tool
-let activeStamp = "tree";                        // selected symbol in the Stamp picker
+let activeStamp = "canopy_tree";                 // selected symbol in the Stamp picker
 let stampArmed = null, stampGhost = null;        // press position awaiting release + cursor preview
 
 let undoStack = [], redoStack = [], restoringHistory = false;
@@ -723,7 +778,9 @@ function buildStampPicker() {
     b.setAttribute("aria-label", s.label);
     b.setAttribute("aria-pressed", s.id === activeStamp ? "true" : "false");
     if (s.id === activeStamp) b.classList.add("is-active");
-    b.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>`;
+    b.innerHTML = s.img
+      ? `<img src="${s.img}" width="18" height="18" alt="" aria-hidden="true" />`
+      : `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>`;
     b.addEventListener("click", () => {
       activeStamp = s.id;
       removeStampGhost(); // next pointer move rebuilds it at the new symbol's footprint
@@ -747,7 +804,7 @@ function buildToolbar() {
     b.dataset.mode = t.id;
     if (t.id === activeMode) b.classList.add("is-active");
     b.innerHTML = t.icon || "";
-    b.title = t.label;
+    b.dataset.tip = t.label; // custom CSS tooltip (see .tool-rail button::after) — shows instantly, unlike a native title's hover delay
     b.setAttribute("aria-label", t.label);
     b.setAttribute("aria-pressed", t.id === activeMode ? "true" : "false");
     b.addEventListener("click", () => setActiveMode(t.id));
@@ -777,6 +834,10 @@ function setActiveMode(mode) {
   if (mode !== "select") clearSelection();
   activeMode = mode;
   updateToolHint(mode);
+  // Only Marker/Rectangle/Fill consume the selected material — dim the chip row's chrome
+  // (not the color swatches) for the other tools so it reads as "not in play right now".
+  const pal = $("#palette");
+  if (pal) pal.classList.toggle("is-muted", !["paint", "rect", "fill"].includes(mode));
   $$("#tool-palette button").forEach(x => {
     const on = x.dataset.mode === mode;
     x.classList.toggle("is-active", on);
@@ -901,6 +962,7 @@ function hydrateShapesInto(layer, shapes) {
       const node = Konva.Node.create(obj);
       layer.add(node);
       attachShapeInteractions(node);
+      rehydrateStampImages(node);
     } catch (e) { /* skip a shape that fails to reconstruct rather than aborting the whole restore */ }
   });
   syncAnnotationTextScale();
@@ -996,17 +1058,36 @@ function buildCalloutGroup(tip, labelPos, text) {
    Everything downstream (drag/erase wiring, undo, serialize/restore, print) comes free
    from the existing drawLayer vector pipeline. */
 function buildStampGroup(pos, spec) {
-  // Scale the 24-box glyph to the symbol's real-world footprint (ft → content px).
-  const s = (spec.ft * CELL_SIZE / FEET_PER_CELL) / 24;
+  // Scale the glyph's box to the symbol's real-world footprint (ft → content px).
+  const box = spec.box || 24;
+  const s = (spec.ft * CELL_SIZE / FEET_PER_CELL) / box;
   const group = new Konva.Group({ x: pos.x, y: pos.y, scaleX: s, scaleY: s });
   group.setAttr("kind", "stamp");
   group.setAttr("stampId", spec.id);
   // Hit target: opacity is ignored by Konva's hit graph, so this invisible disc still catches clicks.
-  group.add(new Konva.Circle({ x: 0, y: 0, radius: 13, fill: "#000", opacity: 0 }));
-  const glyphAttrs = { data: spec.d, x: -12, y: -12, lineCap: "round", lineJoin: "round", listening: false };
-  group.add(new Konva.Path({ ...glyphAttrs, stroke: "#fff", strokeWidth: 4.6 }));
-  group.add(new Konva.Path({ ...glyphAttrs, stroke: "#1e1a14", strokeWidth: 1.8 }));
+  group.add(new Konva.Circle({ x: 0, y: 0, radius: box / 2 + 1, fill: "#000", opacity: 0 }));
+  if (spec.img) {
+    const img = new Konva.Image({ image: STAMP_IMG_CACHE[spec.id], x: -box / 2, y: -box / 2, width: box, height: box, listening: false });
+    img.setAttr("stampId", spec.id);
+    group.add(img);
+  } else {
+    const glyphAttrs = { data: spec.d, x: -box / 2, y: -box / 2, lineCap: "round", lineJoin: "round", listening: false };
+    group.add(new Konva.Path({ ...glyphAttrs, stroke: "#fff", strokeWidth: 4.6 }));
+    group.add(new Konva.Path({ ...glyphAttrs, stroke: "#1e1a14", strokeWidth: 1.8 }));
+  }
   return group;
+}
+
+// Konva's serialized JSON can't carry an Image node's actual bitmap, so any stamp
+// image rebuilt via Konva.Node.create (restore, undo/redo, print's offscreen stage)
+// comes back with no pixels — this re-attaches the cached <img> element by stampId.
+// Stamp groups always sit at the top level of drawLayer, so `node` is the group itself.
+function rehydrateStampImages(node) {
+  if (!node || !node.getAttr || node.getAttr("kind") !== "stamp") return;
+  const spec = STAMP_MAP[node.getAttr("stampId")];
+  if (!spec || !spec.img) return;
+  const imgNode = node.findOne(n => n.getClassName && n.getClassName() === "Image");
+  if (imgNode) imgNode.image(STAMP_IMG_CACHE[spec.id]);
 }
 
 // Translucent cursor preview so the symbol's true footprint is visible before you commit.
@@ -1370,7 +1451,11 @@ export function renderPlotImage() {
   }
   const shapes = drawLayer ? (JSON.parse(drawLayer.toJSON()).children || []) : [];
   shapes.forEach(obj => {
-    try { layer.add(Konva.Node.create(obj)); } catch (e) { /* skip a shape that fails to reconstruct */ }
+    try {
+      const node = Konva.Node.create(obj);
+      layer.add(node);
+      rehydrateStampImages(node);
+    } catch (e) { /* skip a shape that fails to reconstruct */ }
   });
   // Print normalization: the serialized screen-fixed labels carry the live view's 1/viewZoom
   // counter-scale, which is meaningless on paper. Rescale them so the text lands at

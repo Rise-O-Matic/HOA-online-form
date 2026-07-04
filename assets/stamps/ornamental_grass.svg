@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="title desc">
+  <title id="title">Ornamental grass</title>
+  <desc id="desc">Clump of ornamental grass with upright blades.</desc>
+  <metadata>{"title": "Ornamental grass", "tags": ["grass", "ornamental", "clump", "plant"]}</metadata>
+  <defs>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.25" stdDeviation="1.25" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <g filter="url(#softShadow)" stroke-linecap="round" stroke-linejoin="round">
+<path d="M32 51 C9 40 18 27 18 33" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C9 40 18 27 18 33" fill="none" stroke="#6B8E23" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C19 40 24 27 24 26" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C19 40 24 27 24 26" fill="none" stroke="#6B8E23" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C32 40 32 27 32 19" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C32 40 32 27 32 19" fill="none" stroke="#6B8E23" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C45 40 40 27 40 26" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C45 40 40 27 40 26" fill="none" stroke="#6B8E23" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C55 40 46 27 46 33" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M32 51 C55 40 46 27 46 33" fill="none" stroke="#6B8E23" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse cx="32" cy="51" rx="16" ry="5" fill="#B7A76A" stroke="#1F2937" stroke-width="1.6"/>
+  </g>
+</svg>

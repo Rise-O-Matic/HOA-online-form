@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="title desc">
+  <title id="title">Vine or trellis</title>
+  <desc id="desc">Vine climbing a simple trellis grid.</desc>
+  <metadata>{"title": "Vine or trellis", "tags": ["vine", "trellis", "climber", "plant"]}</metadata>
+  <defs>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.25" stdDeviation="1.25" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <g filter="url(#softShadow)" stroke-linecap="round" stroke-linejoin="round">
+<rect x="15" y="13" width="34" height="38" rx="3" fill="#F8FAFC" stroke="#1F2937" stroke-width="1.8"/>
+<line x1="24" y1="15" x2="24" y2="49" stroke="#9CA3AF" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="32" y1="15" x2="32" y2="49" stroke="#9CA3AF" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="40" y1="15" x2="40" y2="49" stroke="#9CA3AF" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="17" y1="23" x2="47" y2="23" stroke="#9CA3AF" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="17" y1="32" x2="47" y2="32" stroke="#9CA3AF" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="17" y1="41" x2="47" y2="41" stroke="#9CA3AF" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M20 45 C24 33 34 38 32 25 C39 31 42 22 46 18" fill="none" stroke="#4B8A3F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse cx="25" cy="35" rx="5" ry="3" fill="#79B85B" stroke="#1F2937" stroke-width="1" transform="rotate(-35 25 35)"/>
+<ellipse cx="34" cy="29" rx="5" ry="3" fill="#79B85B" stroke="#1F2937" stroke-width="1" transform="rotate(30 34 29)"/>
+<ellipse cx="42" cy="22" rx="5" ry="3" fill="#79B85B" stroke="#1F2937" stroke-width="1" transform="rotate(-25 42 22)"/>
+  </g>
+</svg>

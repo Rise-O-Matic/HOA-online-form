@@ -580,6 +580,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   font-weight: 600;
   padding: .4rem .7rem;
 }
+/* Active tool doesn't use materials: dim the chip chrome, keep the swatches full-strength */
+.palette.is-muted button { color: var(--ink-faint); border-color: var(--line); }
+.palette.is-muted button:hover { border-color: var(--ink-faint); }
+.palette.is-muted button.is-active {
+  border-color: var(--ink-faint);
+  box-shadow: 0 0 0 2px var(--ink-faint);
+}
+.palette.is-muted button.palette__add { color: var(--ink-faint); }
 
 /* "+ Add material" popover: an inline panel that opens under the chip row */
 .palette-pop {
@@ -612,6 +620,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .tool-rail__rule { width: 100%; border: 0; border-top: 1px solid var(--line-2); margin: .15rem 0; }
 .tool-rail button {
   display: grid; place-items: center;
+  position: relative; /* anchors the ::after tooltip */
   width: 2.4rem; height: 2.4rem;
   border: 1px solid var(--line-2); border-radius: 8px;
   background: #fff; color: var(--ink-soft); cursor: pointer;
@@ -625,6 +634,19 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .tool-rail button:disabled { opacity: .35; cursor: default; }
 .tool-rail button:disabled:hover { border-color: var(--line-2); }
+/* Custom tooltip: shows on the same paint frame as :hover/:focus-visible, unlike a native
+   title attribute's built-in browser delay. */
+.tool-rail button::after {
+  content: attr(data-tip);
+  position: absolute; left: calc(100% + .5rem); top: 50%;
+  transform: translateY(-50%);
+  background: var(--ink); color: #fff;
+  font-size: .72rem; font-weight: 600; white-space: nowrap;
+  padding: .3rem .55rem; border-radius: .3rem;
+  pointer-events: none; opacity: 0; z-index: 20;
+}
+.tool-rail button:hover::after, .tool-rail button:focus-visible::after { opacity: 1; }
+.tool-rail button:disabled::after { content: none; }
 /* Narrow viewports: the rail flips to a horizontal strip above the canvas */
 @media (max-width: 640px) {
   .plot__surface { flex-direction: column; align-items: stretch; }
@@ -632,6 +654,9 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   .tool-rail__group { flex-direction: row; flex-wrap: wrap; }
   .tool-rail__rule { width: auto; align-self: stretch; border-top: 0; border-left: 1px solid var(--line-2); margin: 0 .15rem; }
   .plot__stagecol { align-self: center; } /* landscape phones: 70vh can undercut the column width */
+  .tool-rail button::after {
+    left: 50%; top: calc(100% + .4rem); transform: translateX(-50%);
+  }
 }
 
 /* Canvas column: square viewport matching the square grid — never wider than the column,
@@ -1528,7 +1553,7 @@ ul.tight li { margin-bottom: .25rem; }
   display: inline-block; width: .9rem; height: .9rem;
   border-radius: 3px; border: 1px solid rgba(0,0,0,.18);
 }
-.doc .plot-legend svg { flex: none; width: 14px; height: 14px; }
+.doc .plot-legend svg, .doc .plot-legend img { flex: none; width: 14px; height: 14px; }
 .doc .doc-list { padding-left: 1.1rem; margin: .3rem 0; }
 .doc .yes { color: var(--green); font-weight: 600; }
 .doc .no  { color: var(--ink-faint); }
