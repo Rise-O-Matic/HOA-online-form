@@ -2,7 +2,7 @@
 
 1. ~~Printable version of the signature form to replace built-in signature fields~~
 2. ~~Notice at the end explaining what happens next (committee reviews, contacts for payment if approved)~~
-3. Examples of good and bad photography — real comparison photos wired in for all 10 requested shots; 8 have both a good and bad pair, `back_full` has good only, `material_sample` still has neither (see Pending)
+3. Examples of good and bad photography — real comparison photos wired in for all 10 requested shots; 9 have both a good and bad pair, `material_sample` still has neither (see Pending)
 4. ~~Signing their own name digitally is fine~~
 5. ~~Remove color-coded plan or key checkbox~~
 6. ~~Don't hide the photo requirements modal~~
@@ -17,7 +17,7 @@
 
 ## Pending
 
-- **#3** — Photography examples: good vs. bad. Real comparison photos (from an actual Fairway Canyon property, EXIF-stripped) now back all 10 requested shots in Section 05. 8 of 10 (`front_street`, `front_left`, `front_right`, `back_left`, `back_right`, `back_closeup`, `side_full`, `ext_elevation`) have both a "Do this" and "Not this" example; `back_full` has only the good example (no bad counterpart supplied yet); `material_sample` (paint chip / material sample) has neither and still shows the generic placeholder frame — needs a photo of an actual manufacturer color chip/sample to close it out.
+- **#3** — Photography examples: good vs. bad. Real comparison photos (from an actual Fairway Canyon property, EXIF-stripped) now back all 10 requested shots in Section 05. 9 of 10 (`front_street`, `front_left`, `front_right`, `back_full`, `back_left`, `back_right`, `back_closeup`, `side_full`, `ext_elevation`) have both a "Do this" and "Not this" example; only `material_sample` (paint chip / material sample) has neither and still shows the generic placeholder frame — needs a photo of an actual manufacturer color chip/sample to close it out.
 
 ## Sprint log
 

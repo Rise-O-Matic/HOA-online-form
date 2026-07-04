@@ -1257,9 +1257,20 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   background: repeating-linear-gradient(45deg, #f0ece3, #f0ece3 8px, #ece7dc 8px, #ece7dc 16px);
   overflow: hidden;
 }
-.photo-example__frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-example__frame.has-img { background: #e2ddd0; }
+.photo-example__frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .photo-example--good .photo-example__frame { border-color: #9bc48c; }
 .photo-example--bad .photo-example__frame { border-color: #dd9999; }
+.photo-example--bad .photo-example__frame.has-img { position: relative; }
+.photo-example--bad .photo-example__frame.has-img::before,
+.photo-example--bad .photo-example__frame.has-img::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 141%; height: 2px;
+  background: rgba(180, 30, 30, .5);
+  pointer-events: none;
+}
+.photo-example--bad .photo-example__frame.has-img::before { transform: translate(-50%, -50%) rotate(38deg); }
+.photo-example--bad .photo-example__frame.has-img::after { transform: translate(-50%, -50%) rotate(-38deg); }
 .photo-example__ph { font-size: .72rem; color: var(--ink-faint); letter-spacing: .04em; text-transform: uppercase; }
 .photo-example figcaption { font-size: .78rem; color: var(--ink-soft); margin-top: .4rem; line-height: 1.4; }
 .photo-example__tag { font-weight: 700; display: inline-block; margin-right: .25rem; }

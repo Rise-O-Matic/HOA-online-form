@@ -23,6 +23,7 @@ import {
 const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
 const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
 const LEGACY_DRAFT_KEYS = ["fairwayCanyonArcDraft.v3", "fairwayCanyonArcDraft.v2"]; // pre-grid-painter formats — read once for a one-time non-destructive migration (all non-plot fields carry over; the drawing itself is left to be redrawn)
+const SCROLL_KEY = "fairwayCanyonArcDraft.scroll"; // sessionStorage — per-tab only, so a stale position never haunts a fresh visit later
 
 /* ------------------------------------------------------
    DATA: acknowledgments, palette, review dates
@@ -297,7 +298,7 @@ const PHOTO_SPECS = {
         instr: "Stand at the point farthest from the house and capture the entire back yard in one frame.",
         good: "Entire back yard, fence to fence, in one shot.",
         bad: "Standing near the house so half the yard is cut off.",
-        goodImg: "assets/photo-examples/back_full-good.jpg" },
+        goodImg: "assets/photo-examples/back_full-good.jpg", badImg: "assets/photo-examples/back_full-bad.jpg" },
       { id: "back_left", title: "From the left side",
         instr: "From the left side of the yard, capture the entire space, property line to property line.",
         good: "Full left-to-right view of the yard.",
@@ -368,11 +369,11 @@ function photoRequestBlock(shot) {
     </div>
     <div class="photo-examples" aria-hidden="true">
       <figure class="photo-example photo-example--good">
-        <div class="photo-example__frame">${exampleFrame("good", shot.good, shot.goodImg)}</div>
+        <div class="photo-example__frame${shot.goodImg ? " has-img" : ""}">${exampleFrame("good", shot.good, shot.goodImg)}</div>
         <figcaption><span class="photo-example__tag photo-example__tag--good">&#10003; Do this</span>${shot.good}</figcaption>
       </figure>
       <figure class="photo-example photo-example--bad">
-        <div class="photo-example__frame">${exampleFrame("bad", shot.bad, shot.badImg)}</div>
+        <div class="photo-example__frame${shot.badImg ? " has-img" : ""}">${exampleFrame("bad", shot.bad, shot.badImg)}</div>
         <figcaption><span class="photo-example__tag photo-example__tag--bad">&#10007; Not this</span>${shot.bad}</figcaption>
       </figure>
     </div>
@@ -809,6 +810,7 @@ function deleteDraft() {
   [DRAFT_KEY, ...LEGACY_DRAFT_KEYS].forEach(key => {
     try { localStorage.removeItem(key); } catch (e) {}
   });
+  try { sessionStorage.removeItem(SCROLL_KEY); } catch (e) {}
 }
 
 function restoreDraft() {
@@ -1539,12 +1541,34 @@ function showLanding() {
 $("#start-application")?.addEventListener("click", enterForm);
 $("#view-landing")?.addEventListener("click", e => { e.preventDefault(); showLanding(); });
 
+// Remember scroll position within the form so a reload can return you to where you
+// were, instead of always landing back at the top. sessionStorage (not localStorage)
+// because this is reload-continuity, not a durable preference — it should reset once
+// the tab closes, same lifetime as "still on this visit".
+let scrollSaveTimer;
+window.addEventListener("scroll", () => {
+  if (layoutEl.hidden) return; // landing page has no position worth remembering
+  clearTimeout(scrollSaveTimer);
+  scrollSaveTimer = setTimeout(() => {
+    try { sessionStorage.setItem(SCROLL_KEY, String(window.scrollY)); } catch (e) {}
+  }, 200);
+}, { passive: true });
+
 /* ------------------------------------------------------
    INIT
 ------------------------------------------------------ */
 // Returning users with a saved draft skip the landing and go straight to the form.
 const hadDraft = restoreDraft();
-if (hadDraft) enterForm();
+if (hadDraft) {
+  enterForm();
+  // enterForm() itself jumps to top; restore the remembered position after the
+  // async map resize / signature-pad resize / photo-group reveal above have run.
+  let savedScroll;
+  try { savedScroll = sessionStorage.getItem(SCROLL_KEY); } catch (e) {}
+  if (savedScroll !== null && savedScroll !== undefined) {
+    setTimeout(() => window.scrollTo({ top: parseInt(savedScroll, 10) || 0, behavior: "auto" }), 250);
+  }
+}
 // Default the acknowledgment date to today (local time) unless the draft carried one.
 const ackDateEl = $("#ack-date");
 if (ackDateEl && !ackDateEl.value) {
