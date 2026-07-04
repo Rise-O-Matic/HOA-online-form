@@ -514,7 +514,6 @@ body.is-file-drag .dropzone { border-color: var(--gold); background: var(--paper
 }
 
 /* ===================== CHECKLIST ===================== */
-.checklist__intro { font-weight: 600; margin: 0 0 .9rem; font-size: .92rem; }
 .checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
 .checklist li label {
   display: flex; gap: .85rem; align-items: flex-start;
@@ -809,12 +808,26 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .plot-status__stamps[hidden] { display: none; } /* same [hidden]-vs-display gotcha as the brush */
 .plot-status__stamps button {
   display: grid; place-items: center;
+  position: relative; /* anchors the ::after tooltip */
   width: 2rem; height: 2rem;
   background: rgba(255,255,255,.07);
   border: 1px solid rgba(255,255,255,.3); border-radius: 6px;
   color: #f7f4ee; cursor: pointer;
 }
 .plot-status__stamps button:hover { border-color: #fff; }
+/* Instant tooltip, same treatment as the tool rail's but flowing UP out of the
+   dark status strip (right would collide with neighboring glyphs). */
+.plot-status__stamps button::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; bottom: calc(100% + .45rem);
+  transform: translateX(-50%);
+  background: var(--ink); color: #fff;
+  border: 1px solid rgba(255,255,255,.28);
+  font-size: .72rem; font-weight: 600; white-space: nowrap;
+  padding: .3rem .55rem; border-radius: .3rem;
+  pointer-events: none; opacity: 0; z-index: 20;
+}
+.plot-status__stamps button:hover::after, .plot-status__stamps button:focus-visible::after { opacity: 1; }
 .plot-status__stamps button.is-active { background: #f7f4ee; color: #1e1a14; border-color: #fff; }
 .plot-status__keys {
   list-style: none; margin: 0; padding: 0;
@@ -1388,6 +1401,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
    laid down on the paper. Replaces the upload row once a file is chosen. */
 .photo-request.has-thumb .photo-request__upload { display: none; }
 
+/* Multi-file shots (work-area close-ups): one thumb card per file, stacked; the
+   dropzone stays visible above (no .has-thumb) so more spots can be added. */
+.photo-thumb-list { display: grid; gap: .5rem; margin: .15rem 0 0; }
+.photo-thumb-list[hidden] { display: none; } /* author display beats [hidden] — same gotcha as .photo-thumb */
+
 .photo-thumb {
   display: flex; align-items: center; gap: 1.15rem;
   margin: .15rem 0 0; padding: .85rem 1rem;
@@ -1492,8 +1510,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   color: var(--crimson-dk);
 }
 .packet-list { list-style: none; margin: 0 0 1.8rem; padding: 0; display: grid; gap: .5rem; }
-/* The one manual attestation (sketches), a checklist row docked under the packet list */
-.packet-confirm { margin: 0 0 1.8rem; }
 .packet-item {
   display: flex; gap: .8rem; align-items: flex-start;
   padding: .7rem .9rem;

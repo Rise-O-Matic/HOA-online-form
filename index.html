@@ -417,8 +417,8 @@
                 <div class="tool-rail__group" id="tool-palette" role="toolbar" aria-label="Drawing tools"></div>
                 <hr class="tool-rail__rule" />
                 <div class="tool-rail__group" role="group" aria-label="History">
-                  <button type="button" id="plot-undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5 4 9l4.5 4.5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H9"/></svg></button>
-                  <button type="button" id="plot-redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15.5 4.5 4.5 4.5-4.5 4.5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H15"/></svg></button>
+                  <button type="button" id="plot-undo" data-tip="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5 4 9l4.5 4.5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H9"/></svg></button>
+                  <button type="button" id="plot-redo" data-tip="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15.5 4.5 4.5 4.5-4.5 4.5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H15"/></svg></button>
                 </div>
               </div>
               <div class="plot__stagecol">
@@ -575,11 +575,6 @@
 
         <h3 class="packet__subhead">Your packet</h3>
         <ul class="packet-list" id="packet-list"></ul>
-
-        <p class="checklist__intro">One item to confirm yourself:</p>
-        <ul class="checklist packet-confirm">
-          <li><label><input type="checkbox" name="req_sketches" /><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications — gathered and ready to attach to your submission email.</span></label></li>
-        </ul>
 
         <div class="finish-steps">
           <div class="finish-step" id="finish-step-1">

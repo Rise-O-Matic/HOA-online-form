@@ -369,6 +369,17 @@ function applyImprovementSchema(node) {
   }
 }
 
+// The visible "Improvement N" labels re-derive from 1-based DOM position after
+// every add/remove — deleting rows must not leave "Improvement 3" as the only
+// item. data-improvement / input ids / names stay on the monotonic counter:
+// uniqueness is what the label/for pairs and the photo-status wiring depend on.
+function renumberImprovements() {
+  $$(".improvement", improvementList).forEach((node, i) => {
+    const num = $(".improvement__num", node);
+    if (num) num.textContent = "Improvement " + (i + 1);
+  });
+}
+
 function addImprovement() {
   improvementCount++;
   const wrap = document.createElement("div");
@@ -379,6 +390,7 @@ function addImprovement() {
     node.remove();
     // Keep at least one item so "name required per item" always demands one named change.
     if (!$$(".improvement", improvementList).length) addImprovement();
+    renumberImprovements();
     updateProgress();
   });
   $("[data-imp-category]", node).addEventListener("change", () => applyImprovementSchema(node));
@@ -390,6 +402,7 @@ function addImprovement() {
   photoInput.addEventListener("change", () => updateImprovementStatus(node.dataset.improvement));
   registerDropzone(photoInput.closest(".dropzone"), photoInput);
   applyImprovementSchema(node);
+  renumberImprovements();
   return node;
 }
 $("#add-improvement").addEventListener("click", () => addImprovement());
@@ -526,12 +539,7 @@ const PHOTO_SPECS = {
         instr: "From the right side of the yard, capture the entire space, property line to property line.",
         good: "Full right-to-left view of the yard.",
         bad: "Zoomed in on a single corner.",
-        goodImg: "assets/photo-examples/back_right-good.jpg", badImg: "assets/photo-examples/back_right-bad.jpg" },
-      { id: "back_closeup", title: "Close-up of the work area",
-        instr: "A closer photo of the exact spot where the change will go, so existing conditions are clear.",
-        good: "Clear view of precisely where the change will be made.",
-        bad: "A wide shot where the spot can't be identified.",
-        goodImg: "assets/photo-examples/back_closeup-good.jpg", badImg: "assets/photo-examples/back_closeup-bad.jpg" }
+        goodImg: "assets/photo-examples/back_right-good.jpg", badImg: "assets/photo-examples/back_right-bad.jpg" }
     ]
   },
   side: {
@@ -555,6 +563,19 @@ const PHOTO_SPECS = {
     ]
   }
 };
+// Work-area close-ups — requested whenever ANY area is selected (the work area is
+// wherever the improvements go, not a property of the back yard, where this shot
+// used to live). `multiple`: Section 02 can itemize improvements in different
+// spots, so one file per work area. The id stays "back_closeup" so pre-Sprint-12
+// drafts restore their prior filename into this slot unchanged.
+const PHOTO_CLOSEUP = {
+  id: "back_closeup", title: "Close-up(s) of the work area(s)",
+  instr: "A closer photo of the exact spot where each change will go, so existing conditions are clear. If your improvements are in different places, attach one photo per spot.",
+  good: "Clear view of precisely where the change will be made.",
+  bad: "A wide shot where the spot can't be identified.",
+  goodImg: "assets/photo-examples/back_closeup-good.jpg", badImg: "assets/photo-examples/back_closeup-bad.jpg",
+  multiple: true
+};
 const PHOTO_MATERIAL = {
   id: "material_sample", title: "Paint color / material sample",
   instr: "Photograph the manufacturer's color chip or material sample, clearly showing the printed name and code.",
@@ -565,6 +586,7 @@ const PHOTO_MATERIAL = {
 // id -> human label, for preview/print summaries
 const PHOTO_TITLE = {};
 Object.values(PHOTO_SPECS).forEach(spec => spec.shots.forEach(s => { PHOTO_TITLE[s.id] = spec.label + " — " + s.title; }));
+PHOTO_TITLE[PHOTO_CLOSEUP.id] = PHOTO_CLOSEUP.title; // deliberately no area prefix
 PHOTO_TITLE[PHOTO_MATERIAL.id] = PHOTO_MATERIAL.title;
 function photoTitle(id) { return PHOTO_TITLE[id] || id; }
 
@@ -584,8 +606,12 @@ function formatBytes(bytes) {
 
 function photoRequestBlock(shot) {
   const block = document.createElement("div");
-  block.className = "photo-request";
+  block.className = "photo-request" + (shot.multiple ? " photo-request--multi" : "");
   block.dataset.photoId = shot.id;
+  // Multi-file shots (the work-area close-ups) keep their dropzone visible after an
+  // attach (more spots may need photos — dropzone.js appends on multiple inputs) and
+  // render a thumbnail card per file into the list container instead of the single
+  // .photo-thumb figure.
   block.innerHTML = `
     <div class="photo-request__head">
       <h4 class="photo-request__title">${shot.title}</h4>
@@ -604,11 +630,13 @@ function photoRequestBlock(shot) {
     <div class="photo-request__upload">
       <label class="dropzone dropzone--compact">
         ${DROPZONE_ICON}
-        <span class="dropzone__text"><strong>Attach this photo</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse</span></span>
-        <input type="file" id="photo-${shot.id}" name="photo_${shot.id}" data-photo-input="${shot.id}" accept="image/*" class="dropzone__input" />
+        <span class="dropzone__text"><strong>${shot.multiple ? "Attach these photos" : "Attach this photo"}</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse</span>${shot.multiple ? ' <span class="muted">(one per work area)</span>' : ""}</span>
+        <input type="file" id="photo-${shot.id}" name="photo_${shot.id}" data-photo-input="${shot.id}" accept="image/*"${shot.multiple ? " multiple" : ""} class="dropzone__input" />
       </label>
       <span class="photo-request__status" data-photo-status="${shot.id}">No photo attached yet.</span>
     </div>
+    ${shot.multiple ? `
+    <div class="photo-thumb-list" data-photo-thumb-list="${shot.id}" hidden></div>` : `
     <figure class="photo-thumb" data-photo-thumb="${shot.id}" hidden>
       <div class="photo-thumb__frame">
         <img class="photo-thumb__img" alt="Your attached photo" />
@@ -623,7 +651,7 @@ function photoRequestBlock(shot) {
           <button type="button" class="photo-thumb__btn photo-thumb__btn--remove" data-photo-remove="${shot.id}">Remove</button>
         </span>
       </figcaption>
-    </figure>`;
+    </figure>`}`;
   return block;
 }
 
@@ -645,6 +673,7 @@ function buildPhotoRequests() {
   Object.entries(PHOTO_SPECS).forEach(([area, spec]) => {
     photoRequestsEl.appendChild(photoGroup(area, spec.label + " photos", spec.shots));
   });
+  photoRequestsEl.appendChild(photoGroup("closeup", "Work-area close-ups", [PHOTO_CLOSEUP]));
   photoRequestsEl.appendChild(photoGroup("material", "Color / material sample", [PHOTO_MATERIAL]));
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
     input.addEventListener("change", () => updatePhotoStatus(input.dataset.photoInput));
@@ -670,23 +699,90 @@ function buildPhotoRequests() {
       updatePhotoStatus(id);
       updateProgress();
       scheduleAutosave();
+      return;
+    }
+    // Per-file remove on a multi-file shot: rebuild the FileList without that one
+    // file (a FileList is immutable — DataTransfer is the only way to edit it).
+    const removeOne = e.target.closest("[data-photo-remove-one]");
+    if (removeOne) {
+      const id = removeOne.dataset.photoRemoveOne;
+      const idx = Number(removeOne.dataset.fileIndex);
+      const inp = $(`[data-photo-input="${id}"]`, photoRequestsEl);
+      if (inp && inp.files) {
+        const dt = new DataTransfer();
+        Array.from(inp.files).forEach((f, i) => { if (i !== idx) dt.items.add(f); });
+        inp.files = dt.files;
+      }
+      updatePhotoStatus(id);
+      updateProgress();
+      scheduleAutosave();
     }
   });
 }
 
-// Live object-URLs for attached-photo thumbnails, keyed by shot id. We revoke the
-// prior URL before minting a new one (and on remove) so replacing a photo repeatedly
-// can't leak blob handles.
+// Live object-URLs for attached-photo thumbnails, keyed by shot id (an ARRAY of
+// URLs — multi-file shots mint one per file). We revoke the prior URLs before
+// minting new ones (and on remove) so replacing photos repeatedly can't leak
+// blob handles.
 const photoThumbUrls = {};
+function revokeThumbUrls(id) {
+  (photoThumbUrls[id] || []).forEach(u => URL.revokeObjectURL(u));
+  photoThumbUrls[id] = [];
+}
+
+// One thumbnail card per attached file on a multi-file shot, each with its own
+// Remove (handled by the delegated [data-photo-remove-one] listener).
+function multiThumbCard(id, f, i, url) {
+  return `
+    <figure class="photo-thumb photo-thumb--multi">
+      <div class="photo-thumb__frame">
+        <img class="photo-thumb__img is-fresh" src="${url}" alt="Your attached photo" />
+        <span class="photo-thumb__badge" aria-hidden="true">&#10003;</span>
+      </div>
+      <figcaption class="photo-thumb__meta">
+        <span class="photo-thumb__label">Attached</span>
+        <span class="photo-thumb__name">${esc(f.name)}</span>
+        <span class="photo-thumb__size">${formatBytes(f.size)}</span>
+        <span class="photo-thumb__actions">
+          <button type="button" class="photo-thumb__btn photo-thumb__btn--remove" data-photo-remove-one="${id}" data-file-index="${i}">Remove</button>
+        </span>
+      </figcaption>
+    </figure>`;
+}
+
+function updateMultiPhotoStatus(id, input, statusEl, block) {
+  const list = $(`[data-photo-thumb-list="${id}"]`, photoRequestsEl);
+  const files = Array.from(input.files || []);
+  revokeThumbUrls(id);
+  if (files.length) {
+    statusEl.textContent = `Attached: ${files.length} photo${files.length === 1 ? "" : "s"} (${formatBytes(files.reduce((n, f) => n + f.size, 0))})`;
+    statusEl.classList.add("is-attached");
+    block && block.classList.add("is-attached");
+    if (list) {
+      list.innerHTML = files.map((f, i) => {
+        const url = URL.createObjectURL(f);
+        photoThumbUrls[id].push(url);
+        return multiThumbCard(id, f, i, url);
+      }).join("");
+      list.hidden = false;
+    }
+  } else {
+    statusEl.textContent = "No photo attached yet.";
+    statusEl.classList.remove("is-attached");
+    block && block.classList.remove("is-attached");
+    if (list) { list.hidden = true; list.innerHTML = ""; }
+  }
+}
 
 function updatePhotoStatus(id) {
   const input = $(`[data-photo-input="${id}"]`, photoRequestsEl);
   const statusEl = $(`[data-photo-status="${id}"]`, photoRequestsEl);
   if (!input || !statusEl) return;
   const block = input.closest(".photo-request");
-  const thumb = $(`[data-photo-thumb="${id}"]`, photoRequestsEl);
   statusEl.classList.remove("is-prior");
-  if (photoThumbUrls[id]) { URL.revokeObjectURL(photoThumbUrls[id]); photoThumbUrls[id] = null; }
+  if (input.multiple) return updateMultiPhotoStatus(id, input, statusEl, block);
+  const thumb = $(`[data-photo-thumb="${id}"]`, photoRequestsEl);
+  revokeThumbUrls(id);
   if (input.files && input.files.length) {
     const f = input.files[0];
     statusEl.textContent = `Attached: ${f.name} (${formatBytes(f.size)})`;
@@ -694,7 +790,7 @@ function updatePhotoStatus(id) {
     block && block.classList.add("is-attached");
     if (thumb && f.type.startsWith("image/")) {
       const url = URL.createObjectURL(f);
-      photoThumbUrls[id] = url;
+      photoThumbUrls[id].push(url);
       const img = $(".photo-thumb__img", thumb);
       img.src = url;
       $("[data-photo-thumb-name]", thumb).textContent = f.name;
@@ -726,7 +822,10 @@ function refreshPhotoGroups() {
   let anyShown = false;
   $$(".photo-group", photoRequestsEl).forEach(group => {
     const a = group.dataset.area;
-    const show = a === "material" ? wantsMaterial : areas.includes(a);
+    // close-ups are area-agnostic: requested whenever at least one area is selected
+    const show = a === "material" ? wantsMaterial
+      : a === "closeup" ? areas.length > 0
+      : areas.includes(a);
     group.hidden = !show;
     if (show) anyShown = true;
   });
@@ -777,10 +876,11 @@ form.addEventListener("change", updateProgress);
 /* ------------------------------------------------------
    PACKET STATUS
    One source of truth for "what's in the packet": the plot
-   plan, every requested photo, the signed neighbor form, and
-   the sketches attestation. Feeds the Review & Submit packet
-   list, the email soft-gate, and the mailto attachment
-   manifest.
+   plan, every requested photo, the improvement pictures, and
+   the signed neighbor form — all derived from real app state
+   (the old manual sketches/fee checkboxes are gone). Feeds
+   the Review & Submit packet list, the email soft-gate, and
+   the mailto attachment manifest.
 ------------------------------------------------------ */
 let pdfSaved = false; // flips once the print/save-PDF view is opened this session
 
@@ -792,17 +892,23 @@ function plotProvided() {
   return { mode: "build", ok: plotUsed() && isPlotConfirmed(), started: plotUsed(), names: [] };
 }
 
-// Every photo the questionnaire currently requests, with the attached filename (or null)
+// Every photo the questionnaire currently requests, with the attached filename(s)
+// (or null). A multi-file shot's `file` is the joined name list — one row, one
+// truthy display string, so every consumer (meter, gate, packet subrow, manifest)
+// handles it unchanged.
 function photoChecklist() {
   const rows = [];
-  selectedPhotoAreas().forEach(area => {
+  const areas = selectedPhotoAreas();
+  areas.forEach(area => {
     const spec = PHOTO_SPECS[area];
     if (spec) spec.shots.forEach(s => rows.push({ id: s.id, title: spec.label + " — " + s.title }));
   });
+  if (areas.length) rows.push({ id: PHOTO_CLOSEUP.id, title: PHOTO_CLOSEUP.title });
   if (selectedPhotoMaterial() === "yes") rows.push({ id: PHOTO_MATERIAL.id, title: PHOTO_MATERIAL.title });
   rows.forEach(r => {
     const input = $(`[data-photo-input="${r.id}"]`, photoRequestsEl);
-    r.file = (input && input.files && input.files.length) ? input.files[0].name : null;
+    const names = (input && input.files) ? Array.from(input.files).map(f => f.name) : [];
+    r.file = names.length ? names.join(", ") : null;
   });
   return rows;
 }
@@ -817,11 +923,6 @@ function improvementChecklist() {
 
 function neighborFormFiles() {
   return neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : [];
-}
-
-function sketchesConfirmed() {
-  const c = $("#packet [name=req_sketches]");
-  return !!(c && c.checked);
 }
 
 // Human-readable list of what's still missing, for the soft-gate modal and
@@ -842,7 +943,6 @@ function packetMissingList(includePdf) {
   improvementChecklist().filter(it => !it.file).forEach(it =>
     missing.push("Example/catalog picture — " + it.name + " (Section 02)"));
   if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 07, Step 2)");
-  if (!sketchesConfirmed()) missing.push("Sketches, dimensions & material examples (confirm in the Review & Submit checklist)");
   return missing;
 }
 
@@ -969,13 +1069,6 @@ function renderPacket() {
       : "Print the form in Step 2 below, collect signatures, then attach the scan.",
     href: "#finish-step-2"
   });
-  items.push({
-    label: "Sketches, dimensions & materials",
-    ok: sketchesConfirmed(),
-    note: sketchesConfirmed()
-      ? "Confirmed — attach your files to the email."
-      : "Gather your files, then tick the confirmation box below this list."
-  });
   packetListEl.textContent = "";
   items.forEach(item => packetListEl.appendChild(packetItemNode(item)));
 }
@@ -1042,13 +1135,16 @@ function collect() {
   $$(".photo-quiz [data-area]").forEach(c => { data.photoAreas[c.dataset.area] = c.checked; });
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
     if (input.files && input.files.length) {
-      data.photos[input.dataset.photoInput] = input.files[0].name;
-      data.files.push(input.files[0].name);
+      const names = Array.from(input.files).map(f => f.name);
+      // multi-file shots (work-area close-ups) persist a filename LIST; single shots
+      // stay a plain string for draft-shape continuity
+      data.photos[input.dataset.photoInput] = input.multiple ? names : names[0];
+      data.files.push(...names);
     }
   });
-  // Sketches is the one manual attestation left (the checkbox under the packet list);
-  // req_plot / req_photos / req_neighbors are derived from real app state.
-  data.submissions.req_sketches = sketchesConfirmed();
+  // Every submission row is derived from real app state — the manual sketches
+  // attestation went the way of the fee checkbox (Section 02 itemizes materials,
+  // dimensions, and example pictures per improvement now).
   data.submissions.req_plot = plotProvided().ok;
   const reqPhotos = photoChecklist();
   data.submissions.req_photos = reqPhotos.length > 0 && reqPhotos.every(p => p.file);
@@ -1145,8 +1241,8 @@ function restoreDraft() {
       }
     });
   }
-  // Sketches confirm (the one manual packet checkbox; older drafts' derived/fee keys just find no element)
-  if (d.submissions) Object.entries(d.submissions).forEach(([k, v]) => { const el = $(`#packet .packet-confirm [name="${k}"]`); if (el) el.checked = v; });
+  // (No manual submission checkboxes remain — older drafts' req_sketches/req_fee/derived
+  // keys are simply ignored; every packet row is derived from real app state.)
   if (d.acks) Object.entries(d.acks).forEach(([k, v]) => { const el = $(`#acks [name="${k}"]`); if (el) el.checked = v; });
   // neighbors
   if (Array.isArray(d.neighbors) && d.neighbors.length) {
@@ -1190,9 +1286,12 @@ function restoreDraft() {
   refreshPhotoGroups();
   if (d.photos) {
     Object.entries(d.photos).forEach(([id, name]) => {
+      // A multi-file shot persists a filename list; a pre-Sprint-12 draft's
+      // back_closeup is a single string — both restore as one is-prior line.
+      const names = (Array.isArray(name) ? name : [name]).filter(Boolean);
       const statusEl = $(`[data-photo-status="${id}"]`, photoRequestsEl);
-      if (statusEl && name) {
-        statusEl.textContent = `Previously attached: ${name} — re-attach to include it again.`;
+      if (statusEl && names.length) {
+        statusEl.textContent = `Previously attached: ${names.join(", ")} — re-attach to include ${names.length > 1 ? "them" : "it"} again.`;
         statusEl.classList.add("is-prior");
         statusEl.classList.remove("is-attached");
       }
@@ -1347,7 +1446,6 @@ const ownerSigHTML = d => d.ownerSigMethod === "type"
 
 const SUB_LABELS = {
   req_plot: "Plot design with modification marked",
-  req_sketches: "Sketches, dimensions, photos & materials",
   req_photos: "Property photos (Section 04)",
   req_neighbors: "Impacted neighbor signatures"
 };
@@ -1361,7 +1459,7 @@ function photoPreviewHTML(d) {
     : '<p class="no">No areas selected — no photos requested.</p>';
   const attached = Object.entries(d.photos || {});
   const list = attached.length
-    ? `<ul class="doc-list">${attached.map(([id, name]) => `<li>${esc(photoTitle(id))} — <span class="yes">✓ ${esc(name)}</span></li>`).join("")}</ul>`
+    ? `<ul class="doc-list">${attached.map(([id, name]) => `<li>${esc(photoTitle(id))} — <span class="yes">✓ ${esc(Array.isArray(name) ? name.join(", ") : name)}</span></li>`).join("")}</ul>`
     : (areas.length ? '<p class="no">No photos attached yet.</p>' : "");
   return areaLine + list;
 }
@@ -1499,7 +1597,7 @@ function buildPrintHTML(d) {
   const photoAreasList = Object.entries(d.photoAreas || {})
     .filter(([, v]) => v)
     .map(([k]) => PHOTO_SPECS[k] ? PHOTO_SPECS[k].label : k);
-  const photoCount = Object.keys(d.photos || {}).length;
+  const photoCount = Object.values(d.photos || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
   const photoNote = photoAreasList.length
     ? `Areas: ${photoAreasList.join(", ")}${d.photoMaterial === "yes" ? ", color/material sample" : ""} — ${photoCount} photo${photoCount === 1 ? "" : "s"} attached.`
     : "No photo areas indicated.";
@@ -1782,7 +1880,6 @@ function openMailto(d) {
     attach.push("Example/catalog picture \u2014 " + it.name + ": " + it.file));
   photos.filter(p => p.file).forEach(p => attach.push("Photo \u2014 " + p.title + ": " + p.file));
   if (nf.length) attach.push("Signed neighbor signature form: " + nf.join(", "));
-  if (sketchesConfirmed()) attach.push("Sketches, dimensions & material examples for the proposed change");
   const missing = packetMissingList(false);
   let bodyText =
     "Please find attached my Architectural Review Committee application packet.\r\n\r\n" +

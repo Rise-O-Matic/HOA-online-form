@@ -96,7 +96,9 @@ const ICON = {
   marker: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 3.5 20.5 6.5 10 17 5.5 18.5 7 14 17.5 3.5Z"/><path d="M4.5 20.5h5"/></svg>',
   rect: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/></svg>',
   erase: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16"/><path d="M15.5 5.5 20 10l-7.5 7.5H8.5L4 13a2 2 0 0 1 0-2.8l6.7-6.7a2 2 0 0 1 2.8 0z"/></svg>',
-  fill: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m11 3 8 8-7.3 7.3a2 2 0 0 1-2.8 0L4 13.8a2 2 0 0 1 0-2.8z"/><path d="M8 6 5 9"/><path d="M20 15c0 1.5 1.2 2.6 1.2 4a1.2 1.2 0 0 1-2.4 0c0-1.4 1.2-2.5 1.2-4z"/></svg>',
+  // Paint bucket + drop — a 48-box glyph (user-supplied), so its stroke-width is the
+  // rail's 1.9-at-24-box doubled to 3.8; cursorForMode reads the viewBox to compensate.
+  fill: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M39 20.9706L22.0294 4L5.76599 20.2635C3.81337 22.2161 3.81337 25.3819 5.76599 27.3345L15.6655 37.234C17.6181 39.1866 20.7839 39.1866 22.7366 37.234L39 20.9706Z"/><path d="M7.5 18.5L7.95002 18.8326C15.0052 24.0473 23.892 26.1367 32.5317 24.6121L36 24"/><path d="M40 31C42.619 32.9566 44.5 35.32 44.5 38.2738C44.5 40.8839 42.4851 43 40 43C37.5149 43 35.5 40.8839 35.5 38.2738C35.5 35.32 37.381 32.9566 40 31Z"/></svg>',
   callout: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v11H10l-4 4v-4H4z"/></svg>',
   measure: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="1.2"/><path d="M6.5 8v3M10 8v4M13.5 8v3M17 8v4"/></svg>',
   select: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5.5 15 2-6.4 6.4-2z"/><path d="m13.5 13.5 5 5"/></svg>',
@@ -151,12 +153,17 @@ function cursorForMode(mode) {
   const fallback = mode === "erase" ? "cell" : (mode === "select" ? "default" : "crosshair");
   if (!t || !t.icon) return fallback;
   const inner = (t.icon.match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [, ""])[1];
+  // Most rail icons live in a 24-box, but not all (the Fill bucket is a 48-box) —
+  // read the glyph's own viewBox and scale the halo/ink stroke widths to match,
+  // or a larger-box icon would render clipped and visually half-weight.
+  const vb = Number((t.icon.match(/viewBox="0 0 (\d+)/) || [])[1]) || 24;
+  const sw = w => (w * vb / 24).toFixed(2);
   let svg, hx, hy;
   if (KEEP_ICON_CURSOR.has(mode)) {
     [hx, hy] = CURSOR_HOTSPOT[mode] || [CURSOR_SIZE / 2, CURSOR_SIZE / 2];
-    svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${CURSOR_SIZE}" height="${CURSOR_SIZE}">`
-      + `<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
-      + `<g fill="none" stroke="#1c1c1c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
+    svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vb} ${vb}" width="${CURSOR_SIZE}" height="${CURSOR_SIZE}">`
+      + `<g fill="none" stroke="#fff" stroke-width="${sw(3.4)}" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
+      + `<g fill="none" stroke="#1c1c1c" stroke-width="${sw(1.7)}" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
       + `</svg>`;
   } else {
     const SIZE = 36, cx = 10, cy = 26, arm = 7, gap = 2, iconSize = 15;
@@ -170,9 +177,9 @@ function cursorForMode(mode) {
     svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}">`
       + `<g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round">${cross}</g>`
       + `<g fill="none" stroke="#1c1c1c" stroke-width="1.4" stroke-linecap="round">${cross}</g>`
-      + `<g transform="translate(${iconX},${iconY}) scale(${iconSize / 24})">`
-      + `<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
-      + `<g fill="none" stroke="#1c1c1c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
+      + `<g transform="translate(${iconX},${iconY}) scale(${iconSize / vb})">`
+      + `<g fill="none" stroke="#fff" stroke-width="${sw(3.4)}" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#fff")}</g>`
+      + `<g fill="none" stroke="#1c1c1c" stroke-width="${sw(1.7)}" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/currentColor/g, "#1c1c1c")}</g>`
       + `</g>`
       + `</svg>`;
   }
@@ -774,7 +781,7 @@ function buildStampPicker() {
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.stamp = s.id;
-    b.title = s.label;
+    b.dataset.tip = s.label; // instant CSS tooltip (see .plot-status__stamps button::after), not a delayed native title
     b.setAttribute("aria-label", s.label);
     b.setAttribute("aria-pressed", s.id === activeStamp ? "true" : "false");
     if (s.id === activeStamp) b.classList.add("is-active");
@@ -795,7 +802,7 @@ function buildStampPicker() {
 }
 
 // Icon-only buttons for the vertical tool rail beside the canvas — the tool's NAME is
-// carried by title/aria-label here and led into the status-strip hint by updateToolHint().
+// carried by data-tip/aria-label here and led into the status-strip hint by updateToolHint().
 function buildToolbar() {
   const pal = $("#tool-palette");
   TOOL_MODES.forEach(t => {
