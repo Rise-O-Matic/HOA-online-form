@@ -119,13 +119,17 @@
     </div>
     <div class="sidenav__actions">
       <button type="button" class="btn btn--ghost btn--sm" id="save-draft">Save draft</button>
-      <button type="button" class="btn btn--ghost btn--sm" id="clear-draft">Clear</button>
       <button type="button" class="btn btn--ghost btn--sm" id="download-json">Export JSON</button>
     </div>
     <p class="sidenav__save-warning" id="save-warning" role="alert" hidden>
       <strong>Draft not saving.</strong> Browser storage is full or blocked, so recent changes will be lost if you close this page. Use <em>Export JSON</em> above to keep a backup.
     </p>
     <a class="sidenav__landing-link" href="#" id="view-landing">&larr; Requirements &amp; dates</a>
+    <div class="sidenav__danger" role="group" aria-label="Danger zone">
+      <p class="sidenav__danger-label">Danger zone</p>
+      <button type="button" class="btn btn--danger btn--sm" id="clear-draft">Clear all fields</button>
+      <p class="sidenav__danger-note">Erases the form and deletes your saved draft. This can&rsquo;t be undone.</p>
+    </div>
   </aside>
 
   <!-- ===================== FORM ===================== -->

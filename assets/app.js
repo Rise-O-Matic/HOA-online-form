@@ -235,30 +235,38 @@ neighborFormInput.addEventListener("change", () => {
 const improvementList = $("#improvement-list");
 let improvementCount = 0;
 
-// Per-category field schema. `materials` and `dims` describe the two flexible
-// slots: label + placeholder, and `dims: null` hides the dimensions slot for
-// that category. Placeholders are assigned to input.placeholder as raw strings,
+// Per-category field schema. `namePh` is the grey placeholder for the "What is
+// it?" name field; `materials` and `dims` describe the two flexible slots
+// (label + placeholder), and `dims: null` hides the dimensions slot for that
+// category. All placeholders are assigned to input.placeholder as raw strings,
 // so use real characters (× ′), not HTML entities.
 const CATEGORIES = [
   { id: "structure", label: "Structure (patio cover, pergola, shed, addition)",
+    namePh: "e.g. Alumawood patio cover",
     materials: { label: "Materials & color", ph: "Material, color name & code, manufacturer / vendor" },
     dims: { label: "Dimensions", ph: "e.g. 12′ × 24′, 10′ tall" } },
   { id: "hardscape", label: "Hardscape (pavers, concrete, wall, walkway)",
+    namePh: "e.g. Paver patio extension",
     materials: { label: "Materials & color", ph: "Material, color name & code, manufacturer / vendor" },
     dims: { label: "Dimensions / area", ph: "e.g. 200 sq ft, or 8′ × 25′" } },
   { id: "landscape", label: "Plants and landscaping (trees, shrubs, turf)",
+    namePh: "e.g. Front-yard desert landscaping",
     materials: { label: "Plant type & quantity", ph: "e.g. 3 × 15-gal Texas sage, 1 × 24-in box olive tree" },
     dims: { label: "Mature size / spread (optional)", ph: "e.g. ~6′ tall at maturity" } },
   { id: "paint", label: "Paint or exterior color",
+    namePh: "e.g. Repaint house exterior",
     materials: { label: "Color name, code & manufacturer", ph: "e.g. Dunn-Edwards 'Cliffside' DE6216, from a paint retailer" },
     dims: null },
   { id: "equipment", label: "Equipment (solar, AC, EV charger, dish)",
+    namePh: "e.g. Rooftop solar panels",
     materials: { label: "Make / model", ph: "Manufacturer & model number" },
     dims: { label: "Dimensions / location", ph: "Size, and where it's mounted or placed" } },
   { id: "pool", label: "Pool, spa or water feature",
+    namePh: "e.g. In-ground spa",
     materials: { label: "Materials & finish", ph: "Shell / deck material, color, manufacturer" },
     dims: { label: "Dimensions", ph: "e.g. 15′ × 30′, 6′ deep" } },
   { id: "other", label: "Other",
+    namePh: "e.g. Wrought-iron entry gate",
     materials: { label: "Materials / details", ph: "Describe the materials, colors, finishes" },
     dims: { label: "Dimensions", ph: "Size or extent, if applicable" } }
 ];
@@ -319,6 +327,11 @@ function improvementTemplate(idx) {
 function applyImprovementSchema(node) {
   const cat = CATEGORY_MAP[$("[data-imp-category]", node)?.value] || CATEGORY_MAP[DEFAULT_CATEGORY];
   const removing = ($("[data-imp-action]", node)?.value) === "remove";
+
+  // Per-category grey hint for the "What is it?" name field (placeholder only —
+  // never a value, so switching categories can't clobber what the user typed).
+  const nameInput = $("[data-imp-name]", node);
+  if (nameInput) nameInput.placeholder = cat.namePh;
 
   const matField = $("[data-imp-materials-field]", node);
   if (matField) {
@@ -558,6 +571,11 @@ function exampleFrame(kind, caption, imgSrc) {
     : `<span class="photo-example__ph">Example image</span>`;
 }
 
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  return Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+
 function photoRequestBlock(shot) {
   const block = document.createElement("div");
   block.className = "photo-request";
@@ -581,7 +599,22 @@ function photoRequestBlock(shot) {
       <label class="btn btn--ghost btn--sm" for="photo-${shot.id}">Attach this photo</label>
       <input type="file" id="photo-${shot.id}" name="photo_${shot.id}" data-photo-input="${shot.id}" accept="image/*" hidden />
       <span class="photo-request__status" data-photo-status="${shot.id}">No photo attached yet.</span>
-    </div>`;
+    </div>
+    <figure class="photo-thumb" data-photo-thumb="${shot.id}" hidden>
+      <div class="photo-thumb__frame">
+        <img class="photo-thumb__img" alt="Your attached photo" />
+        <span class="photo-thumb__badge" aria-hidden="true">&#10003;</span>
+      </div>
+      <figcaption class="photo-thumb__meta">
+        <span class="photo-thumb__label">Attached</span>
+        <span class="photo-thumb__name" data-photo-thumb-name></span>
+        <span class="photo-thumb__size" data-photo-thumb-size></span>
+        <span class="photo-thumb__actions">
+          <button type="button" class="photo-thumb__btn photo-thumb__btn--replace" data-photo-replace="${shot.id}">Replace</button>
+          <button type="button" class="photo-thumb__btn photo-thumb__btn--remove" data-photo-remove="${shot.id}">Remove</button>
+        </span>
+      </figcaption>
+    </figure>`;
   return block;
 }
 
@@ -607,23 +640,62 @@ function buildPhotoRequests() {
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
     input.addEventListener("change", () => updatePhotoStatus(input.dataset.photoInput));
   });
+  // Replace re-opens the picker; Remove clears the input. Clearing a file input
+  // programmatically fires no change/input event, so we drive the UI + persistence by hand.
+  photoRequestsEl.addEventListener("click", e => {
+    const replace = e.target.closest("[data-photo-replace]");
+    if (replace) {
+      const inp = $(`[data-photo-input="${replace.dataset.photoReplace}"]`, photoRequestsEl);
+      inp && inp.click();
+      return;
+    }
+    const remove = e.target.closest("[data-photo-remove]");
+    if (remove) {
+      const id = remove.dataset.photoRemove;
+      const inp = $(`[data-photo-input="${id}"]`, photoRequestsEl);
+      if (inp) inp.value = "";
+      updatePhotoStatus(id);
+      updateProgress();
+      scheduleAutosave();
+    }
+  });
 }
+
+// Live object-URLs for attached-photo thumbnails, keyed by shot id. We revoke the
+// prior URL before minting a new one (and on remove) so replacing a photo repeatedly
+// can't leak blob handles.
+const photoThumbUrls = {};
 
 function updatePhotoStatus(id) {
   const input = $(`[data-photo-input="${id}"]`, photoRequestsEl);
   const statusEl = $(`[data-photo-status="${id}"]`, photoRequestsEl);
   if (!input || !statusEl) return;
   const block = input.closest(".photo-request");
+  const thumb = $(`[data-photo-thumb="${id}"]`, photoRequestsEl);
   statusEl.classList.remove("is-prior");
+  if (photoThumbUrls[id]) { URL.revokeObjectURL(photoThumbUrls[id]); photoThumbUrls[id] = null; }
   if (input.files && input.files.length) {
     const f = input.files[0];
-    statusEl.textContent = `Attached: ${f.name} (${Math.round(f.size / 1024)} KB)`;
+    statusEl.textContent = `Attached: ${f.name} (${formatBytes(f.size)})`;
     statusEl.classList.add("is-attached");
     block && block.classList.add("is-attached");
+    if (thumb && f.type.startsWith("image/")) {
+      const url = URL.createObjectURL(f);
+      photoThumbUrls[id] = url;
+      const img = $(".photo-thumb__img", thumb);
+      img.src = url;
+      $("[data-photo-thumb-name]", thumb).textContent = f.name;
+      $("[data-photo-thumb-size]", thumb).textContent = formatBytes(f.size);
+      thumb.hidden = false;
+      block && block.classList.add("has-thumb");
+      // re-trigger the pop animation on the image even when the card is already visible (Replace)
+      img.classList.remove("is-fresh"); void img.offsetWidth; img.classList.add("is-fresh");
+    }
   } else {
     statusEl.textContent = "No photo attached yet.";
     statusEl.classList.remove("is-attached");
-    block && block.classList.remove("is-attached");
+    block && block.classList.remove("is-attached", "has-thumb");
+    if (thumb) { thumb.hidden = true; $(".photo-thumb__img", thumb).removeAttribute("src"); }
   }
 }
 
@@ -1825,6 +1897,15 @@ window.addEventListener("scroll", () => {
 /* ------------------------------------------------------
    INIT
 ------------------------------------------------------ */
+// Dev/test escape hatch: `?reset` (or `#reset`) purges the saved draft before restore,
+// so a page load starts clean. A hard refresh only clears the HTTP cache, never
+// localStorage, so this is the reliable way to shed leftover test entries between runs.
+// The param is stripped from the URL afterward so an ordinary reload doesn't keep wiping.
+if (new URLSearchParams(location.search).has("reset") || location.hash === "#reset") {
+  deleteDraft();
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+}
+
 // Returning users with a saved draft skip the landing and go straight to the form.
 const hadDraft = restoreDraft();
 if (hadDraft) {
