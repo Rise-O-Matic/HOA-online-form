@@ -1182,13 +1182,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .neighbor__remove:hover { color: var(--crimson); }
 .neighbor .grid-2 { gap: .9rem 1.2rem; }
-.neighbor-form-actions {
-  display: flex; flex-wrap: wrap; gap: .8rem; align-items: center;
-  margin-top: 1.2rem; padding-top: 1.2rem;
-  border-top: 1px solid var(--line);
-}
-.neighbor-form-actions label.btn { cursor: pointer; }
-
 /* ===================== PROPOSED IMPROVEMENTS ===================== */
 .improvement-list { display: grid; gap: 1rem; margin-bottom: 1.1rem; }
 .improvement {

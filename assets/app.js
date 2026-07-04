@@ -32,7 +32,7 @@ const ACKS = [
   'Compliance with the <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Guidelines</a>, <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Protective Covenants</a> and ARC approval does <strong>not</strong> necessarily constitute compliance with building and zoning codes of <a href="https://www.rivcocob.org/building-and-safety/" target="_blank" rel="noopener">Riverside County</a>. A building permit may still be required.',
   "No exterior alteration shall commence until <strong>written ARC approval</strong> has been returned to the homeowner. Unapproved or out-of-scope work may require restoration to the former condition at the homeowner's expense, plus legal costs.",
   'I am responsible to provide all required details on attached sheets (plot, sketches, scale drawings, photos, illustrations, plans, contracts, etc.), with the location of the change indicated on a color-coded plot. <span class="muted">(The packet checklist in Review &amp; Submit tracks these attachments for you.)</span>',
-  'For changes in <strong>paint color</strong>, I will attach a manufacturer\'s sample indicating the color/code and the proposed vendor\'s name. <span class="muted">(If your project adds a new color or material, the sample photo requested in Section 05 covers this.)</span>',
+  'For changes in <strong>paint color</strong>, I will attach a manufacturer\'s sample indicating the color/code and the proposed vendor\'s name. <span class="muted">(If your project adds a new color or material, the sample photo requested in Section 04 covers this.)</span>',
   "ARC members may enter the property at a reasonable, pre-arranged time to inspect the project site(s) during and upon completion of the work. Such entry does not constitute trespass.",
   "Any approval is contingent upon construction or alterations being completed in a <strong>workmanlike manner</strong>.",
   "Authority granted may be revoked automatically if the alteration has not commenced within <strong>180 days</strong> of the approval date and completed by the date specified by the ARC.",
@@ -217,7 +217,7 @@ neighborFormInput.addEventListener("change", () => {
 });
 
 /* ------------------------------------------------------
-   PROPOSED IMPROVEMENTS  (Section 03 — item repeater)
+   PROPOSED IMPROVEMENTS  (Section 02 — item repeater)
    Replaces the old single free-text proposal: each change is
    its own item (action / short name / materials & color /
    dimensions / example-or-catalog picture), so the committee's
@@ -677,16 +677,16 @@ function packetMissingList(includePdf) {
   if (includePdf && !pdfSaved) missing.push("The application form PDF — save it in Step 1 first");
   const plot = plotProvided();
   if (!plot.ok) missing.push(plot.mode === "upload"
-    ? "Plot plan file (upload chosen, but nothing attached in Section 02)"
+    ? "Plot plan file (upload chosen, but nothing attached in Section 03)"
     : plot.started
-      ? "Plot plan — drawn but not marked finished (press “Done — use this plan” in Section 02)"
-      : "Plot plan (nothing drawn yet in Section 02)");
+      ? "Plot plan — drawn but not marked finished (press “Done — use this plan” in Section 03)"
+      : "Plot plan (nothing drawn yet in Section 03)");
   const photos = photoChecklist();
-  if (!photos.length) missing.push("Property photos — the questionnaire in Section 05 hasn't been answered");
+  if (!photos.length) missing.push("Property photos — the questionnaire in Section 04 hasn't been answered");
   else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
   improvementChecklist().filter(it => !it.file).forEach(it =>
-    missing.push("Example/catalog picture — " + it.name + " (Section 03)"));
-  if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 04)");
+    missing.push("Example/catalog picture — " + it.name + " (Section 02)"));
+  if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 07, Step 2)");
   if (!sketchesConfirmed()) missing.push("Sketches, dimensions & material examples (confirm in the Review & Submit checklist)");
   return missing;
 }
@@ -771,12 +771,12 @@ function renderPacket() {
       note: plot.ok
         ? "Included automatically in the form PDF — nothing extra to attach."
         : plot.started
-          ? "In progress — mark it finished in Section 02 (“Done — use this plan”)."
+          ? "In progress — mark it finished in Section 03 (“Done — use this plan”)."
           : "Nothing drawn yet.",
       href: "#siteplan"
     });
   }
-  // Example / catalog pictures for each Add/Replace improvement item (Section 03).
+  // Example / catalog pictures for each Add/Replace improvement item (Section 02).
   // Remove-only lists need none, so the row only appears when pictures are expected.
   const impReq = improvementChecklist();
   if (impReq.length) {
@@ -793,7 +793,7 @@ function renderPacket() {
     items.push({
       label: "Property photos",
       ok: false,
-      note: "Answer the questionnaire in Section 05 to see which photos are needed.",
+      note: "Answer the questionnaire in Section 04 to see which photos are needed.",
       href: "#photos-section"
     });
   } else {
@@ -811,8 +811,8 @@ function renderPacket() {
     ok: nf.length > 0,
     note: nf.length
       ? nf.join(", ") + " — attach to your email."
-      : "Print it in Section 04, collect signatures, then attach the scan.",
-    href: "#neighbors"
+      : "Print the form in Step 2 below, collect signatures, then attach the scan.",
+    href: "#finish-step-2"
   });
   items.push({
     label: "Sketches, dimensions & materials",
@@ -963,7 +963,7 @@ function restoreDraft() {
   $("#owner-email").value = d.ownerEmail || "";
   proposal.value = d.proposal || ""; proposalCount.textContent = proposal.value.length;
   $("#ack-date").value = d.ackDate || "";
-  // improvements (Section 03 item list). Additive to .v4: older drafts have no `items`,
+  // improvements (Section 02 item list). Additive to .v4: older drafts have no `items`,
   // so the always-present starter row stays and only the migrated `proposal` text lands
   // in the notes field above. A picture's filename shows as is-prior (browser can't
   // repopulate a file input — same as photos).
@@ -1191,7 +1191,7 @@ const ownerSigHTML = d => d.ownerSigMethod === "type"
 const SUB_LABELS = {
   req_plot: "Plot design with modification marked",
   req_sketches: "Sketches, dimensions, photos & materials",
-  req_photos: "Property photos (Section 05)",
+  req_photos: "Property photos (Section 04)",
   req_neighbors: "Impacted neighbor signatures"
 };
 
@@ -1226,7 +1226,7 @@ function plotLegendHTML(cls) {
 }
 
 /* ----- Proposed-improvements table (shared by preview + print) -----
-   Renders the Section 03 item list as a structured table — action / item /
+   Renders the Section 02 item list as a structured table — action / item /
    materials / dimensions / picture filename — so the committee's "Must Include:
    Materials, Dimensions, and Example Pictures" list is visibly satisfied instead
    of buried in a prose blob. Remove items show n/a for materials. */

@@ -874,12 +874,13 @@ $("#step2-next").addEventListener("click", () => showStep(3));
 $("#step3-next").addEventListener("click", () => showStep(4));
 
 // Step 4 Done — the builder's terminal CTA, restoring the wizard's Next-button rhythm:
-// declare the plan finished (build-mode plotProvided() requires it), then move on to
-// Section 03. setPlotConfirmed itself refreshes the button/dot/packet UI and autosaves.
+// declare the plan finished (build-mode plotProvided() requires it), then move on to the
+// next section (Photos, Section 04). setPlotConfirmed itself refreshes the button/dot/packet
+// UI and autosaves. (Improvements is now Section 02, *before* Site/Plot, so we go forward.)
 $("#plot-done").addEventListener("click", () => {
   if (!plotUsed()) return; // disabled anyway while nothing is drawn
   setPlotConfirmed(true);
-  $("#description")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#photos-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 // Rotation panel — slider + quick-adjust buttons, all drive parcelBearing

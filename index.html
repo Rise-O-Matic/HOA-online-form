@@ -105,10 +105,10 @@
     <nav>
       <ol>
         <li><a href="#applicant" class="is-active">Applicant Information</a></li>
-        <li><a href="#siteplan">Site / Plot Plan</a></li>
         <li><a href="#description">Proposed Improvements</a></li>
-        <li><a href="#neighbors">Adjacent Owners</a></li>
+        <li><a href="#siteplan">Site / Plot Plan</a></li>
         <li><a href="#photos-section">Photos</a></li>
+        <li><a href="#neighbors">Adjacent Owners</a></li>
         <li><a href="#acknowledgments">Acknowledgments</a></li>
         <li><a href="#packet">Review &amp; Submit</a></li>
       </ol>
@@ -161,10 +161,31 @@
         </div>
       </section>
 
+      <!-- ---------- PROPOSED IMPROVEMENTS ---------- -->
+      <section class="card reveal" id="description">
+        <header class="card__head">
+          <span class="card__num">02</span>
+          <div>
+            <h2>Proposed Improvements</h2>
+            <p class="card__sub">List each change as its own item. For every one, the committee needs the <strong>materials &amp; color</strong>, the <strong>dimensions</strong>, and an <strong>example or catalog picture</strong> — the same &ldquo;must include&rdquo; list printed on the ARC template.</p>
+          </div>
+        </header>
+
+        <div id="improvement-list" class="improvement-list"></div>
+        <button type="button" class="btn btn--ghost" id="add-improvement">+ Add another improvement</button>
+
+        <div class="field improvement-notes">
+          <label for="proposal">Anything else the committee should know? <span class="muted">(optional)</span></label>
+          <textarea id="proposal" name="proposal" rows="4" maxlength="3000"
+            placeholder="Optional notes — context, timing, or anything not captured by the items above."></textarea>
+          <div class="field__meta"><span id="proposal-count">0</span> / 3000 characters</div>
+        </div>
+      </section>
+
       <!-- ---------- SITE PLAN (wizard) ---------- -->
       <section class="card reveal" id="siteplan">
         <header class="card__head">
-          <span class="card__num">02</span>
+          <span class="card__num">03</span>
           <div>
             <h2>Site / Plot Plan</h2>
             <p class="card__sub" id="step-subtitle">Build your plan with the interactive tool, or upload an existing plot plan.</p>
@@ -437,59 +458,10 @@
         </div>
       </section>
 
-      <!-- ---------- DESCRIPTION ---------- -->
-      <section class="card reveal" id="description">
-        <header class="card__head">
-          <span class="card__num">03</span>
-          <div>
-            <h2>Proposed Improvements</h2>
-            <p class="card__sub">List each change as its own item. For every one, the committee needs the <strong>materials &amp; color</strong>, the <strong>dimensions</strong>, and an <strong>example or catalog picture</strong> — the same &ldquo;must include&rdquo; list printed on the ARC template.</p>
-          </div>
-        </header>
-
-        <div id="improvement-list" class="improvement-list"></div>
-        <button type="button" class="btn btn--ghost" id="add-improvement">+ Add another improvement</button>
-
-        <div class="field improvement-notes">
-          <label for="proposal">Anything else the committee should know? <span class="muted">(optional)</span></label>
-          <textarea id="proposal" name="proposal" rows="4" maxlength="3000"
-            placeholder="Optional notes — context, timing, or anything not captured by the items above."></textarea>
-          <div class="field__meta"><span id="proposal-count">0</span> / 3000 characters</div>
-        </div>
-      </section>
-
-      <!-- ---------- NEIGHBORS ---------- -->
-      <section class="card reveal" id="neighbors">
-        <header class="card__head">
-          <span class="card__num">04</span>
-          <div>
-            <h2>Adjacent Property Owners</h2>
-            <p class="card__sub">List the adjacent owners most affected by the change, then <strong>print the signature form</strong>, collect their signatures in person, and <strong>attach the signed form</strong> to your packet. <em>A neighbor's signature does not constitute approval or disapproval.</em></p>
-          </div>
-        </header>
-
-        <div id="neighbor-list" class="neighbor-list"></div>
-        <button type="button" class="btn btn--ghost" id="add-neighbor">+ Add another neighbor</button>
-
-        <div class="neighbor-form-actions">
-          <button type="button" class="btn btn--primary" id="print-neighbor-form">Print signature form</button>
-          <label class="btn btn--ghost" for="neighbor-form-file">Attach signed form</label>
-          <input type="file" id="neighbor-form-file" name="neighborForm" accept="image/*,application/pdf" multiple hidden />
-        </div>
-        <ul class="filelist" id="neighbor-filelist" hidden></ul>
-
-        <aside class="pause-note">
-          <strong>This step usually takes a few days — you don't have to finish it now.</strong>
-          Print the form, collect signatures in person, and come back: everything you've typed saves
-          automatically in this browser. Just attach the scanned form in the same sitting you submit —
-          the browser can't hold on to attached files between visits.
-        </aside>
-      </section>
-
       <!-- ---------- PHOTOS ---------- -->
       <section class="card reveal" id="photos-section">
         <header class="card__head">
-          <span class="card__num">05</span>
+          <span class="card__num">04</span>
           <div>
             <h2>Photos of Your Property</h2>
             <p class="card__sub">Clear, complete photos help the committee review your request without a site visit. Answer the questions below and we&rsquo;ll tell you <strong>exactly which photos to take</strong> — with a framing example for each.</p>
@@ -530,6 +502,20 @@
           photos when conditions are right. Just attach the files in the same sitting you submit —
           the browser can't hold on to attached files between visits.
         </aside>
+      </section>
+
+      <!-- ---------- ADJACENT OWNERS (roster only; the signature form is printed & re-attached in Review & Submit) ---------- -->
+      <section class="card reveal" id="neighbors">
+        <header class="card__head">
+          <span class="card__num">05</span>
+          <div>
+            <h2>Adjacent Property Owners</h2>
+            <p class="card__sub">List the adjacent owners most affected by your change. You&rsquo;ll <strong>print their signature form and collect signatures in the final step</strong> (Review &amp; Submit, below) — a neighbor&rsquo;s signature does not constitute approval or disapproval.</p>
+          </div>
+        </header>
+
+        <div id="neighbor-list" class="neighbor-list"></div>
+        <button type="button" class="btn btn--ghost" id="add-neighbor">+ Add another neighbor</button>
       </section>
 
       <!-- ---------- ACKNOWLEDGMENTS ---------- -->
@@ -575,7 +561,7 @@
           <span class="card__num">07</span>
           <div>
             <h2>Review &amp; Submit</h2>
-            <p class="card__sub">Your packet at a glance, then two steps to finish: save the PDF, and email it with your attachments.</p>
+            <p class="card__sub">Your packet at a glance, then three steps to finish: save the PDF, collect your neighbors&rsquo; signatures, and email everything to the committee.</p>
           </div>
         </header>
 
@@ -591,8 +577,8 @@
           <div class="finish-step" id="finish-step-1">
             <span class="finish-step__num" aria-hidden="true">1</span>
             <div class="finish-step__body">
-              <h4 class="finish-step__title">Save your application as a PDF</h4>
-              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved. Your drawn plot plan and signature are included automatically.</p>
+              <h4 class="finish-step__title">Save &amp; print your application packet</h4>
+              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved. Your drawn plot plan and signature are included automatically. Print a copy too: it&rsquo;s the packet your neighbors review when they sign, and your record to keep.</p>
               <div class="finish-step__actions">
                 <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save application PDF</button>
                 <button type="submit" class="btn btn--ghost">Preview first</button>
@@ -602,8 +588,27 @@
           <div class="finish-step" id="finish-step-2">
             <span class="finish-step__num" aria-hidden="true">2</span>
             <div class="finish-step__body">
+              <h4 class="finish-step__title">Collect your neighbors&rsquo; signatures</h4>
+              <p class="finish-step__desc">Print the signature form for the adjacent owners you listed in Section 05, collect their signatures in person — they can review the packet you printed in Step 1 — then attach the scanned or photographed form here. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
+              <div class="finish-step__actions">
+                <button type="button" class="btn btn--primary" id="print-neighbor-form">Print signature form</button>
+                <label class="btn btn--ghost" for="neighbor-form-file">Attach signed form</label>
+                <input type="file" id="neighbor-form-file" name="neighborForm" accept="image/*,application/pdf" multiple hidden />
+              </div>
+              <ul class="filelist" id="neighbor-filelist" hidden></ul>
+              <aside class="pause-note">
+                <strong>This step usually takes a few days — you don&rsquo;t have to finish it now.</strong>
+                Print the form, collect signatures in person, and come back: everything you&rsquo;ve typed saves
+                automatically in this browser. Just attach the scanned form in the same sitting you send your
+                email — the browser can&rsquo;t hold on to attached files between visits.
+              </aside>
+            </div>
+          </div>
+          <div class="finish-step" id="finish-step-3">
+            <span class="finish-step__num" aria-hidden="true">3</span>
+            <div class="finish-step__body">
               <h4 class="finish-step__title">Email your packet to the committee</h4>
-              <p class="finish-step__desc">Opens a pre-addressed email whose body lists every file to attach — the PDF you just saved, your photos, the signed neighbor form, and any plan or sketch files.</p>
+              <p class="finish-step__desc">Opens a pre-addressed email whose body lists every file to attach — the PDF you saved, your photos, the signed neighbor form, and any plan or sketch files. Send the scans and <strong>keep your printed packet for your records</strong>.</p>
               <div class="finish-step__actions">
                 <button type="button" class="btn btn--primary" id="email-btn">Open pre-addressed email</button>
               </div>
