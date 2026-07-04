@@ -12,6 +12,7 @@ import {
 } from "./geometry.js";
 import { $, $$, esc } from "./utils.js";
 import { rebuildGridForParcel, setPlotBackdrop, plotUsed, isPlotConfirmed, setPlotConfirmed } from "./plot-editor.js";
+import { registerDropzone } from "./dropzone.js";
 // Function-only imports from the entry module (a deliberate ESM cycle — see the
 // note in plot-editor.js: call at event time only).
 import { setFieldError, refreshPacketUI } from "./app.js";
@@ -854,6 +855,8 @@ $$("#siteplan [data-switch-upload]").forEach(btn => {
     plotUploadInput.focus({ preventScroll: true });
   });
 });
+
+registerDropzone(plotUploadInput.closest(".dropzone"), plotUploadInput);
 
 // Uploaded plan file list
 plotUploadInput.addEventListener("change", () => {

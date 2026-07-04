@@ -19,6 +19,7 @@ import {
   planMode, setPlanMode, plotUploadInput, restoreParcelFromDraft,
   parcelBearing, selectedAPN, selectedParcelGeoJSON, mapInstance
 } from "./map-wizard.js";
+import { registerDropzone, DROPZONE_ICON } from "./dropzone.js";
 
 const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
 const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
@@ -215,6 +216,7 @@ neighborFormInput.addEventListener("change", () => {
     neighborFileList.appendChild(li);
   });
 });
+registerDropzone(neighborFormInput.closest(".dropzone"), neighborFormInput);
 
 /* ------------------------------------------------------
    PROPOSED IMPROVEMENTS  (Section 02 — item repeater)
@@ -310,8 +312,11 @@ function improvementTemplate(idx) {
         </div>
       </div>
       <div class="improvement__upload">
-        <label class="btn btn--ghost btn--sm" for="imp_photo_${idx}" data-imp-photo-label>Attach example / catalog picture</label>
-        <input type="file" id="imp_photo_${idx}" name="imp_photo_${idx}" data-imp-photo="${idx}" accept="image/*,application/pdf" hidden />
+        <label class="dropzone dropzone--compact">
+          ${DROPZONE_ICON}
+          <span class="dropzone__text"><strong data-imp-photo-label>Attach example / catalog picture</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse</span></span>
+          <input type="file" id="imp_photo_${idx}" name="imp_photo_${idx}" data-imp-photo="${idx}" accept="image/*,application/pdf" class="dropzone__input" />
+        </label>
         <span class="improvement__status" data-imp-status="${idx}">No picture attached yet.</span>
       </div>
     </div>`;
@@ -381,8 +386,9 @@ function addImprovement() {
     applyImprovementSchema(node);
     updateImprovementStatus(node.dataset.improvement);
   });
-  $(`[data-imp-photo="${improvementCount}"]`, node)
-    .addEventListener("change", () => updateImprovementStatus(node.dataset.improvement));
+  const photoInput = $(`[data-imp-photo="${improvementCount}"]`, node);
+  photoInput.addEventListener("change", () => updateImprovementStatus(node.dataset.improvement));
+  registerDropzone(photoInput.closest(".dropzone"), photoInput);
   applyImprovementSchema(node);
   return node;
 }
@@ -596,8 +602,11 @@ function photoRequestBlock(shot) {
       </figure>
     </div>
     <div class="photo-request__upload">
-      <label class="btn btn--ghost btn--sm" for="photo-${shot.id}">Attach this photo</label>
-      <input type="file" id="photo-${shot.id}" name="photo_${shot.id}" data-photo-input="${shot.id}" accept="image/*" hidden />
+      <label class="dropzone dropzone--compact">
+        ${DROPZONE_ICON}
+        <span class="dropzone__text"><strong>Attach this photo</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse</span></span>
+        <input type="file" id="photo-${shot.id}" name="photo_${shot.id}" data-photo-input="${shot.id}" accept="image/*" class="dropzone__input" />
+      </label>
       <span class="photo-request__status" data-photo-status="${shot.id}">No photo attached yet.</span>
     </div>
     <figure class="photo-thumb" data-photo-thumb="${shot.id}" hidden>
@@ -639,6 +648,10 @@ function buildPhotoRequests() {
   photoRequestsEl.appendChild(photoGroup("material", "Color / material sample", [PHOTO_MATERIAL]));
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
     input.addEventListener("change", () => updatePhotoStatus(input.dataset.photoInput));
+    // The whole card is the drop/paste target — the dropzone frame inside it is
+    // hidden once a photo is attached (.has-thumb), but dropping on the card
+    // still replaces the shot.
+    registerDropzone(input.closest(".photo-request"), input);
   });
   // Replace re-opens the picker; Remove clears the input. Clearing a file input
   // programmatically fires no change/input event, so we drive the UI + persistence by hand.

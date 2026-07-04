@@ -261,7 +261,11 @@
           <div class="plan-upload" id="plan-upload" hidden>
             <div class="field">
               <label for="plot-upload">Attach your plot plan <span class="muted">(PDF or image — stays in your browser)</span></label>
-              <input type="file" id="plot-upload" name="plotUpload" accept="image/*,application/pdf" />
+              <label class="dropzone" data-dropzone="plot">
+                <svg class="dropzone__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7 8 5-4 5 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                <span class="dropzone__text"><strong>Drag &amp; drop</strong> your plan here, paste a copied image, or <span class="dropzone__browse">browse files</span></span>
+                <input type="file" id="plot-upload" name="plotUpload" accept="image/*,application/pdf" class="dropzone__input" />
+              </label>
               <ul class="filelist" id="plot-upload-list" hidden></ul>
             </div>
           </div>
@@ -596,9 +600,12 @@
               <p class="finish-step__desc">Print the signature form for the adjacent owners you listed in Section 05, collect their signatures in person — they can review the packet you printed in Step 1 — then attach the scanned or photographed form here. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
               <div class="finish-step__actions">
                 <button type="button" class="btn btn--primary" id="print-neighbor-form">Print signature form</button>
-                <label class="btn btn--ghost" for="neighbor-form-file">Attach signed form</label>
-                <input type="file" id="neighbor-form-file" name="neighborForm" accept="image/*,application/pdf" multiple hidden />
               </div>
+              <label class="dropzone dropzone--compact" data-dropzone="neighbor-form">
+                <svg class="dropzone__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7 8 5-4 5 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                <span class="dropzone__text"><strong>Attach the signed form</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse files</span> <span class="muted">(photos or PDF; add multiple pages)</span></span>
+                <input type="file" id="neighbor-form-file" name="neighborForm" accept="image/*,application/pdf" multiple class="dropzone__input" />
+              </label>
               <ul class="filelist" id="neighbor-filelist" hidden></ul>
               <aside class="pause-note">
                 <strong>This step usually takes a few days — you don&rsquo;t have to finish it now.</strong>

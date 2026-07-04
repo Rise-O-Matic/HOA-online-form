@@ -385,6 +385,62 @@ input[type="file"] { padding: .55rem; background: var(--paper); cursor: pointer;
   border-radius: 99px; padding: .25rem .7rem; color: var(--ink-soft);
 }
 
+/* ===================== DROPZONE ===================== */
+/* Drag-and-drop / paste frame around a real file input (see dropzone.js).
+   The input stays in the DOM, visually hidden but focusable, so the
+   keyboard path (Tab → Enter opens the picker) survives — the frame
+   shows the ring via :focus-within. */
+.dropzone {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .55rem; text-align: center;
+  padding: 1.7rem 1.2rem;
+  border: 2px dashed var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.dropzone:hover { border-color: var(--crimson); background: var(--paper-2); }
+.dropzone:focus-within { border-color: var(--crimson); box-shadow: 0 0 0 3px rgba(164,17,31,.14); }
+.dropzone__icon { width: 30px; height: 30px; color: var(--ink-faint); flex: none; transition: color .15s ease; }
+.dropzone:hover .dropzone__icon { color: var(--crimson); }
+.dropzone__text { font-size: .84rem; line-height: 1.45; max-width: 52ch; }
+.dropzone__text strong { color: var(--ink); }
+.dropzone__browse { color: var(--crimson); font-weight: 600; text-decoration: underline; }
+.dropzone__input {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+/* Compact variant — a slim strip for the per-photo / per-improvement slots */
+.dropzone--compact {
+  flex-direction: row; justify-content: flex-start; text-align: left;
+  padding: .75rem 1rem; gap: .8rem;
+}
+.dropzone--compact .dropzone__icon { width: 22px; height: 22px; }
+
+/* Live drag states: every zone lights up softly while a file drag is
+   anywhere over the page (body.is-file-drag, set by dropzone.js); the
+   zone actually under the cursor goes green. Photo cards are drop
+   targets in full (their frame hides once a shot is attached), so the
+   dragover cue lands on the card too. */
+body.is-file-drag .dropzone { border-color: var(--gold); background: var(--paper-2); }
+.dropzone.is-dragover,
+.photo-request.is-dragover .dropzone {
+  border-color: var(--green); background: #eef4ec;
+  box-shadow: 0 0 0 3px rgba(47,93,74,.14);
+}
+.photo-request.is-dragover {
+  outline: 2px dashed var(--green); outline-offset: 4px; border-radius: var(--radius-sm);
+}
+.dropzone.is-rejected { border-color: var(--crimson); animation: dz-reject .45s ease; }
+@keyframes dz-reject {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
 /* ===================== SIGNATURE PAD ===================== */
 .field--sig label { margin-bottom: .5rem; }
 .sigpad {
@@ -1229,10 +1285,9 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 /* When a category hides the dimensions slot (e.g. paint), let materials span the row */
 .improvement .grid-2:has(> [data-imp-dims-field][hidden]) > [data-imp-materials-field] { grid-column: 1 / -1; }
 .improvement__upload {
-  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap;
+  display: flex; flex-direction: column; align-items: stretch; gap: .55rem;
   margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line);
 }
-.improvement__upload label.btn { cursor: pointer; }
 .improvement__status { font-size: .82rem; color: var(--ink-faint); }
 .improvement__status.is-attached { color: var(--green); font-weight: 600; }
 .improvement__status.is-prior { color: var(--gold); font-style: italic; }
@@ -1324,8 +1379,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .photo-example__tag { font-weight: 700; display: inline-block; margin-right: .25rem; }
 .photo-example__tag--good { color: var(--green); }
 .photo-example__tag--bad { color: var(--crimson); }
-.photo-request__upload { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
-.photo-request__upload label.btn { cursor: pointer; }
+.photo-request__upload { display: flex; flex-direction: column; align-items: stretch; gap: .55rem; }
 .photo-request__status { font-size: .82rem; color: var(--ink-faint); }
 .photo-request__status.is-attached { color: var(--green); font-weight: 600; }
 .photo-request__status.is-prior { color: var(--gold); font-style: italic; }
@@ -1484,6 +1538,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .finish-step__title { margin: 0 0 .3rem; font-size: 1rem; font-family: var(--font-disp); }
 .finish-step__desc { margin: 0 0 .8rem; font-size: .86rem; color: var(--ink-soft); }
 .finish-step__actions { display: flex; gap: .8rem; flex-wrap: wrap; }
+.finish-step__body .dropzone { margin-top: .9rem; }
 
 /* Post-submission draft cleanup (revealed once the email step has run) */
 .post-submit {
