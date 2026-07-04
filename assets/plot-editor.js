@@ -115,7 +115,7 @@ const TOOL_MODES = [
   { id: "rect",     label: "Rectangle", icon: ICON.rect,
     hint: "Drag diagonally to fill a solid block with the selected material." },
   { id: "erase",    label: "Erase",    icon: ICON.erase,
-    hint: "Drag to clear painted tiles. Click an outline, callout, or measurement to delete it." },
+    hint: "Drag to clear painted tiles — the thickness control is here in this bar. Click an outline, callout, or measurement to delete it." },
   { id: "fill",     label: "Fill",     icon: ICON.fill,
     hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls. Right-click floods it back to empty." },
   { id: "stamp",    label: "Stamp",    icon: ICON.stamp,
@@ -191,10 +191,13 @@ function cursorForMode(mode) {
 // Fixed real-world scale (1 grid tile = 1 sq ft, CELL_SIZE px at 100% zoom) — the scale
 // constants and the projection math live in geometry.js.
 const MAX_ZOOM_ABS = 6;       // hard zoom-in cap (relative to 100%)
-const ANNOTATION_FONT_PX = 9;   // callout + measurement text: SCREEN-FIXED size in CSS px. The text
-                                // nodes carry a counter-scale of 1/viewZoom (see syncAnnotationTextScale)
-                                // so they read 9px on the user's monitor at any plot zoom, and
-                                // renderPlotImage() re-normalizes them to land at 9px on the printed page.
+const ANNOTATION_FONT_PX = 9;   // callout + measurement text baseline, in CSS px. The text nodes carry a
+                                // counter-scale (see syncAnnotationTextScale) so they read 9px on screen up
+                                // to ANNOTATION_REF_ZOOM, then scale UP with the view past it — so a
+                                // measurement grows as you zoom in but never shrinks below 9px when zoomed
+                                // out. renderPlotImage() re-normalizes them to land at 9px on the printed page.
+const ANNOTATION_REF_ZOOM = 0.71; // pivot: at/below this zoom labels hold at ANNOTATION_FONT_PX (the size
+                                  // the user found right at ~71%); above it they scale proportionally.
 const PRINT_PLOT_WIDTH_PX = 348; // how wide the plan prints, in the print doc's CSS px: letter page
                                  // (8.5in) minus 14mm side margins ≈ 710px, split into two flex
                                  // columns with a 14px gap (see buildPrintHTML's .print-col/.print-plot)
@@ -227,6 +230,7 @@ let stageReady = false;
 let activeMaterial = "turf";
 let activeMode = "rect";
 let brushSize = 1;             // square paint brush, in tiles (= feet)
+let eraseSize = 1;             // square eraser, in tiles (= feet) — independent of the paint brush
 let painting = false, lastCell = null; // in-progress freehand paint/erase stroke
 let eraseGesture = false;              // right-click / Ctrl(⌘)+click forces erase regardless of tool
 let lineDraft = null, lineGhost = null; // shift-held straight-line paint stroke
@@ -463,11 +467,13 @@ function paintCellRaw(c, r, id) {
   }
 }
 
-// Square brush of side `brushSize`, roughly centered on (c, r).
+// Square brush, roughly centered on (c, r). Erase strokes (id === null) use their own
+// width so the eraser and the marker each remember their dialed thickness.
 function paintBrush(c, r, id) {
-  const off = Math.floor(brushSize / 2);
-  for (let dy = 0; dy < brushSize; dy++)
-    for (let dx = 0; dx < brushSize; dx++)
+  const size = id === null ? eraseSize : brushSize;
+  const off = Math.floor(size / 2);
+  for (let dy = 0; dy < size; dy++)
+    for (let dx = 0; dx < size; dx++)
       paintCellRaw(c - off + dx, r - off + dy, id);
 }
 
@@ -570,14 +576,20 @@ function applyStageSize() {
   updateZoomReadout();
 }
 
-// Callout / measurement text is screen-fixed: nodes flagged screenFixed carry a counter-scale
-// of 1/viewZoom so the text reads ANNOTATION_FONT_PX CSS px on the user's monitor at any plot
-// zoom, while the leader arrows/geometry stay plan-scaled. Runs on every zoom change (via
-// applyStageSize) and after every hydrate (draft restore / undo), which also normalizes away
-// whatever counter-scale was serialized into the draft at save time.
+// Callout / measurement text scale: nodes flagged screenFixed carry a counter-scale so the text
+// reads ANNOTATION_FONT_PX CSS px on the user's monitor up to ANNOTATION_REF_ZOOM, then holds that
+// counter-scale steady so the text scales UP proportionally with the view as you zoom in past the
+// pivot (leader arrows/geometry stay plan-scaled throughout). The max() floors the counter-scale at
+// 1/ANNOTATION_REF_ZOOM: below the pivot it's the plain 1/viewZoom screen-lock (never smaller than
+// 9px when zoomed out); above it, the fixed floor lets the stage's own viewZoom grow the text.
+// Runs on every zoom change (via applyStageSize) and after every hydrate (draft restore / undo),
+// which also normalizes away whatever counter-scale was serialized into the draft at save time.
+function annotationTextScale() {
+  return Math.max(1 / viewZoom, 1 / ANNOTATION_REF_ZOOM);
+}
 function syncAnnotationTextScale() {
   if (!drawLayer) return;
-  const k = 1 / viewZoom;
+  const k = annotationTextScale();
   drawLayer.find(n => n.getAttr("screenFixed")).forEach(n => n.scale({ x: k, y: k }));
 }
 
@@ -851,9 +863,10 @@ function setActiveMode(mode) {
     x.classList.toggle("is-active", on);
     x.setAttribute("aria-pressed", on ? "true" : "false");
   });
-  // The contextual slot in the status strip: brush width for Paint, symbol picker for Stamp.
+  // The contextual slot in the status strip: brush width for Paint/Erase, symbol picker for Stamp.
   const brushControl = $("#brush-control");
-  if (brushControl) brushControl.hidden = mode !== "paint";
+  if (brushControl) brushControl.hidden = mode !== "paint" && mode !== "erase";
+  if (mode === "paint" || mode === "erase") refreshBrushControl();
   const stampControl = $("#stamp-control");
   if (stampControl) stampControl.hidden = mode !== "stamp";
   if (mode !== "stamp") { stampArmed = null; removeStampGhost(); }
@@ -865,6 +878,17 @@ function setActiveMode(mode) {
     n.draggable(mode === "select");
   });
   if (plotHost) plotHost.style.cursor = cursorForMode(mode);
+}
+
+// Reflect the active tool's dialed width into the shared Thickness slider (Paint and
+// Erase each keep their own size, so switching tools shows the right one).
+function refreshBrushControl() {
+  const brushInput = $("#brush-size");
+  if (!brushInput) return;
+  const val = activeMode === "erase" ? eraseSize : brushSize;
+  brushInput.value = val;
+  const brushOut = $("#brush-size-val");
+  if (brushOut) brushOut.textContent = val + " ft";
 }
 
 /* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
@@ -996,7 +1020,7 @@ function buildMeasurementGroup(a, b) {
     fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, fontStyle: "bold", fill: "#2b6cb0", padding: 2
   });
   label.setAttr("screenFixed", true);
-  label.scale({ x: 1 / viewZoom, y: 1 / viewZoom });
+  label.scale({ x: annotationTextScale(), y: annotationTextScale() });
   label.offsetX(label.width() / 2);
   label.offsetY(label.height() + 3); // gap above the arrow in label-local px, so it holds at any zoom
   group.add(arrow, label);
@@ -1051,7 +1075,7 @@ function buildCalloutGroup(tip, labelPos, text) {
   });
   const label = new Konva.Label({ x: labelPos.x, y: labelPos.y });
   label.setAttr("screenFixed", true);
-  label.scale({ x: 1 / viewZoom, y: 1 / viewZoom });
+  label.scale({ x: annotationTextScale(), y: annotationTextScale() });
   label.add(new Konva.Tag({ fill: "#fff9f2", stroke: "#a4111f", strokeWidth: 1.5, cornerRadius: 4, shadowColor: "#000", shadowOpacity: .15, shadowBlur: 4, shadowOffset: { x: 0, y: 2 } }));
   label.add(new Konva.Text({ text, fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, padding: 5, fill: "#1e1a14" }));
   group.add(arrow, label);
@@ -1207,7 +1231,7 @@ function onStagePointerDown(e) {
       lineGhost = new Konva.Line({
         points: [a.x, a.y, a.x, a.y],
         stroke: id ? (PALETTE_MAP[id]?.color || "#7cb342") : "#a4111f",
-        strokeWidth: Math.max(2, brushSize * CELL_SIZE), opacity: 0.5,
+        strokeWidth: Math.max(2, (id === null ? eraseSize : brushSize) * CELL_SIZE), opacity: 0.5,
         lineCap: "round", dash: id ? null : [6, 4], listening: false
       });
       overlayLayer.add(lineGhost);
@@ -1502,12 +1526,12 @@ $("#plot-redo").addEventListener("click", redo);
 const brushInput = $("#brush-size");
 if (brushInput) {
   const brushOut = $("#brush-size-val");
-  const syncBrush = () => {
-    brushSize = Math.max(1, parseInt(brushInput.value, 10) || 1);
-    if (brushOut) brushOut.textContent = brushSize + " ft";
-  };
-  brushInput.addEventListener("input", syncBrush);
-  syncBrush();
+  brushInput.addEventListener("input", () => {
+    const val = Math.max(1, parseInt(brushInput.value, 10) || 1);
+    if (activeMode === "erase") eraseSize = val; else brushSize = val;
+    if (brushOut) brushOut.textContent = val + " ft";
+  });
+  refreshBrushControl();
 }
 $("#plot-zoom-in")?.addEventListener("click", () => zoomButton(1.25));
 $("#plot-zoom-out")?.addEventListener("click", () => zoomButton(1 / 1.25));
