@@ -1364,7 +1364,7 @@ export function setPlotConfirmed(v) {
   v = !!v;
   if (v === plotConfirmedFlag) return;
   plotConfirmedFlag = v;
-  updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, Section 06 row, packet list
+  updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list
   scheduleAutosave();
 }
 

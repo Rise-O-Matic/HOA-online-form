@@ -31,8 +31,8 @@ const SCROLL_KEY = "fairwayCanyonArcDraft.scroll"; // sessionStorage — per-tab
 const ACKS = [
   'Compliance with the <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Guidelines</a>, <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Protective Covenants</a> and ARC approval does <strong>not</strong> necessarily constitute compliance with building and zoning codes of <a href="https://www.rivcocob.org/building-and-safety/" target="_blank" rel="noopener">Riverside County</a>. A building permit may still be required.',
   "No exterior alteration shall commence until <strong>written ARC approval</strong> has been returned to the homeowner. Unapproved or out-of-scope work may require restoration to the former condition at the homeowner's expense, plus legal costs.",
-  "I am responsible to provide all required details on attached sheets (plot, sketches, scale drawings, photos, illustrations, plans, contracts, etc.), with the location of the change indicated on a color-coded plot.",
-  "For changes in <strong>paint color</strong>, I will attach a manufacturer's sample indicating the color/code and the proposed vendor's name.",
+  'I am responsible to provide all required details on attached sheets (plot, sketches, scale drawings, photos, illustrations, plans, contracts, etc.), with the location of the change indicated on a color-coded plot. <span class="muted">(The packet checklist in Review &amp; Submit tracks these attachments for you.)</span>',
+  'For changes in <strong>paint color</strong>, I will attach a manufacturer\'s sample indicating the color/code and the proposed vendor\'s name. <span class="muted">(If your project adds a new color or material, the sample photo requested in Section 05 covers this.)</span>',
   "ARC members may enter the property at a reasonable, pre-arranged time to inspect the project site(s) during and upon completion of the work. Such entry does not constitute trespass.",
   "Any approval is contingent upon construction or alterations being completed in a <strong>workmanlike manner</strong>.",
   "Authority granted may be revoked automatically if the alteration has not commenced within <strong>180 days</strong> of the approval date and completed by the date specified by the ARC.",
@@ -490,9 +490,9 @@ form.addEventListener("change", updateProgress);
    PACKET STATUS
    One source of truth for "what's in the packet": the plot
    plan, every requested photo, the signed neighbor form, and
-   the sketches attestation. Feeds the Section 06 live rows,
-   the Review & Submit packet list, the email soft-gate, and
-   the mailto attachment manifest.
+   the sketches attestation. Feeds the Review & Submit packet
+   list, the email soft-gate, and the mailto attachment
+   manifest.
 ------------------------------------------------------ */
 let pdfSaved = false; // flips once the print/save-PDF view is opened this session
 
@@ -524,7 +524,7 @@ function neighborFormFiles() {
 }
 
 function sketchesConfirmed() {
-  const c = $("#submissions [name=req_sketches]");
+  const c = $("#packet [name=req_sketches]");
   return !!(c && c.checked);
 }
 
@@ -544,7 +544,7 @@ function packetMissingList(includePdf) {
   if (!photos.length) missing.push("Property photos — the questionnaire in Section 05 hasn't been answered");
   else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
   if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 04)");
-  if (!sketchesConfirmed()) missing.push("Sketches, dimensions & material examples (confirm in Section 06)");
+  if (!sketchesConfirmed()) missing.push("Sketches, dimensions & material examples (confirm in the Review & Submit checklist)");
   return missing;
 }
 
@@ -663,40 +663,10 @@ function renderPacket() {
     ok: sketchesConfirmed(),
     note: sketchesConfirmed()
       ? "Confirmed — attach your files to the email."
-      : "Gather your files, then confirm in Section 06.",
-    href: "#submissions"
+      : "Gather your files, then tick the confirmation box below this list."
   });
   packetListEl.textContent = "";
   items.forEach(item => packetListEl.appendChild(packetItemNode(item)));
-}
-
-/* ----- Section 06 live rows ----- */
-function setReqRow(key, ok, note, partial) {
-  const row = $(`.reqstat[data-req="${key}"]`);
-  if (!row) return;
-  row.classList.toggle("is-ok", ok);
-  row.classList.toggle("is-partial", !ok && !!partial); // third state: started, not finished
-  const noteEl = $("[data-req-note]", row);
-  if (noteEl) noteEl.textContent = note;
-}
-
-function refreshRequirementRows() {
-  const plot = plotProvided();
-  setReqRow("plot", plot.ok, plot.mode === "upload"
-    ? (plot.ok ? "Uploaded: " + plot.names.join(", ") : "Upload chosen — no file attached yet.")
-    : (plot.ok ? "Drawn with the plot tool — included in your application PDF."
-      : plot.started ? "In progress — mark it finished in Section 02 (“Done — use this plan”)."
-      : "Not provided yet — build or upload it in Section 02."),
-    plot.mode === "build" && plot.started);
-  const photos = photoChecklist();
-  setReqRow("photos",
-    photos.length > 0 && photos.every(p => p.file),
-    photos.length
-      ? `${photos.filter(p => p.file).length} of ${photos.length} requested photos attached.`
-      : "Answer the questionnaire in Section 05 to see which photos are needed.");
-  const nf = neighborFormFiles();
-  setReqRow("neighbors", nf.length > 0,
-    nf.length ? "Signed form attached: " + nf.join(", ") : "Not attached yet.");
 }
 
 function refreshFinishSteps() {
@@ -721,7 +691,6 @@ function refreshPlotDoneUI() {
 
 export function refreshPacketUI() {
   renderPacket();
-  refreshRequirementRows();
   refreshFinishSteps();
   refreshPlotDoneUI();
 }
@@ -765,9 +734,9 @@ function collect() {
       data.files.push(input.files[0].name);
     }
   });
-  $$("#submissions input[type=checkbox]").forEach(c => data.submissions[c.name] = c.checked);
-  // req_plot / req_photos / req_neighbors are derived from real app state,
-  // not self-attestation checkboxes (those rows are live status in Section 06).
+  // Sketches is the one manual attestation left (the checkbox under the packet list);
+  // req_plot / req_photos / req_neighbors are derived from real app state.
+  data.submissions.req_sketches = sketchesConfirmed();
   data.submissions.req_plot = plotProvided().ok;
   const reqPhotos = photoChecklist();
   data.submissions.req_photos = reqPhotos.length > 0 && reqPhotos.every(p => p.file);
@@ -837,7 +806,8 @@ function restoreDraft() {
   $("#owner-email").value = d.ownerEmail || "";
   proposal.value = d.proposal || ""; proposalCount.textContent = proposal.value.length;
   $("#ack-date").value = d.ackDate || "";
-  if (d.submissions) Object.entries(d.submissions).forEach(([k, v]) => { const el = $(`#submissions [name="${k}"]`); if (el) el.checked = v; });
+  // Sketches confirm (the one manual packet checkbox; older drafts' derived/fee keys just find no element)
+  if (d.submissions) Object.entries(d.submissions).forEach(([k, v]) => { const el = $(`#packet .packet-confirm [name="${k}"]`); if (el) el.checked = v; });
   if (d.acks) Object.entries(d.acks).forEach(([k, v]) => { const el = $(`#acks [name="${k}"]`); if (el) el.checked = v; });
   // neighbors
   if (Array.isArray(d.neighbors) && d.neighbors.length) {
@@ -1039,10 +1009,8 @@ const ownerSigHTML = d => d.ownerSigMethod === "type"
 const SUB_LABELS = {
   req_plot: "Plot design with modification marked",
   req_sketches: "Sketches, dimensions, photos & materials",
-
   req_photos: "Property photos (Section 05)",
-  req_neighbors: "Impacted neighbor signatures",
-  req_fee: "Application fee"
+  req_neighbors: "Impacted neighbor signatures"
 };
 
 function photoPreviewHTML(d) {
@@ -1245,7 +1213,7 @@ function buildPrintHTML(d) {
         </div>
       </div>
 
-      <p class="print-footer-note">This application was generated from the Fairway Canyon HOA online form. The review process will not begin until both the full application and the fee are received.</p>
+      <p class="print-footer-note">This application was generated from the Fairway Canyon HOA online form. The 45-day review period begins once the complete application packet is received.</p>
     </div>`;
 }
 
@@ -1542,6 +1510,8 @@ function showLanding() {
 
 $("#start-application")?.addEventListener("click", enterForm);
 $("#view-landing")?.addEventListener("click", e => { e.preventDefault(); showLanding(); });
+// "What Happens Next" links to the review-dates table, which lives on the landing page.
+$("#view-dates")?.addEventListener("click", e => { e.preventDefault(); showLanding(); });
 
 // Remember scroll position within the form so a reload can return you to where you
 // were, instead of always landing back at the top. sessionStorage (not localStorage)
