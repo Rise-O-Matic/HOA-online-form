@@ -2149,7 +2149,7 @@ async function printPreview() {
       .nf-note strong { color: #3a352f; }
       .nf-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
       .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 4px 6px; border: 1px solid #ccc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 30px; vertical-align: bottom; }
+      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 39px; vertical-align: bottom; }
       .nf-num { width: 22px; text-align: center; color: #999; }
       .nf-sig { width: 30%; }
       .nf-date { width: 82px; }
