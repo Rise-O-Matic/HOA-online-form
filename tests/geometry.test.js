@@ -12,9 +12,10 @@ import assert from "node:assert/strict";
 import {
   CELL_SIZE, FOOT_IN_METERS, GRID_MIN_PAD, MAX_GRID_DIM, FILL_SUBSAMPLE,
   geoToLocalMeters, rotatePoints, computeBBox, fitSimilarity,
-  buildParcelGrid, computeAutoAlignBearing, closestPointOnSegment,
+  buildParcelGrid, computeAutoAlignBearing, computeSnapAngles, snapBearing,
+  closestPointOnSegment,
   segmentsIntersect, connectorBlocked, pointOnSegment, pointOnAnyWall,
-  computeFloodFill
+  pointInPolygon, computeFloodFill
 } from "../assets/geometry.js";
 
 const approx = (actual, expected, eps = 1e-6, msg) =>
@@ -152,6 +153,66 @@ test("computeAutoAlignBearing degenerate ring returns 0", () => {
   assert.equal(computeAutoAlignBearing([[-117, 33.93]], null), 0);
 });
 
+/* ---------- computeSnapAngles / snapBearing ---------- */
+
+// Closed lng/lat ring from local-meter offsets around [lng0, lat0]
+// (the inverse of geoToLocalMeters, for rings that aren't plain rectangles).
+function ringFromMeters(lng0, lat0, pts) {
+  const cosLat = Math.cos(lat0 * Math.PI / 180);
+  const ring = pts.map(([x, y]) => [lng0 + x / (cosLat * 111320), lat0 + y / 111320]);
+  ring.push(ring[0]);
+  return ring;
+}
+
+test("computeSnapAngles: axis-aligned rectangle collapses to the single angle 0", () => {
+  const angles = computeSnapAngles(rectRing(-117, 33.93, 10, 40));
+  assert.equal(angles.length, 1);
+  approx(angles[0], 0, 0.01);
+});
+
+test("computeSnapAngles: rotated rectangle yields its one squaring bearing", () => {
+  // 10×40 rect rotated 30° CCW (math): all four edges align at bearing 60 (mod 90).
+  const c = Math.cos(Math.PI / 6), s = Math.sin(Math.PI / 6);
+  const corners = [[-5, -20], [5, -20], [5, 20], [-5, 20]]
+    .map(([x, y]) => [x * c - y * s, x * s + y * c]);
+  const angles = computeSnapAngles(ringFromMeters(-117, 33.93, corners));
+  assert.equal(angles.length, 1);
+  approx(angles[0], 60, 0.1);
+});
+
+test("computeSnapAngles: short edges are skipped unless minFrac allows them", () => {
+  // 40×15 rectangle with one ~2.8 m clipped corner at 45° — well under 20% of the
+  // longest (40 m) edge, so the default drops it and only 0 remains a candidate.
+  const clipped = ringFromMeters(-117, 33.93,
+    [[-20, -7.5], [20, -7.5], [20, 5.5], [18, 7.5], [-20, 7.5]]);
+  const dflt = computeSnapAngles(clipped);
+  assert.equal(dflt.length, 1);
+  approx(dflt[0], 0, 0.05);
+  // minFrac 0 keeps every edge: the 45° clip shows up too.
+  const all = computeSnapAngles(clipped, 0);
+  assert.equal(all.length, 2);
+  approx(all[0], 0, 0.05);
+  approx(all[1], 45, 0.1);
+});
+
+test("computeSnapAngles: degenerate ring returns no candidates", () => {
+  assert.deepEqual(computeSnapAngles(null), []);
+  assert.deepEqual(computeSnapAngles([[-117, 33.93]]), []);
+});
+
+test("snapBearing snaps within tolerance, in every 90° image of a candidate", () => {
+  approx(snapBearing(58.3, [60], 4), 60, 1e-9);
+  approx(snapBearing(178, [0], 4), 180, 1e-9);     // horizontal counts, not just vertical
+  approx(snapBearing(359.2, [0], 4), 0, 1e-9);     // wraps back into [0, 360)
+  approx(snapBearing(272.5, [0, 45], 4), 270, 1e-9); // nearest candidate wins
+});
+
+test("snapBearing returns null beyond tolerance or with no candidates", () => {
+  assert.equal(snapBearing(50, [60], 4), null);
+  assert.equal(snapBearing(10, [], 4), null);
+  assert.equal(snapBearing(10, null, 4), null);
+});
+
 /* ---------- closestPointOnSegment ---------- */
 
 test("closestPointOnSegment finds the foot of the perpendicular (to the origin)", () => {
@@ -206,6 +267,32 @@ test("pointOnSegment / pointOnAnyWall", () => {
   assert.equal(pointOnSegment(9, 9, s), false);      // past the end
   assert.equal(pointOnAnyWall(4, 4, [s]), true);
   assert.equal(pointOnAnyWall(4, 5, [s]), false);
+});
+
+/* ---------- pointInPolygon ---------- */
+
+test("pointInPolygon: convex ring, with and without repeated closing vertex", () => {
+  const open = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const closed = [...open, { x: 0, y: 0 }]; // county rings repeat the first vertex
+  for (const poly of [open, closed]) {
+    assert.equal(pointInPolygon(5, 5, poly), true);      // dead center
+    assert.equal(pointInPolygon(11, 5, poly), false);    // right of the box
+    assert.equal(pointInPolygon(5, -0.1, poly), false);  // just above
+    assert.equal(pointInPolygon(9.99, 9.99, poly), true); // near a corner, inside
+  }
+});
+
+test("pointInPolygon: concave ring (L-shape) and degenerate input", () => {
+  // L-shape: 10×10 square with the top-right 5×5 quadrant notched out.
+  const L = [
+    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 5 },
+    { x: 5, y: 5 }, { x: 5, y: 10 }, { x: 0, y: 10 }
+  ];
+  assert.equal(pointInPolygon(2, 8, L), true);    // lower arm of the L
+  assert.equal(pointInPolygon(8, 2, L), true);    // upper arm of the L
+  assert.equal(pointInPolygon(8, 8, L), false);   // the notch
+  assert.equal(pointInPolygon(5, 5, []), false);                // no ring
+  assert.equal(pointInPolygon(5, 5, [{ x: 0, y: 0 }, { x: 10, y: 0 }]), false); // not a polygon
 });
 
 /* ---------- computeFloodFill ---------- */

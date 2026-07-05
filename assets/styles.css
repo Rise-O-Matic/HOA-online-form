@@ -162,6 +162,7 @@ address { font-style: normal; }
   margin-top: 2rem; padding-top: 1.8rem; border-top: 1px solid var(--line);
 }
 .landing__submit-info .info-card { margin-bottom: 0; }
+.landing__submit-info .info-card--wide { grid-column: 1 / -1; }
 .landing__cta { margin-top: 2rem; text-align: center; }
 .landing__cta-note { font-size: .8rem; color: var(--ink-faint); margin: .8rem 0 0; }
 
@@ -259,7 +260,7 @@ address { font-style: normal; }
 }
 .sidenav__save-warning strong { display: block; }
 .sidenav__landing-link {
-  display: inline-block; margin: .8rem .65rem 0;
+  display: inline-block; margin: 0 .65rem .8rem;
   font-size: .78rem; color: var(--ink-faint); text-decoration: none;
 }
 .sidenav__landing-link:hover { color: var(--crimson); }
@@ -659,6 +660,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid var(--line-2); border-radius: 6px; background: #fff; cursor: pointer;
 }
 .palette-pop__warn { flex-basis: 100%; margin: 0; color: var(--crimson); font-size: .8rem; }
+.palette-pop__texgroup { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; color: var(--ink-soft); }
+.palette-pop__textures { display: inline-flex; gap: .3rem; }
+.palette-pop__textures button {
+  width: 1.6rem; height: 1.6rem; padding: 0;
+  border: 1px solid var(--line-2); border-radius: 5px;
+  cursor: pointer;
+}
+.palette-pop__textures button:hover { border-color: var(--ink-faint); }
+.palette-pop__textures button.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
 
 /* Rail + canvas column, centered as a block */
 .plot__surface {
@@ -704,7 +714,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   .tool-rail { flex-direction: row; flex-wrap: wrap; }
   .tool-rail__group { flex-direction: row; flex-wrap: wrap; }
   .tool-rail__rule { width: auto; align-self: stretch; border-top: 0; border-left: 1px solid var(--line-2); margin: 0 .15rem; }
-  .plot__stagecol { align-self: center; } /* landscape phones: 70vh can undercut the column width */
+  .plot__stagecol { align-self: center; } /* landscape phones: 74vh can undercut the column width */
   .tool-rail button::after {
     left: 50%; top: calc(100% + .4rem); transform: translateX(-50%);
   }
@@ -714,7 +724,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
    taller than the screen, or past a sane cap; shrinks beside the rail (min-width 0). */
 .plot__stagecol {
   flex: 0 1 auto;
-  width: min(100%, 70vh, 640px);
+  width: min(100%, 74vh, 640px);
   min-width: 0;
 }
 /* Scrollable viewport onto the to-scale grid — the stage is sized to content × zoom and the
@@ -835,6 +845,12 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .plot-status__keys li { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
 .plot-status__keys svg { flex: none; display: block; }
+/* Keyboard key cap (e.g. the Space = pan hint) alongside the mouse glyphs */
+.plot-status__keys .hk-key {
+  font: 600 .68rem/1 var(--font-ui);
+  border: 1px solid rgba(255,255,255,.4); border-radius: 4px;
+  padding: .2rem .4rem .16rem;
+}
 .plot__notice {
   margin: 0 0 .9rem;
   padding: .65rem .9rem;
@@ -848,9 +864,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .plot__notice--err .btn { margin-top: .5rem; }
 
 /* ===================== WIZARD STEPS ===================== */
+/* Slim dots row (no rule of its own — the card head's border above is the divider) and a
+   tightened head gap: the Draw step's vertical budget is precious, every row above the
+   canvas pushes it toward the fold. showStep(4) scrolls this nav to the viewport top to
+   frame the canvas — scroll-margin keeps it off the very edge. */
+#siteplan .card__head { margin-bottom: .9rem; }
 .plot-steps-nav {
-  display: flex; gap: .4rem; margin-bottom: 1rem;
-  border-bottom: 1px solid var(--line); padding-bottom: .8rem;
+  display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .9rem;
+  scroll-margin-top: .75rem;
 }
 .plot-steps-nav__dot {
   display: flex; align-items: center; gap: .4rem;
@@ -880,17 +901,17 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 
 .plot-step { display: none; }
 .plot-step.is-active { display: block; }
-.plot-step__title {
-  font-family: var(--font-disp); font-weight: 600; font-size: 1.15rem;
-  margin: 0 0 .3rem; color: var(--ink);
-}
-.plot-step__desc {
-  font-size: .88rem; color: var(--ink-soft); margin: 0 0 .8rem;
-}
+/* Steps carry no h3/description of their own — the per-step instruction line lives in the
+   card head's subtitle (#step-subtitle), swapped by showStep(). */
 .plot-step__nav {
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem;
   margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line);
 }
+/* Left-hand secondary pair on the Draw step (Back to orientation + Clear plan) — grouped so
+   space-between keeps them together, opposite the Done CTA. Hidden as one while the plan is
+   locked (refreshPlotDoneUI). */
+.plot-step__nav-group { display: flex; align-items: center; gap: .5rem; }
+.plot-step__nav-group[hidden] { display: none; } /* author display beats [hidden] otherwise */
 /* "Bail out to the upload path" footnote at the bottom of each builder step */
 .plot-step__bail { margin: .8rem 0 0; font-size: .8rem; color: var(--ink-faint); }
 /* The Draw step's "Done — use this plan" CTA flips green once the plan is confirmed
@@ -1109,21 +1130,39 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid var(--line-2); border-radius: 999px;
   box-shadow: 0 2px 8px rgba(30,26,20,.18);
 }
+/* The nudge buttons carry a real button treatment (fill + border + shadow) — as flat
+   text on the translucent pill they read as a non-interactive HUD readout. */
 .rotate-fine__btn {
   min-width: 3rem;
   padding: .34rem .55rem;
-  background: transparent; border: 1px solid transparent; border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--line-2); border-radius: 999px;
+  box-shadow: 0 1px 2.5px rgba(30,26,20,.22);
   font-family: var(--font-ui); font-size: .74rem; font-weight: 700;
-  color: var(--ink-soft); cursor: pointer;
-  transition: border-color .15s, color .15s, background .15s;
+  color: var(--ink); cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s, box-shadow .15s;
 }
-.rotate-fine__btn:hover { color: var(--crimson); background: rgba(164,17,31,.08); }
-.rotate-fine__btn:active { background: var(--crimson); border-color: var(--crimson); color: #fff; }
+.rotate-fine__btn:hover { color: var(--crimson); border-color: var(--crimson); background: rgba(164,17,31,.06); }
+.rotate-fine__btn:active { background: var(--crimson); border-color: var(--crimson); color: #fff; box-shadow: none; }
 .rotate-fine__readout {
   min-width: 3.9rem; text-align: center;
   font-family: var(--font-ui); font-size: .82rem; font-weight: 700;
   color: var(--ink); font-variant-numeric: tabular-nums;
 }
+/* Snap-to-lot-lines toggle (map-wizard applyBearingSnap; Shift-drag is the momentary
+   equivalent) + the aligned state: the readout turns green while a property line sits
+   exactly square to the grid. */
+.rotate-fine__divider { width: 1px; align-self: stretch; margin: .15rem .2rem; background: var(--line-2); }
+.rotate-fine__snap {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .2rem .55rem .2rem .3rem;
+  font-family: var(--font-ui); font-size: .74rem; font-weight: 700;
+  color: var(--ink-soft); cursor: pointer; user-select: none; white-space: nowrap;
+}
+.rotate-fine__snap input { margin: 0; width: 1.05rem; height: 1.05rem; }
+.rotate-fine__snap input:checked::after { left: 5px; top: 1px; width: 4px; height: 9px; }
+.rotate-fine__snap:hover { color: var(--ink); }
+.rotate-fine.is-aligned .rotate-fine__readout { color: var(--green); }
 
 /* Satellite-imagery loading overlays. Two spots wait on aerial imagery: the map's
    satellite raster tiles (#map-loading, inside #map-container so it rides along on
@@ -1262,26 +1301,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   .rotate-panel { max-width: 100%; }
 }
 
-/* ===================== NEIGHBORS ===================== */
-.neighbor-list { display: grid; gap: 1rem; margin-bottom: 1.1rem; }
-.neighbor {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 1.1rem 1.2rem 1.2rem;
-  background: var(--paper);
-  position: relative;
-}
-.neighbor__num {
-  font-family: var(--font-disp); font-style: italic;
-  color: var(--crimson); font-size: .85rem; margin-bottom: .7rem;
-}
-.neighbor__remove {
-  position: absolute; top: .8rem; right: .8rem;
-  background: none; border: none; color: var(--ink-faint);
-  font-size: 1.2rem; cursor: pointer; line-height: 1;
-}
-.neighbor__remove:hover { color: var(--crimson); }
-.neighbor .grid-2 { gap: .9rem 1.2rem; }
 /* ===================== PROPOSED IMPROVEMENTS ===================== */
 .improvement-list { display: grid; gap: 1rem; margin-bottom: 1.1rem; }
 .improvement {
@@ -1548,24 +1567,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
-.finish-step__num {
-  flex-shrink: 0;
-  width: 2rem; height: 2rem;
-  display: grid; place-items: center;
-  border-radius: 50%;
-  background: var(--crimson);
-  color: #fff;
-  font-weight: 700;
-}
 .finish-step.is-done { background: #f1f5ef; border-color: #c5d8bd; }
-.finish-step.is-done .finish-step__num { background: var(--green); }
 .finish-step__body { flex: 1; min-width: 0; }
 .finish-step__title { margin: 0 0 .3rem; font-size: 1rem; font-family: var(--font-disp); }
 .finish-step__desc { margin: 0 0 .8rem; font-size: .86rem; color: var(--ink-soft); }
+.finish-step__note { margin: 0 0 .8rem; font-size: .8rem; color: var(--ink-soft); border-left: 2px solid var(--crimson); padding-left: .6rem; }
 .finish-step__actions { display: flex; gap: .8rem; flex-wrap: wrap; }
 .finish-step__body .dropzone { margin-top: .9rem; }
 
-/* Post-submission draft cleanup (revealed once the email step has run) */
+/* Post-submission draft cleanup (revealed once the packet has been saved) */
 .post-submit {
   margin-top: 1.2rem;
   padding: .9rem 1.1rem;
@@ -1586,6 +1596,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .gate-lead { margin-top: 0; font-size: .9rem; }
 .gate-missing { margin: .8rem 0 0; padding-left: 1.2rem; font-size: .88rem; display: grid; gap: .3rem; }
 .gate-missing li::marker { color: var(--crimson); }
+.gate-missing .gate-jump {
+  font: inherit; color: var(--crimson); background: none; border: 0; padding: 0;
+  text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.gate-missing .gate-jump:hover { color: var(--crimson-dk); }
+.gate-missing .gate-jump:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; border-radius: 2px; }
+.gate-fine { margin: .9rem 0 0; padding-top: .7rem; border-top: 1px solid rgba(0,0,0,.08); font-size: .8rem; color: var(--ink-soft); }
+.gate-fine a { color: var(--crimson); font-weight: 600; white-space: nowrap; }
 
 /* ===================== BUTTONS ===================== */
 .btn {
@@ -1794,6 +1812,7 @@ ul.tight li { margin-bottom: .25rem; }
   .plot__zoom button { width: 2.75rem; height: 2.75rem; }
   .plot-steps-nav__dot { padding: .55rem .8rem; }
   .rotate-fine__btn { min-height: 2.75rem; min-width: 3.25rem; }
+  .rotate-fine__snap { min-height: 2.75rem; }
   .sigpad { height: 190px; }
   .sig-method__btn { padding: .55rem 1.1rem; }
 }

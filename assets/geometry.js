@@ -151,6 +151,49 @@ export function computeAutoAlignBearing(ring, roadDir) {
   return ((base % 180) + 180) % 180;
 }
 
+// Snap candidates for the Orient step: the bearings at which some parcel boundary edge
+// runs exactly vertical or horizontal on screen — i.e. square to the plot grid. An edge
+// aligns at four bearings 90° apart, so each contributes one value in [0, 90); near-
+// duplicates are merged, and edges shorter than minFrac of the longest are skipped (a
+// cul-de-sac arc is a chain of tiny segments at slightly different angles that would
+// otherwise make everywhere a snap target). Expects a closed ring (last vertex repeats
+// the first), same as computeAutoAlignBearing.
+export function computeSnapAngles(ring, minFrac = 0.2) {
+  if (!ring || ring.length < 3) return [];
+  const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+  const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  const local = geoToLocalMeters(ring, [cx, cy]);
+  const edges = [];
+  let longest = 0;
+  for (let i = 0; i < local.length - 1; i++) {
+    const dx = local[i + 1].x - local[i].x, dy = local[i + 1].y - local[i].y;
+    const len = Math.hypot(dx, dy);
+    if (len > longest) longest = len;
+    edges.push({ len, angle: Math.atan2(dy, dx) * 180 / Math.PI });
+  }
+  const angles = [];
+  for (const e of edges) {
+    if (e.len < longest * minFrac) continue;
+    const a = (((90 - e.angle) % 90) + 90) % 90; // same edge→bearing convention as computeAutoAlignBearing
+    const dupe = angles.some(x => { const d = Math.abs(x - a); return Math.min(d, 90 - d) < 0.25; });
+    if (!dupe) angles.push(a);
+  }
+  return angles.sort((a, b) => a - b);
+}
+
+// Snap a bearing to the nearest grid-aligning candidate from computeSnapAngles: returns
+// the snapped bearing in [0, 360) when deg sits within tolerance° of a candidate
+// (mod 90), else null — the caller keeps the raw value.
+export function snapBearing(deg, snapAngles, tolerance) {
+  if (!snapAngles || !snapAngles.length) return null;
+  let best = null, bestAbs = Infinity;
+  for (const a of snapAngles) {
+    const delta = (((deg - a + 45) % 90) + 90) % 90 - 45; // signed offset to the nearest a + k·90
+    if (Math.abs(delta) < bestAbs) { bestAbs = Math.abs(delta); best = deg - delta; }
+  }
+  return bestAbs <= tolerance ? ((best % 360) + 360) % 360 : null;
+}
+
 // Closest point on segment a→b to the origin (the parcel centroid), in local meters.
 export function closestPointOnSegment(a, b) {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -213,6 +256,19 @@ export function pointOnSegment(x, y, s) {
 export function pointOnAnyWall(x, y, segs) {
   for (let i = 0; i < segs.length; i++) if (pointOnSegment(x, y, segs[i])) return true;
   return false;
+}
+
+// Ray-cast point-in-polygon (even-odd rule). poly is a ring of {x, y} vertices — an
+// explicitly repeated closing vertex is fine (the zero-length wrap edge is a no-op).
+// Used by the plot editor to keep Stamp placement inside the parcel footprint.
+export function pointInPolygon(x, y, poly) {
+  if (!poly || poly.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 // Paint-bucket core. Computes the tiles a flood from (c0, r0) should set to `id` (null = erase):

@@ -12,7 +12,7 @@
    ========================================================= */
 import {
   CELL_SIZE, FEET_PER_CELL, LINE_WIDTH_FEET,
-  computeBBox, fitSimilarity, buildParcelGrid, computeFloodFill
+  computeBBox, fitSimilarity, buildParcelGrid, computeFloodFill, pointInPolygon
 } from "./geometry.js";
 import { $, $$ } from "./utils.js";
 // Function-only imports from the entry module (a deliberate ESM cycle: app.js
@@ -23,12 +23,12 @@ import { scheduleAutosave, updateProgress } from "./app.js";
 
 const PALETTE = [
   { id: "turf",      label: "Turf",            color: "#7cb342" },
-  { id: "grass",     label: "Grass",           color: "#a5d36a" },
-  { id: "concrete",  label: "Concrete",        color: "#c2bdb2" },
-  { id: "patio",     label: "Patio Cover",     color: "#d98a6a" },
-  { id: "mulch",     label: "Mulch / Planter", color: "#b07a4e" },
-  { id: "retaining", label: "Retaining Wall",  color: "#7a5c46" },
-  { id: "shed",      label: "Shed",            color: "#e2473b" }
+  { id: "grass",     label: "Grass",           color: "#a5d36a", texture: "tufts" },
+  { id: "concrete",  label: "Concrete",        color: "#c2bdb2", texture: "speckle" },
+  { id: "patio",     label: "Patio Cover",     color: "#d98a6a", texture: "diag" },
+  { id: "mulch",     label: "Mulch / Planter", color: "#b07a4e", texture: "dashes" },
+  { id: "retaining", label: "Retaining Wall",  color: "#7a5c46", texture: "brick" },
+  { id: "shed",      label: "Shed",            color: "#e2473b", texture: "cross" }
 ];
 // Point objects retired from the paint palette (they're Stamps now). Their ids stay
 // resolvable so cells painted in old drafts still render — and the legend can name them.
@@ -40,7 +40,123 @@ const RETIRED_MATERIALS = [
 // Every id the paint layer can resolve: live chips + retired ids + the user's custom
 // materials (setCustomMaterials/addCustomMaterial mutate this map in place).
 const PALETTE_MAP = Object.fromEntries([...PALETTE, ...RETIRED_MATERIALS].map(p => [p.id, p]));
-let customMaterials = []; // { id, label, color } user-defined, persisted as plot.customMaterials
+let customMaterials = []; // { id, label, color, texture? } user-defined, persisted as plot.customMaterials
+
+/* --- Material textures --------------------------------------------------------
+   Standard plan-drafting hatches so similar colors still read apart over the
+   aerial (solid grey concrete all but vanishes). Each `draw` lays its marks over
+   an already-color-filled TEXTURE_TILE-square canvas; the geometry is periodic
+   (spacings divide the tile, edge marks are drawn on both edges) so the tile
+   repeats seamlessly — and because TEXTURE_TILE is a whole number of cells,
+   per-cell fillRect calls stay aligned (canvas patterns anchor at the canvas
+   origin, not the fill rect). Coordinates below are authored for a 16px tile
+   and scaled by k, so a CELL_SIZE change won't distort them. */
+const TEXTURE_TILE = CELL_SIZE * 2;
+const TEXTURES = {
+  speckle: { label: "Speckle", draw(ctx, s, mark) {      // concrete stipple
+    const k = s / 16;
+    ctx.fillStyle = mark;
+    [[3, 3], [10, 2], [6, 7], [13, 9], [2, 12], [9, 13], [13.5, 14], [5, 14.5]].forEach(([x, y]) => {
+      ctx.beginPath(); ctx.arc(x * k, y * k, 0.95 * k, 0, Math.PI * 2); ctx.fill();
+    });
+  } },
+  dots: { label: "Dots", draw(ctx, s, mark) {            // offset dot grid (gravel / DG)
+    const k = s / 16;
+    ctx.fillStyle = mark;
+    [[4, 4], [12, 12]].forEach(([x, y]) => {
+      ctx.beginPath(); ctx.arc(x * k, y * k, 1.3 * k, 0, Math.PI * 2); ctx.fill();
+    });
+  } },
+  diag: { label: "Hatch", draw(ctx, s, mark) {           // single diagonal hatch (roofing / cover)
+    const k = s / 16;
+    ctx.strokeStyle = mark; ctx.lineWidth = 1.3 * k; ctx.beginPath();
+    for (let b = -16; b <= 16; b += 8) { ctx.moveTo(-2 * k, (b - 2) * k); ctx.lineTo(18 * k, (b + 18) * k); }
+    ctx.stroke();
+  } },
+  cross: { label: "Cross-hatch", draw(ctx, s, mark) {    // structure
+    TEXTURES.diag.draw(ctx, s, mark);
+    const k = s / 16;
+    ctx.strokeStyle = mark; ctx.lineWidth = 1.3 * k; ctx.beginPath();
+    for (let b = 0; b <= 32; b += 8) { ctx.moveTo(-2 * k, (b + 2) * k); ctx.lineTo(18 * k, (b - 18) * k); }
+    ctx.stroke();
+  } },
+  brick: { label: "Brick", draw(ctx, s, mark) {          // running bond (walls / pavers)
+    const k = s / 16;
+    ctx.strokeStyle = mark; ctx.lineWidth = 1.1 * k; ctx.beginPath();
+    [0, 8, 16].forEach(y => { ctx.moveTo(0, y * k); ctx.lineTo(16 * k, y * k); });
+    ctx.moveTo(8 * k, 0); ctx.lineTo(8 * k, 8 * k);
+    ctx.moveTo(0, 8 * k); ctx.lineTo(0, 16 * k);
+    ctx.moveTo(16 * k, 8 * k); ctx.lineTo(16 * k, 16 * k);
+    ctx.stroke();
+  } },
+  dashes: { label: "Dashes", draw(ctx, s, mark) {        // mulch / bark
+    const k = s / 16;
+    ctx.strokeStyle = mark; ctx.lineWidth = 1.2 * k; ctx.lineCap = "round"; ctx.beginPath();
+    [[2, 3, 6, 4], [9.5, 6, 13.5, 5], [3, 11, 7, 11], [10, 13.5, 14, 12.5]].forEach(([x0, y0, x1, y1]) => {
+      ctx.moveTo(x0 * k, y0 * k); ctx.lineTo(x1 * k, y1 * k);
+    });
+    ctx.stroke();
+  } },
+  tufts: { label: "Tufts", draw(ctx, s, mark) {          // grass
+    const k = s / 16;
+    ctx.strokeStyle = mark; ctx.lineWidth = 1.1 * k; ctx.lineCap = "round"; ctx.beginPath();
+    [[4, 6.5], [12, 14]].forEach(([x, y]) => {
+      ctx.moveTo(x * k, y * k); ctx.lineTo((x - 1.6) * k, (y - 2.6) * k);
+      ctx.moveTo(x * k, y * k); ctx.lineTo(x * k, (y - 3.2) * k);
+      ctx.moveTo(x * k, y * k); ctx.lineTo((x + 1.6) * k, (y - 2.6) * k);
+    });
+    ctx.stroke();
+  } }
+};
+
+// Marks darker than the fill on light materials, lighter on dark ones (a black
+// hatch on the dark-brown retaining wall would be invisible — light "mortar"
+// lines read better anyway).
+function textureMarkStyle(color) {
+  return perceivedBrightness(color) < 110 ? "rgba(255,255,255,.5)" : "rgba(0,0,0,.34)";
+}
+
+// "texture|color" → the finished tile canvas (base color + marks). Shared by the
+// paint patterns and every swatch (palette chips, legends, popover previews).
+const textureTileCache = new Map();
+function textureTile(tex, color) {
+  const key = tex + "|" + color;
+  let cv = textureTileCache.get(key);
+  if (cv) return cv;
+  cv = document.createElement("canvas");
+  cv.width = cv.height = TEXTURE_TILE;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, TEXTURE_TILE, TEXTURE_TILE);
+  TEXTURES[tex].draw(ctx, TEXTURE_TILE, textureMarkStyle(color));
+  textureTileCache.set(key, cv);
+  return cv;
+}
+
+// CanvasPatterns are minted against gridCtx — cleared whenever makeGridCanvases
+// replaces it.
+const cellPatternCache = new Map();
+function cellFillStyle(id) {
+  const m = PALETTE_MAP[id];
+  const color = m?.color || "#7cb342";
+  const tex = m?.texture;
+  if (!tex || !TEXTURES[tex]) return color;
+  const key = tex + "|" + color;
+  let pat = cellPatternCache.get(key);
+  if (!pat) {
+    pat = gridCtx.createPattern(textureTile(tex, color), "repeat");
+    cellPatternCache.set(key, pat);
+  }
+  return pat;
+}
+
+// One inline-style string for anything that renders a material swatch — palette
+// chips here, the preview/print legends in app.js.
+export function materialSwatchStyle(m) {
+  let css = "background-color:" + m.color;
+  if (m.texture && TEXTURES[m.texture]) css += ";background-image:url(" + textureTile(m.texture, m.color).toDataURL() + ")";
+  return css;
+}
 
 // Point-object plan symbols placed by the Stamp tool. Two kinds share the STAMPS list:
 // image stamps (`img`, a full-color top-down SVG in a `box`×`box` viewBox — the plant/
@@ -91,45 +207,48 @@ STAMPS.forEach(s => {
 });
 const STAMP_MAP = Object.fromEntries(STAMPS.map(s => [s.id, s]));
 
-// Inline stroke icons (18px, currentColor) — one per tool.
+// Inline stroke icons (18px, currentColor) — one per tool. Most are 24-box glyphs at
+// stroke 1.9; the user-supplied ones (erase, fill, pan) are 48-box, so their stroke-width
+// doubles to 3.8 for the same visual weight — cursorForMode reads each icon's own viewBox
+// to scale its halo/ink strokes to match.
 const ICON = {
   marker: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 3.5 20.5 6.5 10 17 5.5 18.5 7 14 17.5 3.5Z"/><path d="M4.5 20.5h5"/></svg>',
   rect: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/></svg>',
-  erase: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16"/><path d="M15.5 5.5 20 10l-7.5 7.5H8.5L4 13a2 2 0 0 1 0-2.8l6.7-6.7a2 2 0 0 1 2.8 0z"/></svg>',
-  // Paint bucket + drop — a 48-box glyph (user-supplied), so its stroke-width is the
-  // rail's 1.9-at-24-box doubled to 3.8; cursorForMode reads the viewBox to compensate.
+  erase: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 42H45"/><path d="M41.1132 26.3865L43.0354 24.4644C44.988 22.5118 44.988 19.3459 43.0354 17.3933L33.1359 7.49383C31.1832 5.54121 28.0174 5.54121 26.0648 7.49383L24.1686 9.39003M31.1021 36.3976L25.4998 41.9999L11.2744 41.9999L4.92405 35.7777C2.93739 33.8312 2.92111 30.6375 4.88782 28.6708L14.1963 19.3623"/><path d="M32.4136 37.5867L13.1636 18.3367L23.1037 8.39648L42.3537 27.6465L32.4136 37.5867Z"/></svg>',
   fill: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M39 20.9706L22.0294 4L5.76599 20.2635C3.81337 22.2161 3.81337 25.3819 5.76599 27.3345L15.6655 37.234C17.6181 39.1866 20.7839 39.1866 22.7366 37.234L39 20.9706Z"/><path d="M7.5 18.5L7.95002 18.8326C15.0052 24.0473 23.892 26.1367 32.5317 24.6121L36 24"/><path d="M40 31C42.619 32.9566 44.5 35.32 44.5 38.2738C44.5 40.8839 42.4851 43 40 43C37.5149 43 35.5 40.8839 35.5 38.2738C35.5 35.32 37.381 32.9566 40 31Z"/></svg>',
   callout: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v11H10l-4 4v-4H4z"/></svg>',
   measure: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="1.2"/><path d="M6.5 8v3M10 8v4M13.5 8v3M17 8v4"/></svg>',
   select: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5.5 15 2-6.4 6.4-2z"/><path d="m13.5 13.5 5 5"/></svg>',
-  pan: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V11m0-3a1.5 1.5 0 0 1 3 0v5.5c0 3-2.2 5.5-5.2 5.5H12c-1.6 0-2.6-.6-3.6-1.7l-3-3.3a1.5 1.5 0 0 1 2.2-2z"/></svg>',
+  pan: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M33.75 18.3158L33.75 12.375C33.75 10.511 35.261 9 37.125 9V9C38.989 9 40.5 10.511 40.5 12.375L40.5 35C40.5 40.5228 36.0229 45 30.5 45L22.8952 45C21.1851 45 19.4876 44.7076 17.8761 44.1354L17.1685 43.8841C12.5233 42.2347 8.98492 38.4083 7.70341 33.6484L4.7249 22.5853C4.57796 22.0396 4.58819 21.4634 4.75441 20.9232L4.86976 20.5483C5.71594 17.7982 9.57317 17.7012 10.5565 20.4053L13.5 28.5L13.5 9.375C13.5 7.51104 15.011 6 16.875 6V6C18.739 6 20.25 7.51104 20.25 9.375L20.25 14.2105"/><path d="M20.25 21L20.25 5.375C20.25 3.51104 21.761 2 23.625 2V2C25.489 2 27 3.51104 27 5.375V21"/><path d="M27 20.5V8.375C27 6.51104 28.511 5 30.375 5V5C32.239 5 33.75 6.51104 33.75 8.375V22.5"/></svg>',
   line: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.7" fill="currentColor" stroke="none"/></svg>',
   stamp: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21h14"/><path d="M6.5 18h11c.6 0 1-.4 1-1v-.5a2.5 2.5 0 0 0-2.5-2.5h-2c-.6 0-1-.5-1-1.1 0-2 1.6-2.6 1.6-4.9a2.6 2.6 0 1 0-5.2 0c0 2.3 1.6 2.9 1.6 4.9 0 .6-.4 1.1-1 1.1H8A2.5 2.5 0 0 0 5.5 16.5v.5c0 .6.4 1 1 1z"/></svg>'
 };
 
 // Each tool's one-line hint is shown above the canvas while that tool is selected
 // (replaces the old wall-of-text intro paragraph). Edit the copy here, not the DOM.
+// `key` is the tool's single-letter hotkey (active while the pointer is over the canvas;
+// shown in the rail tooltip by buildToolbar).
 const TOOL_MODES = [
-  { id: "paint",    label: "Marker",    icon: ICON.marker,
-    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; the thickness control is here in this bar. Right-click erases from any tool." },
-  { id: "rect",     label: "Rectangle", icon: ICON.rect,
+  { id: "paint",    label: "Marker",    key: "m", icon: ICON.marker,
+    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; <strong>Alt</strong>+scroll (or the control here) changes thickness. Right-click erases from any tool." },
+  { id: "rect",     label: "Rectangle", key: "r", icon: ICON.rect,
     hint: "Drag diagonally to fill a solid block with the selected material." },
-  { id: "erase",    label: "Erase",    icon: ICON.erase,
-    hint: "Drag to clear painted tiles — the thickness control is here in this bar. Click an outline, callout, or measurement to delete it." },
-  { id: "fill",     label: "Fill",     icon: ICON.fill,
+  { id: "erase",    label: "Erase",    key: "e", icon: ICON.erase,
+    hint: "Drag to clear painted tiles — <strong>Alt</strong>+scroll (or the control here) changes thickness. Click a shape (outline, stamp, callout, measurement) to delete just that shape." },
+  { id: "fill",     label: "Fill",     key: "f", icon: ICON.fill,
     hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls. Right-click floods it back to empty." },
-  { id: "stamp",    label: "Stamp",    icon: ICON.stamp,
-    hint: "Pick a symbol here in this bar, then click the plan to place it — <strong>Select</strong> moves one, <strong>Erase</strong> removes it." },
-  { id: "line",     label: "Outline",  icon: ICON.line,
+  { id: "stamp",    label: "Stamp",    key: "s", icon: ICON.stamp,
+    hint: "Pick a symbol here in this bar, then click inside your property line to place it — <strong>Select</strong> moves one, <strong>Erase</strong> removes it." },
+  { id: "line",     label: "Outline",  key: "o", icon: ICON.line,
     hint: "Drag between two points to draw an outline edge. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
-  { id: "callout",  label: "Callout",  icon: ICON.callout,
+  { id: "callout",  label: "Callout",  key: "c", icon: ICON.callout,
     hint: "Press where the label should sit, drag to the thing it points at, release, then type the text." },
-  { id: "measure",  label: "Measure",  icon: ICON.measure,
+  { id: "measure",  label: "Measure",  key: "d", icon: ICON.measure,
     hint: "Drag between two points to add a dimension arrow labeled with the distance in feet." },
-  { id: "select",   label: "Select",   icon: ICON.select,
-    hint: "Drag a shape to move it. Round handles reshape an outline, measurement, or callout — double-click a callout to edit its text." },
-  { id: "pan",      label: "Pan",      icon: ICON.pan,
-    hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
+  { id: "select",   label: "Select",   key: "v", icon: ICON.select,
+    hint: "Drag a shape to move it. Round handles reshape an outline, measurement, or callout — double-click a callout to edit its text. <strong>Backspace</strong> or the red &times; deletes the selected shape." },
+  { id: "pan",      label: "Pan",      key: "p", icon: ICON.pan,
+    hint: "Drag to move around your plan. From any tool: hold <strong>Space</strong> or middle-mouse to drag-pan, mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
 
 // Per-tool canvas cursor. Select/Pan/Stamp/Fill/Marker keep the full glyph-as-cursor treatment
@@ -153,7 +272,7 @@ function cursorForMode(mode) {
   const fallback = mode === "erase" ? "cell" : (mode === "select" ? "default" : "crosshair");
   if (!t || !t.icon) return fallback;
   const inner = (t.icon.match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [, ""])[1];
-  // Most rail icons live in a 24-box, but not all (the Fill bucket is a 48-box) —
+  // Most rail icons live in a 24-box, but not all (Erase/Fill/Pan are 48-box) —
   // read the glyph's own viewBox and scale the halo/ink stroke widths to match,
   // or a larger-box icon would render clipped and visually half-weight.
   const vb = Number((t.icon.match(/viewBox="0 0 (\d+)/) || [])[1]) || 24;
@@ -236,11 +355,13 @@ let eraseGesture = false;              // right-click / Ctrl(⌘)+click forces e
 let lineDraft = null, lineGhost = null; // shift-held straight-line paint stroke
 let gridLineDraft = null, gridLineGhost = null; // Line tool: grid-snapped vector line annotation
 let rectDraft = null, rectGhost = null; // Rectangle tool: drag-to-fill a block of cells
+let brushGhost = null;                  // Marker/Erase footprint hover preview (thickness > 1 only)
 let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in rebuildGridForParcel
 
 let dragOrigin = null, ghostNode = null;         // measure drag
 let calloutDraft = null, calloutGhost = null;    // callout
 let selectedNode = null, selectionRect = null;   // Select/move tool
+let selectionDeleteBtn = null;                   // the "×" delete button on the selection box (overlayLayer)
 let editAnchors = [];                            // reshape handles on the selected shape (overlayLayer)
 let activeStamp = "canopy_tree";                 // selected symbol in the Stamp picker
 let stampArmed = null, stampGhost = null;        // press position awaiting release + cursor preview
@@ -251,6 +372,8 @@ let undoStack = [], redoStack = [], restoringHistory = false;
 // so panning is native scroll (scrollbars / middle-mouse / hand tool) and zoom is a resize.
 let viewZoom = 1;
 let panActive = false, panStartX = 0, panStartY = 0, panScrollL = 0, panScrollT = 0;
+let spacePan = false;   // Space held = temporary Pan from any tool (keyboard handlers in initPlotStage)
+let plotHover = false;  // pointer over the canvas host — gates the canvas hotkeys (Space, tool keys)
 
 function formatFeet(feet) {
   return `${feet.toFixed(1)} ft`;
@@ -290,7 +413,7 @@ function initPlotStage() {
   stage.on("pointerup", onStagePointerUp);
   stage.on("wheel", onWheel);
   stage.on("click tap", e => { if (activeMode === "select" && e.target === stage) clearSelection(); });
-  stage.on("mouseleave", removeStampGhost); // don't leave the Stamp cursor preview stranded at the edge
+  stage.on("mouseleave", () => { removeStampGhost(); removeBrushGhost(); }); // don't leave a cursor preview stranded at the edge
   // A gesture that RELEASES past the canvas edge never fires the stage's own pointerup
   // (native events only reach elements the pointer is still over) — without this, an
   // in-progress paint stroke / measurement / callout is silently abandoned. onStagePointerUp
@@ -314,6 +437,11 @@ function initPlotStage() {
   applyStageSize();
   fitView();
   window.addEventListener("resize", onViewportResize);
+  // Pointer-over-canvas flag: Space-pan and the single-letter tool hotkeys only fire while
+  // the cursor is over the drawing surface, so stray keypresses elsewhere on the (long,
+  // input-heavy) form page can't invisibly switch tools or hijack the space bar.
+  plotHost.addEventListener("pointerenter", () => { plotHover = true; });
+  plotHost.addEventListener("pointerleave", () => { plotHover = false; });
   // Keyboard undo/redo while the Draw step is on screen: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or
   // Ctrl/Cmd+Y. Never while typing (inputs/textareas keep the browser's own text undo —
   // e.g. editing callout text), and only when the plot host is actually rendered
@@ -322,19 +450,70 @@ function initPlotStage() {
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k !== "z" && k !== "y") return;
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (isTypingTarget(e.target)) return;
     if (!plotHost || plotHost.offsetParent === null) return;
     if (plotConfirmedFlag) return;   // locked plan: undo/redo disabled until "Make changes"
     e.preventDefault();
     if (k === "y" || e.shiftKey) redo(); else undo();
   });
+  // Hold Space = temporary Pan from any tool (pointer must be over the canvas — see plotHover).
+  // Works on a locked plan too (pan/zoom stay live for review). While held, annotations stop
+  // listening/dragging so a press starts a pan, never a node drag (see syncNodeInteractivity).
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Space") return;
+    if (isTypingTarget(e.target) || !plotHover || !plotHost || plotHost.offsetParent === null) return;
+    e.preventDefault();  // no page scroll / focused-button activation while over the canvas
+    if (e.repeat || spacePan) return; // key auto-repeat still needs the preventDefault above
+    spacePan = true;
+    syncAllNodeInteractivity();
+    removeBrushGhost();
+    if (!panActive) plotHost.style.cursor = "grab";
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code !== "Space" || !spacePan) return;
+    spacePan = false;
+    syncAllNodeInteractivity();
+    if (!panActive && plotHost) plotHost.style.cursor = plotConfirmedFlag ? "default" : cursorForMode(activeMode);
+  });
+  window.addEventListener("blur", () => {   // released outside the window: don't strand the flag
+    if (!spacePan) return;
+    spacePan = false;
+    syncAllNodeInteractivity();
+    if (!panActive && plotHost) plotHost.style.cursor = plotConfirmedFlag ? "default" : cursorForMode(activeMode);
+  });
+  // Single-letter tool hotkeys (see TOOL_MODES `key`), also gated on hovering the canvas.
+  // Ignored mid-gesture — switching tools inside an in-progress stroke would corrupt it.
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTypingTarget(e.target)) return;
+    if (!plotHover || !plotHost || plotHost.offsetParent === null || plotConfirmedFlag) return;
+    if (spacePan || painting || rectDraft || lineDraft || gridLineDraft || calloutDraft || dragOrigin || stampArmed) return;
+    const t = TOOL_MODES.find(x => x.key === e.key.toLowerCase());
+    if (!t) return;
+    e.preventDefault();
+    setActiveMode(t.id);
+  });
+  // Backspace / Delete removes the shape selected with the Select tool.
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Backspace" && e.key !== "Delete") return;
+    if (isTypingTarget(e.target)) return;
+    if (!selectedNode || plotConfirmedFlag || !plotHost || plotHost.offsetParent === null) return;
+    e.preventDefault();
+    deleteAnnotation(selectedNode);
+  });
 }
 
-/* --- Middle-mouse / hand-tool panning (adjusts native scroll) --- */
+// Keys must never fire while the user is typing (callout text prompts are modal, but the
+// rest of the form is full of inputs) — shared guard for every canvas keyboard shortcut.
+function isTypingTarget(t) {
+  return !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable));
+}
+
+/* --- Middle-mouse / hand-tool / held-Space panning (adjusts native scroll) --- */
 function onHostPointerDown(e) {
-  if (e.button === 1 || (activeMode === "pan" && e.button === 0)) {
+  if (e.button === 1 || ((activeMode === "pan" || spacePan) && e.button === 0)) {
     panActive = true;
+    removeBrushGhost(); // pointer capture starves the stage of move events, so hide it now
     panStartX = e.clientX; panStartY = e.clientY;
     panScrollL = plotHost.scrollLeft; panScrollT = plotHost.scrollTop;
     try { plotHost.setPointerCapture(e.pointerId); } catch (_) {}
@@ -373,6 +552,7 @@ function beginPinch() {
   if (dragOrigin) { dragOrigin = null; if (ghostNode) { ghostNode.destroy(); ghostNode = null; } }
   stampArmed = null; // stamps place on release, so the second finger simply disarms the tap
   removeStampGhost();
+  removeBrushGhost();
   overlayLayer?.batchDraw();
   const [p1, p2] = [...touchPts.values()];
   const rect = plotHost.getBoundingClientRect();
@@ -435,6 +615,7 @@ function makeGridCanvases(cols, rows) {
   paintCanvas = document.createElement("canvas");
   paintCanvas.width = w; paintCanvas.height = h;
   gridCtx = paintCanvas.getContext("2d");
+  cellPatternCache.clear(); // patterns were minted against the old context
 }
 
 // Transparent graph paper (aerial backdrop shows through unpainted tiles): light 1-ft lines,
@@ -460,7 +641,7 @@ function paintCellRaw(c, r, id) {
   const key = c + "," + r;
   if (id) {
     cellState.set(key, id);
-    gridCtx.fillStyle = PALETTE_MAP[id]?.color || "#7cb342";
+    gridCtx.fillStyle = cellFillStyle(id);
     gridCtx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
   } else {
     cellState.delete(key);
@@ -492,6 +673,40 @@ function cellFromPointer() {
   const p = stage.getRelativePointerPosition();
   if (!p) return null;
   return { c: Math.floor(p.x / CELL_SIZE), r: Math.floor(p.y / CELL_SIZE) };
+}
+
+// Hover/stroke preview of the square Marker/Erase footprint (incl. the right-click
+// quick-erase stroke from any tool), snapped to the exact cells paintBrush would hit.
+// Shown only when the dialed thickness is > 1 — at 1 ft the cursor already marks the
+// single tile. Same overlayLayer ghost styling as the Rectangle tool's rubber-band.
+function updateBrushGhost() {
+  if (!overlayLayer) return;
+  const erasing = (painting && eraseGesture) || activeMode === "erase";
+  const size = erasing ? eraseSize : brushSize;
+  const show = (painting || activeMode === "paint" || activeMode === "erase")
+    && size > 1 && stageReady && plotHover && !spacePan && !panActive && !plotConfirmedFlag;
+  const cell = show ? cellFromPointer() : null;
+  if (!cell) { removeBrushGhost(); return; }
+  const off = Math.floor(size / 2);   // same centering as paintBrush
+  const color = erasing ? "#a4111f" : (PALETTE_MAP[activeMaterial]?.color || "#7cb342");
+  if (!brushGhost) {
+    brushGhost = new Konva.Rect({ listening: false });
+    overlayLayer.add(brushGhost);
+  }
+  brushGhost.setAttrs({
+    x: (cell.c - off) * CELL_SIZE, y: (cell.r - off) * CELL_SIZE,
+    width: size * CELL_SIZE, height: size * CELL_SIZE,
+    fill: color, opacity: erasing ? 0.18 : 0.5,
+    stroke: color, strokeWidth: 1.5, dash: erasing ? [6, 4] : null
+  });
+  overlayLayer.batchDraw();
+}
+
+function removeBrushGhost() {
+  if (!brushGhost) return;
+  brushGhost.destroy();
+  brushGhost = null;
+  overlayLayer?.batchDraw();
 }
 
 // Fill the axis-aligned block of cells between two corners with `id` (null = erase).
@@ -538,7 +753,7 @@ function repaintAllCells() {
   gridCtx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
   cellState.forEach((id, key) => {
     const i = key.indexOf(","), c = +key.slice(0, i), r = +key.slice(i + 1);
-    gridCtx.fillStyle = PALETTE_MAP[id]?.color || "#7cb342";
+    gridCtx.fillStyle = cellFillStyle(id);
     gridCtx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
   });
 }
@@ -615,6 +830,12 @@ function zoomAt(rawZoom, cx, cy) {
 
 function onWheel(e) {
   e.evt.preventDefault();
+  // Alt+scroll dials the Marker/Erase thickness instead of zooming (scroll up = thicker).
+  // Only in those two modes — everywhere else (incl. a locked plan) the wheel keeps zooming.
+  if (e.evt.altKey && !plotConfirmedFlag && (activeMode === "paint" || activeMode === "erase")) {
+    nudgeBrushSize(e.evt.deltaY < 0 ? 1 : -1);
+    return;
+  }
   const rect = plotHost.getBoundingClientRect();
   zoomAt(viewZoom * (e.evt.deltaY < 0 ? 1.15 : 1 / 1.15), e.evt.clientX - rect.left, e.evt.clientY - rect.top);
 }
@@ -724,7 +945,7 @@ function renderPaletteChips() {
     if (p.id === activeMaterial) b.classList.add("is-active");
     const sw = document.createElement("span");
     sw.className = "swatch";
-    sw.style.background = p.color;
+    sw.style.cssText = materialSwatchStyle(p);
     b.append(sw, document.createTextNode(p.label));
     b.addEventListener("click", () => {
       activeMaterial = p.id;
@@ -763,6 +984,7 @@ function addCustomMaterial() {
   if (!label) { warn("Give the material a name — the legend shows it to the reviewer."); nameEl?.focus(); return; }
   if (perceivedBrightness(color) > 220) { warn("That color is too light to read over the aerial photo — pick a darker shade."); return; }
   const mat = { id: "custom-" + Date.now().toString(36), label, color };
+  if (customTexture) mat.texture = customTexture;
   customMaterials.push(mat);
   PALETTE_MAP[mat.id] = mat;
   activeMaterial = mat.id;
@@ -782,10 +1004,47 @@ function setCustomMaterials(list) {
   (Array.isArray(list) ? list : []).forEach(m => {
     if (!m || !m.id || !m.label || !m.color) return;
     const mat = { id: String(m.id), label: String(m.label), color: String(m.color) };
+    if (m.texture && TEXTURES[m.texture]) mat.texture = String(m.texture); // additive — older drafts are solid
     customMaterials.push(mat);
     PALETTE_MAP[mat.id] = mat;
   });
   renderPaletteChips();
+}
+
+// The popover's texture row: one swatch button per texture (plus Solid), previewed
+// in the currently-chosen color so what you pick is what the chip will look like.
+let customTexture = ""; // "" = solid
+function buildTexturePicker() {
+  const wrap = $("#custom-mat-textures");
+  if (!wrap) return;
+  const opts = [["", "Solid"], ...Object.entries(TEXTURES).map(([id, t]) => [id, t.label])];
+  opts.forEach(([id, label]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.texture = id;
+    b.title = label;
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-label", label);
+    b.setAttribute("aria-checked", id === customTexture ? "true" : "false");
+    if (id === customTexture) b.classList.add("is-active");
+    b.addEventListener("click", () => {
+      customTexture = id;
+      $$("#custom-mat-textures button").forEach(x => {
+        const on = x === b;
+        x.classList.toggle("is-active", on);
+        x.setAttribute("aria-checked", on ? "true" : "false");
+      });
+    });
+    wrap.appendChild(b);
+  });
+  syncTexturePickerPreviews();
+  $("#custom-mat-color")?.addEventListener("input", syncTexturePickerPreviews);
+}
+function syncTexturePickerPreviews() {
+  const color = $("#custom-mat-color")?.value || "#8a6d3b";
+  $$("#custom-mat-textures button").forEach(b => {
+    b.style.cssText = materialSwatchStyle({ color, texture: b.dataset.texture || undefined });
+  });
 }
 
 // Glyph buttons for the Stamp tool's contextual slot in the status strip.
@@ -826,8 +1085,9 @@ function buildToolbar() {
     b.dataset.mode = t.id;
     if (t.id === activeMode) b.classList.add("is-active");
     b.innerHTML = t.icon || "";
-    b.dataset.tip = t.label; // custom CSS tooltip (see .tool-rail button::after) — shows instantly, unlike a native title's hover delay
-    b.setAttribute("aria-label", t.label);
+    const tipLabel = t.key ? `${t.label} (${t.key.toUpperCase()})` : t.label; // hotkey rides in the tooltip
+    b.dataset.tip = tipLabel; // custom CSS tooltip (see .tool-rail button::after) — shows instantly, unlike a native title's hover delay
+    b.setAttribute("aria-label", tipLabel);
     b.setAttribute("aria-pressed", t.id === activeMode ? "true" : "false");
     b.addEventListener("click", () => setActiveMode(t.id));
     pal.appendChild(b);
@@ -869,13 +1129,27 @@ function setActiveMode(mode) {
   const brushControl = $("#brush-control");
   if (brushControl) brushControl.hidden = mode !== "paint" && mode !== "erase";
   if (mode === "paint" || mode === "erase") refreshBrushControl();
+  updateBrushGhost(); // hotkey switch mid-hover: restyle or drop the footprint preview now
   const stampControl = $("#stamp-control");
   if (stampControl) stampControl.hidden = mode !== "stamp";
   if (mode !== "stamp") { stampArmed = null; removeStampGhost(); }
   // Outside Erase/Select, annotations go inert so a paint stroke passes straight through
   // to the grid underneath (the mode/lock logic lives in syncNodeInteractivity).
-  if (drawLayer) drawLayer.getChildren().forEach(n => syncNodeInteractivity(n));
+  syncAllNodeInteractivity();
   if (plotHost) plotHost.style.cursor = cursorForMode(mode);
+}
+
+// Alt+scroll over the canvas: step the active tool's brush width by ±1, clamped to the
+// #brush-size slider's own range so the two controls can never disagree.
+function nudgeBrushSize(delta) {
+  const brushInput = $("#brush-size");
+  const min = Number(brushInput?.min) || 1, max = Number(brushInput?.max) || 20;
+  const cur = activeMode === "erase" ? eraseSize : brushSize;
+  const val = Math.max(min, Math.min(max, cur + delta));
+  if (val === cur) return;
+  if (activeMode === "erase") eraseSize = val; else brushSize = val;
+  refreshBrushControl();   // reflect into the slider + "N ft" readout
+  updateBrushGhost();      // resize the footprint preview under the cursor immediately
 }
 
 // Reflect the active tool's dialed width into the shared Thickness slider (Paint and
@@ -890,16 +1164,68 @@ function refreshBrushControl() {
 }
 
 /* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
+
+// One shared delete path (Erase click, right-click hit, Backspace, the selection ×):
+// snapshot for undo, drop the selection if it was the selected shape, destroy, autosave.
+function deleteAnnotation(node) {
+  recordUndoPoint();
+  if (node === selectedNode) clearSelection();
+  node.destroy();
+  drawLayer.batchDraw();
+  if (plotHost) plotHost.style.cursor = plotConfirmedFlag ? "default" : cursorForMode(activeMode);
+  updateProgress(); // keyboard deletes fire no pointerup, so the packet/Done UI needs this
+  scheduleAutosave();
+}
+
+// The top-level drawLayer annotation an event target belongs to (or null). Works off the
+// Konva parent chain, so it only sees nodes that were actually hit — i.e. modes where
+// annotations are listening (Erase/Select).
+function annotationRootOf(target) {
+  let n = target;
+  while (n && n !== stage) {
+    if (n.getParent && n.getParent() === drawLayer) return n;
+    n = n.getParent ? n.getParent() : null;
+  }
+  return null;
+}
+
+// Hit-test the annotation under the pointer even in modes where drawLayer nodes are
+// deliberately non-listening (so paint passes through them): flip listening on, rebuild
+// the hit graph, query, restore. Only runs on a right-click press, so the cost is fine.
+function annotationAtPointer() {
+  if (!drawLayer || !stage) return null;
+  const p = stage.getPointerPosition();
+  if (!p) return null;
+  const nodes = drawLayer.getChildren();
+  if (!nodes.length) return null;
+  const prev = nodes.map(n => n.listening());
+  nodes.forEach(n => n.listening(true));
+  drawLayer.drawHit();
+  const shape = drawLayer.getIntersection(p);
+  nodes.forEach((n, i) => n.listening(prev[i]));
+  drawLayer.drawHit();
+  return shape ? annotationRootOf(shape) : null;
+}
+
+// Select-tool drag bound: keep the dragged shape's bounding box on the canvas, so a
+// callout/stamp/measurement can never be parked out of sight past the grid edge.
+// dragBoundFunc works in absolute (zoom-scaled) coordinates — convert through viewZoom.
+function annotationDragBound(node, pos) {
+  const box = node.getClientRect({ relativeTo: drawLayer }); // content coords at the current position
+  const offX = box.x - node.x(), offY = box.y - node.y();    // bbox offset from the node origin (drag-invariant)
+  const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+  const x = Math.max(-offX, Math.min(pos.x / viewZoom, w - box.width - offX));
+  const y = Math.max(-offY, Math.min(pos.y / viewZoom, h - box.height - offY));
+  return { x: x * viewZoom, y: y * viewZoom };
+}
+
 function attachShapeInteractions(node) {
   syncNodeInteractivity(node);
+  node.dragBoundFunc(pos => annotationDragBound(node, pos));
   node.on("click tap", () => {
     if (plotConfirmedFlag) return;
     if (activeMode === "erase") {
-      recordUndoPoint();
-      if (node === selectedNode) clearSelection();
-      node.destroy();
-      drawLayer.batchDraw();
-      scheduleAutosave();
+      deleteAnnotation(node);
     } else if (activeMode === "select") {
       selectShape(node);
     }
@@ -922,8 +1248,13 @@ function attachShapeInteractions(node) {
 // reflected down here on the nodes — Konva starts a node drag from its own hit graph without
 // ever consulting the plotConfirmedFlag guards in the stage-level pointer handlers.
 function syncNodeInteractivity(node) {
-  node.listening(!plotConfirmedFlag && (activeMode === "erase" || activeMode === "select"));
-  node.draggable(!plotConfirmedFlag && activeMode === "select");
+  const unlocked = !plotConfirmedFlag && !spacePan; // held Space = pan, never a node grab
+  node.listening(unlocked && (activeMode === "erase" || activeMode === "select"));
+  node.draggable(unlocked && activeMode === "select");
+}
+
+function syncAllNodeInteractivity() {
+  if (drawLayer) drawLayer.getChildren().forEach(n => syncNodeInteractivity(n));
 }
 
 /* --- Select / move / reshape: highlight a shape, drag it to reposition, or drag its round
@@ -944,13 +1275,37 @@ function updateSelectionRect() {
   }
   const pad = 5;
   selectionRect.setAttrs({ x: box.x - pad, y: box.y - pad, width: box.width + pad * 2, height: box.height + pad * 2 });
+  if (!selectionDeleteBtn) {
+    selectionDeleteBtn = buildSelectionDeleteBtn();
+    overlayLayer.add(selectionDeleteBtn);
+    syncEditAnchorScale();
+  }
+  selectionDeleteBtn.position({ x: box.x + box.width + pad, y: box.y - pad }); // selection-box top-right corner
   overlayLayer.batchDraw();
+}
+
+// The "×" on the selection box's top-right corner — the pointer route to deleting the
+// selected shape (Backspace/Delete is the keyboard route). Counter-scaled with the edit
+// anchors so it holds a constant on-screen size.
+function buildSelectionDeleteBtn() {
+  const g = new Konva.Group();
+  g.add(new Konva.Circle({
+    radius: 9, fill: "#fff", stroke: "#a4111f", strokeWidth: 1.5,
+    shadowColor: "#000", shadowOpacity: 0.25, shadowBlur: 3, shadowOffset: { x: 0, y: 1 }
+  }));
+  g.add(new Konva.Line({ points: [-3.2, -3.2, 3.2, 3.2], stroke: "#a4111f", strokeWidth: 1.8, lineCap: "round" }));
+  g.add(new Konva.Line({ points: [-3.2, 3.2, 3.2, -3.2], stroke: "#a4111f", strokeWidth: 1.8, lineCap: "round" }));
+  g.on("click tap", () => { if (selectedNode && !plotConfirmedFlag) deleteAnnotation(selectedNode); });
+  g.on("mouseenter", () => { if (plotHost) plotHost.style.cursor = "pointer"; });
+  g.on("mouseleave", () => { if (plotHost) plotHost.style.cursor = plotConfirmedFlag ? "default" : cursorForMode(activeMode); });
+  return g;
 }
 
 function clearSelection() {
   selectedNode = null;
   destroyEditAnchors();
   if (selectionRect) { selectionRect.destroy(); selectionRect = null; }
+  if (selectionDeleteBtn) { selectionDeleteBtn.destroy(); selectionDeleteBtn = null; }
   overlayLayer?.batchDraw();
 }
 
@@ -994,6 +1349,19 @@ function anchorSpecsFor(node) {
       },
       { // label box — the leader's base rides along, same as at creation
         get: () => { const p = arrow.points(); return toContent(p[0], p[1]); },
+        // Clamp the WHOLE label box onto the canvas, not just its anchor point — the box
+        // extends right/down from the anchor, so a raw point clamp would still let the
+        // text hang past the right/bottom edge.
+        clampBox: pos => {
+          const r = label.getClientRect({ relativeTo: drawLayer });
+          const cur = toContent(label.x(), label.y());
+          const ox = r.x - cur.x, oy = r.y - cur.y; // rect offset from the anchor (position-invariant)
+          const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+          return {
+            x: Math.max(-ox, Math.min(pos.x, w - r.width - ox)),
+            y: Math.max(-oy, Math.min(pos.y, h - r.height - oy))
+          };
+        },
         set: pos => {
           const p = arrow.points().slice(); const l = toLocal(pos);
           p[0] = l.x; p[1] = l.y;
@@ -1018,9 +1386,16 @@ function buildEditAnchors(node) {
     });
     a.position(spec.get());
     a.setAttr("editSpec", spec);
+    // Reshaping can't pull an endpoint off the canvas either (dragBoundFunc runs in
+    // absolute, zoom-scaled coordinates — clamp there, before the content-space handlers).
+    a.dragBoundFunc(pos => ({
+      x: Math.max(0, Math.min(pos.x, gridCols * CELL_SIZE * viewZoom)),
+      y: Math.max(0, Math.min(pos.y, gridRows * CELL_SIZE * viewZoom))
+    }));
     a.on("dragstart", () => recordUndoPoint());
     a.on("dragmove", () => {
       let pos = a.position();
+      if (spec.clampBox) { pos = spec.clampBox(pos); a.position(pos); }
       if (spec.snap) { pos = snapToGrid(pos); a.position(pos); }
       spec.set(pos);
       updateSelectionRect(); // tracks the reshaped bounds (and batchDraws the overlay)
@@ -1047,9 +1422,11 @@ function refreshEditAnchorPositions() {
 }
 
 // Handles hold a constant on-screen size: counter-scale them against the stage's viewZoom.
+// (The selection ×-button rides along — same overlay, same constant-screen-size treatment.)
 function syncEditAnchorScale() {
   const k = 1 / viewZoom;
   editAnchors.forEach(a => a.scale({ x: k, y: k }));
+  if (selectionDeleteBtn) selectionDeleteBtn.scale({ x: k, y: k });
 }
 
 // Re-open a callout's text (double-click with the Select tool). Same window.prompt as
@@ -1202,6 +1579,23 @@ function commitCallout(pos) {
   const group = buildCalloutGroup(tip, anchor, text.trim());
   recordUndoPoint();
   drawLayer.add(group);
+  // A press near the canvas edge would leave the label box (which grows right/down from
+  // the anchor, sized only now that the text exists) hanging off-canvas — nudge it back
+  // inside, dragging the leader's base along the same way the label-box handle does.
+  const label = group.findOne("Label"), arrow = group.findOne("Arrow");
+  if (label && arrow) {
+    const r = label.getClientRect({ relativeTo: drawLayer });
+    const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+    let dx = 0, dy = 0;
+    if (r.x + r.width > w) dx = w - (r.x + r.width);
+    if (r.x + dx < 0) dx = -r.x;
+    if (r.y + r.height > h) dy = h - (r.y + r.height);
+    if (r.y + dy < 0) dy = -r.y;
+    if (dx || dy) {
+      label.position({ x: label.x() + dx, y: label.y() + dy });
+      const p = arrow.points().slice(); p[0] += dx; p[1] += dy; arrow.points(p);
+    }
+  }
   attachShapeInteractions(group);
   drawLayer.batchDraw();
   scheduleAutosave();
@@ -1264,7 +1658,15 @@ function rehydrateStampImages(node) {
   if (imgNode) imgNode.image(STAMP_IMG_CACHE[spec.id]);
 }
 
-// Translucent cursor preview so the symbol's true footprint is visible before you commit.
+// Stamps may only be PLACED inside the parcel footprint (they can still be dragged out
+// with Select — e.g. to stage a symbol aside). No parcel resolved yet = no restriction.
+function insideParcel(pos) {
+  if (!parcelPolygonPx || parcelPolygonPx.length < 3) return true;
+  return pointInPolygon(pos.x, pos.y, parcelPolygonPx);
+}
+
+// Translucent cursor preview so the symbol's true footprint is visible before you commit —
+// dimmed further (plus a not-allowed cursor) outside the parcel, where placement is refused.
 function updateStampGhost(pos) {
   const spec = STAMP_MAP[activeStamp];
   if (!spec || !overlayLayer) return;
@@ -1276,6 +1678,9 @@ function updateStampGhost(pos) {
     overlayLayer.add(stampGhost);
   }
   stampGhost.position(pos);
+  const ok = insideParcel(pos);
+  stampGhost.opacity(ok ? 0.45 : 0.15);
+  if (plotHost) plotHost.style.cursor = ok ? cursorForMode("stamp") : "not-allowed";
   overlayLayer.batchDraw();
 }
 
@@ -1289,6 +1694,7 @@ function removeStampGhost() {
 function placeStamp(pos) {
   const spec = STAMP_MAP[activeStamp];
   if (!spec) return;
+  if (!insideParcel(pos)) return; // outside the property line — the ghost/cursor already say no
   const group = buildStampGroup(pos, spec);
   recordUndoPoint();
   drawLayer.add(group);
@@ -1328,13 +1734,20 @@ function buildLineNode(a, b) {
 }
 
 function onStagePointerDown(e) {
-  if (!stageReady || activeMode === "pan") return;          // pan is handled by the host scroll pan
+  if (!stageReady || activeMode === "pan" || spacePan) return; // pan (incl. held Space) is handled by the host scroll pan
   if (plotConfirmedFlag) return;                            // plan marked Done: canvas is locked until "Make changes"
   if (pinch || touchPts.size >= 2) return;                  // two fingers = pinch-zoom, never a draw
   const evt = e && e.evt;
   // Right-click or Ctrl(⌘)+click is a quick eraser on the painted grid, available from any tool.
   eraseGesture = !!(evt && (evt.button === 2 || evt.ctrlKey || evt.metaKey));
   if (evt && evt.button !== 0 && !eraseGesture) return;     // left button (or the erase gesture) draws; MMB pans
+  // Right-click directly ON an annotation deletes just that annotation — never the paint
+  // beneath it. Checked before every tool branch so it wins over the brush quick-erase,
+  // the Rectangle-erase, and the Fill tool's bucket eraser alike.
+  if (eraseGesture) {
+    const hit = annotationAtPointer();
+    if (hit) { eraseGesture = false; deleteAnnotation(hit); return; }
+  }
   if (activeMode === "rect") {
     // Rectangle tool: rubber-band a filled block of cells. Right-click/Ctrl erases the block instead.
     const cell = cellFromPointer();
@@ -1362,6 +1775,10 @@ function onStagePointerDown(e) {
     return;
   }
   if (eraseGesture || activeMode === "paint" || activeMode === "erase") {
+    // Erase tool, pressing directly ON an annotation: the node's own click handler deletes
+    // it on release — don't also start a cell-erase stroke on the paint underneath. (A
+    // stroke that STARTS on empty ground and drags across a shape still leaves it alone.)
+    if (activeMode === "erase" && !eraseGesture && annotationRootOf(e.target)) return;
     const cell = cellFromPointer();
     if (!cell) return;
     const id = (eraseGesture || activeMode === "erase") ? null : activeMaterial;
@@ -1413,6 +1830,7 @@ function onStagePointerDown(e) {
 
 function onStagePointerMove() {
   if (!stageReady || pinch || plotConfirmedFlag) return;    // locked plan: no hover ghosts / in-progress shapes
+  updateBrushGhost(); // self-gating: only Marker/Erase (or a quick-erase stroke) at thickness > 1
   if (rectDraft && rectGhost) {
     const cell = cellFromPointer();
     if (cell) {
@@ -1458,7 +1876,7 @@ function onStagePointerMove() {
   if (!pos) return;
   if (dragOrigin && ghostNode) { ghostNode.points([dragOrigin.x, dragOrigin.y, pos.x, pos.y]); overlayLayer.batchDraw(); return; }
   if (calloutDraft) { updateCalloutGhost(pos); return; }
-  if (activeMode === "stamp" && !eraseGesture && !painting) updateStampGhost(pos);
+  if (activeMode === "stamp" && !eraseGesture && !painting && !spacePan) updateStampGhost(pos);
 }
 
 function onStagePointerUp() {
@@ -1507,7 +1925,7 @@ function onStagePointerUp() {
     }
     return;
   }
-  if (painting) { painting = false; lastCell = null; eraseGesture = false; scheduleAutosave(); return; }
+  if (painting) { painting = false; lastCell = null; eraseGesture = false; updateBrushGhost(); scheduleAutosave(); return; }
   if (dragOrigin && ghostNode) {
     const b = contentPos() || dragOrigin;
     ghostNode.destroy(); ghostNode = null;
@@ -1546,7 +1964,8 @@ export function setPlotConfirmed(v) {
   // also reach the annotation nodes themselves — Konva node drags never hit the stage-level
   // guards — so drop any live selection/handles and sync per-node interactivity both ways.
   clearSelection();
-  if (drawLayer) drawLayer.getChildren().forEach(n => syncNodeInteractivity(n));
+  removeBrushGhost();
+  syncAllNodeInteractivity();
   if (plotHost) plotHost.style.cursor = v ? "default" : cursorForMode(activeMode);
   updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list, lock class
   scheduleAutosave();
@@ -1655,6 +2074,7 @@ export function renderPlotImage() {
 renderPaletteChips();
 buildToolbar();
 buildStampPicker();
+buildTexturePicker();
 initPlotStage();
 setActiveMode("rect");
 $("#plot-clear").addEventListener("click", clearPlot);
@@ -1676,6 +2096,7 @@ if (brushInput) {
     const val = Math.max(1, parseInt(brushInput.value, 10) || 1);
     if (activeMode === "erase") eraseSize = val; else brushSize = val;
     if (brushOut) brushOut.textContent = val + " ft";
+    updateBrushGhost();
   });
   refreshBrushControl();
 }

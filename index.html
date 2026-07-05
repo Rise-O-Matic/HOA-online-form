@@ -39,7 +39,7 @@
 
 <!-- mockup notice -->
 <div class="mockup-banner" role="note">
-  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Finish in <em>Review &amp; Submit</em>: save your application as a PDF, then open a pre-addressed email that lists every file to attach. Your work is saved locally in this browser.
+  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Finish in <em>Review &amp; Submit</em>: save your application packet as a PDF — its first page explains how to submit it. Your work is saved locally in this browser.
 </div>
 
 <!-- ===================== LANDING / BEFORE YOU BEGIN ===================== -->
@@ -57,7 +57,7 @@
           <li><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Build one with our interactive tool or upload your own.</span></li>
           <li><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></li>
           <li><span><strong>Photos of your yard</strong> — we&rsquo;ll ask a few questions and tell you exactly which photos to take and how to frame each one.</span></li>
-          <li><span><strong>Signatures from all impacted neighbors</strong> — print the signature form, collect signatures in person, and attach the signed copy.</span></li>
+          <li><span><strong>Signatures from all impacted neighbors</strong> — the signature form is the last page of your printed packet; collect signatures in person and submit the signed form with your application.</span></li>
           <li><span><strong>Application fee</strong> — nothing is due when you apply; if the application is approved, the committee will contact you to arrange payment.</span></li>
         </ul>
       </div>
@@ -76,7 +76,8 @@
     <div class="landing__submit-info">
       <div class="info-card">
         <h3 class="ref-title">How to submit</h3>
-        <p>All applications must be submitted <strong>by email only</strong> to:</p>
+        <p>This online form is the <strong>current, required application</strong>. Older or printed versions of the form are not accepted.</p>
+        <p>Completed packets are submitted <strong>by email only</strong> to CarolMarie Taylor, Sr. Architectural Specialist — no other staff member will accept applications:</p>
         <p class="info-card__email"><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></p>
         <p>Incomplete applications will be returned and automatically denied — please read all instructions thoroughly before submitting.</p>
       </div>
@@ -88,6 +89,11 @@
           <li>Direct: <a href="tel:9518014246">951-801-4246</a></li>
           <li>In-person meetings require an appointment.</li>
         </ul>
+      </div>
+      <div class="info-card info-card--wide">
+        <h3 class="ref-title">Fees &amp; payment</h3>
+        <p>Please do <strong>not</strong> call or come into the office to pay. The application fee is collected <strong>only after</strong> the Architectural Specialist has reviewed your application and confirmed it is complete — nothing is charged for an incomplete application.</p>
+        <p>Carol will contact you directly to collect the fee, and a receipt is emailed to the address on file.</p>
       </div>
     </div>
 
@@ -102,13 +108,13 @@
 
   <!-- ===================== SIDE NAV ===================== -->
   <aside class="sidenav" aria-label="Application sections">
+    <a class="sidenav__landing-link" href="#" id="view-landing">&larr; Requirements &amp; dates</a>
     <nav>
       <ol>
         <li><a href="#applicant" class="is-active">Applicant Information</a></li>
         <li><a href="#description">Proposed Improvements</a></li>
         <li><a href="#siteplan">Site / Plot Plan</a></li>
         <li><a href="#photos-section">Photos</a></li>
-        <li><a href="#neighbors">Adjacent Owners</a></li>
         <li><a href="#acknowledgments">Acknowledgments</a></li>
         <li><a href="#packet">Review &amp; Submit</a></li>
       </ol>
@@ -124,7 +130,6 @@
     <p class="sidenav__save-warning" id="save-warning" role="alert" hidden>
       <strong>Draft not saving.</strong> Browser storage is full or blocked, so recent changes will be lost if you close this page. Use <em>Export JSON</em> above to keep a backup.
     </p>
-    <a class="sidenav__landing-link" href="#" id="view-landing">&larr; Requirements &amp; dates</a>
     <div class="sidenav__danger" role="group" aria-label="Danger zone">
       <p class="sidenav__danger-label">Danger zone</p>
       <button type="button" class="btn btn--danger btn--sm" id="clear-draft">Clear all fields</button>
@@ -192,7 +197,7 @@
           <span class="card__num">03</span>
           <div>
             <h2>Site / Plot Plan</h2>
-            <p class="card__sub" id="step-subtitle">Build your plan with the interactive tool, or upload an existing plot plan.</p>
+            <p class="card__sub" id="step-subtitle">Build your plan with our interactive tool, or upload an existing plot plan you already have.</p>
           </div>
         </header>
 
@@ -243,9 +248,6 @@
 
         <!-- STEP 1: Choose how to provide the plot plan -->
         <div class="plot-step is-active" data-step="1">
-          <h3 class="plot-step__title">Provide Your Plot Plan</h3>
-          <p class="plot-step__desc">Build your plan with our interactive tool, or upload an existing plot plan you already have.</p>
-
           <div class="plan-choice" role="group" aria-label="Plot plan method">
             <button type="button" class="plan-choice__card" data-plan-mode="build" aria-pressed="false">
               <span class="plan-choice__title">Build a plan</span>
@@ -280,8 +282,6 @@
 
         <!-- STEP 2: Select your parcel -->
         <div class="plot-step" data-step="2">
-          <h3 class="plot-step__title">Select Your Parcel</h3>
-          <p class="plot-step__desc">Click on your lot to select it. The parcel boundaries are from Riverside County records.</p>
           <span class="map-reference__status" id="map-status"></span>
           <p class="plot__notice plot__notice--err" id="gis-fallback-msg" hidden>
             Riverside County's parcel records aren't responding right now, so the builder can't look up your lot. You can try again in a few minutes &mdash; or skip the builder entirely and attach a plan file.
@@ -312,6 +312,10 @@
                 <button type="button" class="rotate-fine__btn" id="rotate-fine-minus" aria-label="Rotate 0.1 degrees counter-clockwise" title="Nudge 0.1&deg; counter-clockwise">&minus;0.1&deg;</button>
                 <span class="rotate-fine__readout" aria-live="polite"><span id="map-rotate-fine">0.0</span>&deg;</span>
                 <button type="button" class="rotate-fine__btn" id="rotate-fine-plus" aria-label="Rotate 0.1 degrees clockwise" title="Nudge 0.1&deg; clockwise">+0.1&deg;</button>
+                <span class="rotate-fine__divider" aria-hidden="true"></span>
+                <label class="rotate-fine__snap" title="Snap the rotation whenever a property line squares up with the drawing grid &mdash; or hold Shift while dragging">
+                  <input type="checkbox" id="rotate-snap" />Snap
+                </label>
               </div>
               <div class="map-loading" id="map-loading" aria-hidden="true">
                 <span class="map-loading__pill"><span class="map-loading__spinner"></span>Loading satellite imagery&hellip;</span>
@@ -332,8 +336,6 @@
 
         <!-- STEP 3: Orient your property -->
         <div class="plot-step" data-step="3">
-          <h3 class="plot-step__title">Orient Your Property</h3>
-          <p class="plot-step__desc">Drag anywhere on the map to spin it until the front of your property (the street side) faces the bottom of the map.</p>
           <div class="orient-layout">
             <div class="map-reference" id="map-step3">
               <!-- map-container moves here via JS -->
@@ -390,6 +392,7 @@
           <ul class="hotkey-bar" aria-label="Rotation controls">
             <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-drag" /></svg><span>Drag to rotate</span></li>
             <li><svg width="25" height="22" aria-hidden="true"><use href="#hk-mouse-scroll" /></svg><span>Zoom</span></li>
+            <li><kbd>Shift</kbd><span>Hold to snap a lot line square</span></li>
           </ul>
           <div class="plot-step__nav">
             <button type="button" class="btn btn--ghost btn--sm" data-back>Back</button>
@@ -400,14 +403,16 @@
 
         <!-- STEP 4: Draw your plan -->
         <div class="plot-step" data-step="4">
-          <h3 class="plot-step__title">Draw Your Plan</h3>
-          <p class="plot-step__desc">Pick a material and a drawing tool, mark up your lot, then press <strong>Done</strong> below to add the plan to your packet.</p>
           <p class="plot__notice" id="plot-migration-notice" hidden>Your previous site plan drawing needs to be redrawn — the drawing tool was upgraded. Everything else from your saved draft was restored.</p>
           <div class="plot">
             <div class="palette" id="palette" role="toolbar" aria-label="Site plan materials"></div>
             <div class="palette-pop" id="palette-pop" hidden>
               <label>Name <input type="text" id="custom-mat-name" maxlength="24" placeholder="e.g. Pavers" /></label>
               <label>Color <input type="color" id="custom-mat-color" value="#8a6d3b" /></label>
+              <div class="palette-pop__texgroup">
+                <span class="palette-pop__texname">Texture</span>
+                <div class="palette-pop__textures" id="custom-mat-textures" role="radiogroup" aria-label="Texture"></div>
+              </div>
               <button type="button" class="btn btn--primary btn--sm" id="custom-mat-add">Add material</button>
               <button type="button" class="btn btn--ghost btn--sm" id="custom-mat-cancel">Cancel</button>
               <p class="palette-pop__warn" id="custom-mat-warn" role="alert" hidden></p>
@@ -444,11 +449,12 @@
                     <span class="plot-status__brush-val" id="brush-size-val">1 ft</span>
                   </label>
                   <div class="plot-status__stamps" id="stamp-control" role="toolbar" aria-label="Stamp symbols" hidden></div>
-                  <ul class="plot-status__keys" aria-label="Mouse controls">
+                  <ul class="plot-status__keys" aria-label="Mouse and keyboard controls">
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Tool</span></li>
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-right" /></svg><span>Erase</span></li>
                     <li><svg width="21" height="19" aria-hidden="true"><use href="#hk-mouse-scroll" /></svg><span>Zoom</span></li>
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-mid" /></svg><span>Hold to pan</span></li>
+                    <li><kbd class="hk-key">Space</kbd><span>Hold to pan</span></li>
                   </ul>
                 </div>
               </div>
@@ -458,7 +464,10 @@
               <button type="button" class="btn btn--ghost btn--sm" id="plot-use-upload" data-switch-upload>Upload a plot plan instead</button>
             </p>
             <div class="plot-step__nav">
-              <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
+              <div class="plot-step__nav-group" id="plot-nav-secondary">
+                <button type="button" class="btn btn--ghost btn--sm" id="plot-back-orient">&larr; Back to orientation</button>
+                <button type="button" class="btn btn--ghost btn--sm" id="plot-clear">Clear plan</button>
+              </div>
               <button type="button" class="btn btn--primary" id="plot-done" disabled>Done — use this plan</button>
               <button type="button" class="btn btn--ghost btn--sm" id="plot-edit" hidden>Make changes</button>
             </div>
@@ -513,24 +522,10 @@
         </aside>
       </section>
 
-      <!-- ---------- ADJACENT OWNERS (roster only; the signature form is printed & re-attached in Review & Submit) ---------- -->
-      <section class="card reveal" id="neighbors">
-        <header class="card__head">
-          <span class="card__num">05</span>
-          <div>
-            <h2>Adjacent Property Owners</h2>
-            <p class="card__sub">List the adjacent owners most affected by your change. You&rsquo;ll <strong>print their signature form and collect signatures in the final step</strong> (Review &amp; Submit, below) — a neighbor&rsquo;s signature does not constitute approval or disapproval.</p>
-          </div>
-        </header>
-
-        <div id="neighbor-list" class="neighbor-list"></div>
-        <button type="button" class="btn btn--ghost" id="add-neighbor">+ Add another neighbor</button>
-      </section>
-
       <!-- ---------- ACKNOWLEDGMENTS ---------- -->
       <section class="card reveal" id="acknowledgments">
         <header class="card__head">
-          <span class="card__num">06</span>
+          <span class="card__num">05</span>
           <div>
             <h2>Owner Acknowledgments</h2>
             <p class="card__sub">Please read each statement and check to acknowledge. All are required.</p>
@@ -567,10 +562,10 @@
       <!-- ---------- REVIEW & SUBMIT ---------- -->
       <section class="card reveal" id="packet">
         <header class="card__head">
-          <span class="card__num">07</span>
+          <span class="card__num">06</span>
           <div>
             <h2>Review &amp; Submit</h2>
-            <p class="card__sub">Your packet at a glance, then three steps to finish: save the PDF, collect your neighbors&rsquo; signatures, and email everything to the committee.</p>
+            <p class="card__sub">Your packet at a glance, then one step to finish: save &amp; print the packet. Its first page explains how to submit it, and the last page is the neighbor signature form to collect in person.</p>
           </div>
         </header>
 
@@ -579,53 +574,21 @@
 
         <div class="finish-steps">
           <div class="finish-step" id="finish-step-1">
-            <span class="finish-step__num" aria-hidden="true">1</span>
             <div class="finish-step__body">
               <h4 class="finish-step__title">Save &amp; print your application packet</h4>
-              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved. Your drawn plot plan and signature are included automatically. Print a copy too: it&rsquo;s the packet your neighbors review when they sign, and your record to keep.</p>
+              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved, or print paper copies. The packet is complete on its own: <strong>page 1 is your submission instructions</strong>, the application follows with your plot plan and signature included automatically, and the <strong>adjacent-owner signature form is the last page</strong> — collect those signatures in person after printing. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
+              <p class="finish-step__note"><strong>No payment is due now.</strong> The fee is collected only after Carol reviews your application and confirms it&rsquo;s complete — she&rsquo;ll contact you directly to collect it, and a receipt is emailed to you.</p>
               <div class="finish-step__actions">
-                <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save application PDF</button>
+                <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save &amp; print packet</button>
                 <button type="submit" class="btn btn--ghost">Preview first</button>
-              </div>
-            </div>
-          </div>
-          <div class="finish-step" id="finish-step-2">
-            <span class="finish-step__num" aria-hidden="true">2</span>
-            <div class="finish-step__body">
-              <h4 class="finish-step__title">Collect your neighbors&rsquo; signatures</h4>
-              <p class="finish-step__desc">Print the signature form for the adjacent owners you listed in Section 05, collect their signatures in person — they can review the packet you printed in Step 1 — then attach the scanned or photographed form here. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
-              <div class="finish-step__actions">
-                <button type="button" class="btn btn--primary" id="print-neighbor-form">Print signature form</button>
-              </div>
-              <label class="dropzone dropzone--compact" data-dropzone="neighbor-form">
-                <svg class="dropzone__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7 8 5-4 5 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-                <span class="dropzone__text"><strong>Attach the signed form</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse files</span> <span class="muted">(photos or PDF; add multiple pages)</span></span>
-                <input type="file" id="neighbor-form-file" name="neighborForm" accept="image/*,application/pdf" multiple class="dropzone__input" />
-              </label>
-              <ul class="filelist" id="neighbor-filelist" hidden></ul>
-              <aside class="pause-note">
-                <strong>This step usually takes a few days — you don&rsquo;t have to finish it now.</strong>
-                Print the form, collect signatures in person, and come back: everything you&rsquo;ve typed saves
-                automatically in this browser. Just attach the scanned form in the same sitting you send your
-                email — the browser can&rsquo;t hold on to attached files between visits.
-              </aside>
-            </div>
-          </div>
-          <div class="finish-step" id="finish-step-3">
-            <span class="finish-step__num" aria-hidden="true">3</span>
-            <div class="finish-step__body">
-              <h4 class="finish-step__title">Email your packet to the committee</h4>
-              <p class="finish-step__desc">Opens a pre-addressed email whose body lists every file to attach — the PDF you saved, your photos, the signed neighbor form, and any plan or sketch files. Send the scans and <strong>keep your printed packet for your records</strong>.</p>
-              <div class="finish-step__actions">
-                <button type="button" class="btn btn--primary" id="email-btn">Open pre-addressed email</button>
               </div>
             </div>
           </div>
         </div>
 
         <div class="post-submit" id="post-submit-cleanup" hidden>
-          <h4>Sent your email?</h4>
-          <p>This browser still holds a full copy of your application &mdash; including your signature image. Once your packet has been emailed, you can delete the saved draft. (Keep it if you might need to revise and resubmit.)</p>
+          <h4>Packet saved?</h4>
+          <p>This browser still holds a full copy of your application &mdash; including your signature image. Once your packet is saved and submitted, you can delete the saved draft. (Keep it if you might need to revise and resubmit.)</p>
           <button type="button" class="btn btn--ghost btn--sm" id="post-submit-clear">Delete my saved draft from this browser</button>
         </div>
 
@@ -661,8 +624,7 @@
     <div class="modal__scroll" id="preview-content"></div>
     <footer class="modal__foot">
       <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
-      <button type="button" class="btn btn--ghost" id="do-print">Save as PDF</button>
-      <button type="button" class="btn btn--primary" id="do-email">Email to Committee</button>
+      <button type="button" class="btn btn--primary" id="do-print">Save &amp; print packet</button>
     </footer>
   </div>
 </div>
@@ -672,16 +634,17 @@
   <div class="modal__backdrop" data-close></div>
   <div class="modal__panel modal__panel--sm" role="dialog" aria-modal="true" aria-labelledby="gate-title">
     <header class="modal__head">
-      <h2 id="gate-title">Your packet looks incomplete</h2>
+      <h2 id="gate-title">This application looks incomplete</h2>
       <button type="button" class="modal__x" data-close aria-label="Close">&times;</button>
     </header>
     <div class="modal__scroll">
-      <p class="gate-lead">An incomplete application is returned and <strong>automatically denied</strong>, and the 45-day review period doesn&rsquo;t start until everything is received. These items are still missing:</p>
+      <p class="gate-lead" id="gate-lead">Nothing here stops you from saving your packet &mdash; but the committee <strong>returns any incomplete application unreviewed</strong>. If it&rsquo;s incomplete on the submission deadline, it will not be reviewed until the following month &mdash; no exceptions. Finish the items below, or continue anyway:</p>
       <ul class="gate-missing" id="gate-missing"></ul>
+      <p class="gate-fine" id="gate-appointment">Not sure it&rsquo;s complete? Call the ARCH Specialist&rsquo;s office at <a href="tel:+19518014246">951-801-4246</a> to schedule an appointment <em>before</em> the deadline &mdash; she is not available for meetings on the deadline day itself.</p>
     </div>
     <footer class="modal__foot">
-      <button type="button" class="btn btn--ghost" data-close>Keep working</button>
-      <button type="button" class="btn btn--primary" id="gate-send-anyway">Open the email anyway</button>
+      <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
+      <button type="button" class="btn btn--primary" id="gate-continue">Continue anyway</button>
     </footer>
   </div>
 </div>

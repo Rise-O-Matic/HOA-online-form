@@ -1,9 +1,9 @@
 /* =========================================================
    Fairway Canyon HOA — ARC Application (front-end mockup)
-   Entry module: form content (acks, dates, neighbors,
-   photos), packet status, validation, persistence
-   (localStorage drafts), the preview/print/email/JSON
-   output paths, landing + init.
+   Entry module: form content (acks, dates, photos),
+   packet status, validation, persistence (localStorage
+   drafts), the preview/print/JSON output paths,
+   landing + init.
    Siblings: geometry.js (pure math, unit-tested),
    plot-editor.js (Konva drawing surface), map-wizard.js
    (parcel select/orient flow), utils.js ($, $$, esc).
@@ -13,7 +13,7 @@
 import { $, $$, esc } from "./utils.js";
 import {
   plotUsed, isPlotConfirmed, renderPlotImage, rebuildGridForParcel,
-  serializePlot, restorePlot, plotLegend
+  serializePlot, restorePlot, plotLegend, materialSwatchStyle
 } from "./plot-editor.js";
 import {
   planMode, setPlanMode, plotUploadInput, restoreParcelFromDraft,
@@ -163,60 +163,6 @@ function setSigMethod(method) {
 $("#sig-method-draw")?.addEventListener("click", () => { setSigMethod("draw"); updateProgress(); scheduleAutosave(); });
 $("#sig-method-type")?.addEventListener("click", () => { setSigMethod("type"); updateProgress(); scheduleAutosave(); });
 
-
-/* ------------------------------------------------------
-   NEIGHBORS
------------------------------------------------------- */
-const neighborList = $("#neighbor-list");
-let neighborCount = 0;
-
-function neighborTemplate(n) {
-  const idx = n;
-  return `
-    <div class="neighbor" data-neighbor="${idx}">
-      <button type="button" class="neighbor__remove" aria-label="Remove neighbor" title="Remove">&times;</button>
-      <div class="neighbor__num">Adjacent owner ${idx}</div>
-      <div class="grid-2">
-        <div class="field">
-          <label>Name</label>
-          <input type="text" name="nb_name_${idx}" />
-        </div>
-        <div class="field">
-          <label>Address</label>
-          <input type="text" name="nb_addr_${idx}" />
-        </div>
-      </div>
-    </div>`;
-}
-
-function addNeighbor() {
-  neighborCount++;
-  const wrap = document.createElement("div");
-  wrap.innerHTML = neighborTemplate(neighborCount).trim();
-  const node = wrap.firstChild;
-  neighborList.appendChild(node);
-  $(".neighbor__remove", node).addEventListener("click", () => node.remove());
-  return node;
-}
-$("#add-neighbor").addEventListener("click", () => addNeighbor());
-// start with two neighbor blocks
-addNeighbor(); addNeighbor();
-
-// Signature form: print a physical form, then re-attach the signed copy
-const neighborFormInput = $("#neighbor-form-file");
-const neighborFileList = $("#neighbor-filelist");
-$("#print-neighbor-form").addEventListener("click", () => printNeighborForm());
-neighborFormInput.addEventListener("change", () => {
-  neighborFileList.innerHTML = "";
-  if (!neighborFormInput.files.length) { neighborFileList.hidden = true; return; }
-  neighborFileList.hidden = false;
-  Array.from(neighborFormInput.files).forEach(f => {
-    const li = document.createElement("li");
-    li.textContent = `${f.name} (${Math.round(f.size / 1024)} KB)`;
-    neighborFileList.appendChild(li);
-  });
-});
-registerDropzone(neighborFormInput.closest(".dropzone"), neighborFormInput);
 
 /* ------------------------------------------------------
    PROPOSED IMPROVEMENTS  (Section 02 — item repeater)
@@ -852,14 +798,13 @@ export function updateProgress() {
   let total = required.length + 1;
   if (ownerSignatureProvided()) done++;
   // Packet items count too — 100% must not be reachable with an empty packet.
-  // Four items: the plot plan, the requested photos (questionnaire answered AND
-  // every requested shot attached), the signed neighbor form, and the example
-  // pictures for every Add/Replace improvement item.
-  total += 4;
+  // Three items: the plot plan, the requested photos (questionnaire answered AND
+  // every requested shot attached), and the example pictures for every
+  // Add/Replace improvement item.
+  total += 3;
   if (plotProvided().ok) done++;
   const reqPhotos = photoChecklist();
   if (reqPhotos.length > 0 && reqPhotos.every(p => p.file)) done++;
-  if (neighborFormFiles().length > 0) done++;
   // Lenient: a Remove-only (or empty) item list needs no catalog pictures, so [].every() -> done;
   // the always-required item name still keeps the denominator honest for an empty packet.
   if (improvementChecklist().every(r => r.file)) done++;
@@ -876,11 +821,11 @@ form.addEventListener("change", updateProgress);
 /* ------------------------------------------------------
    PACKET STATUS
    One source of truth for "what's in the packet": the plot
-   plan, every requested photo, the improvement pictures, and
-   the signed neighbor form — all derived from real app state
-   (the old manual sketches/fee checkboxes are gone). Feeds
-   the Review & Submit packet list, the email soft-gate, and
-   the mailto attachment manifest.
+   plan, every requested photo, and the improvement pictures —
+   all derived from real app state (the old manual sketches/fee
+   checkboxes are gone). Feeds the Review & Submit packet list,
+   the advisory review gate, and the printed packet's page-1
+   checklist.
 ------------------------------------------------------ */
 let pdfSaved = false; // flips once the print/save-PDF view is opened this session
 
@@ -921,16 +866,10 @@ function improvementChecklist() {
     .map(it => ({ name: it.name, action: it.action, file: it.photo || null }));
 }
 
-function neighborFormFiles() {
-  return neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : [];
-}
-
-// Human-readable list of what's still missing, for the soft-gate modal and
-// the mailto manifest. includePdf: whether the not-yet-saved form PDF counts
-// (the gate cares; the email body lists the PDF in the attach checklist anyway).
-function packetMissingList(includePdf) {
+// Human-readable list of what's still missing, for the advisory review gate
+// and the printed packet's page-1 "still outstanding" note.
+function packetMissingList() {
   const missing = [];
-  if (includePdf && !pdfSaved) missing.push("The application form PDF — save it in Step 1 first");
   const plot = plotProvided();
   if (!plot.ok) missing.push(plot.mode === "upload"
     ? "Plot plan file (upload chosen, but nothing attached in Section 03)"
@@ -942,7 +881,6 @@ function packetMissingList(includePdf) {
   else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
   improvementChecklist().filter(it => !it.file).forEach(it =>
     missing.push("Example/catalog picture — " + it.name + " (Section 02)"));
-  if (!neighborFormFiles().length) missing.push("Signed neighbor signature form (Section 07, Step 2)");
   return missing;
 }
 
@@ -1001,21 +939,20 @@ function renderPacket() {
   if (!packetListEl) return;
   const plot = plotProvided();
   const photos = photoChecklist();
-  const nf = neighborFormFiles();
   const items = [];
   items.push({
-    label: "Application form (PDF)",
+    label: "Application packet (PDF)",
     ok: pdfSaved,
     note: pdfSaved
-      ? "Saved this session — attach the PDF file to your email."
-      : "Not saved yet — Step 1 below creates it."
+      ? "Saved this session — page 1 of the packet explains how to submit it."
+      : "Not saved yet — the Save & print button below creates it."
   });
   if (plot.mode === "upload") {
     items.push({
       label: "Plot plan (uploaded)",
       ok: plot.ok,
       note: plot.ok
-        ? plot.names.join(", ") + " — attach this file to your email."
+        ? plot.names.join(", ") + " — include this file when you submit."
         : "Upload chosen, but no file attached yet.",
       href: "#siteplan"
     });
@@ -1039,7 +976,7 @@ function renderPacket() {
     items.push({
       label: `Example / catalog pictures — ${impAttached} of ${impReq.length} attached`,
       ok: impAttached === impReq.length,
-      note: "One picture per Add/Replace item — attach each to your email.",
+      note: "One picture per Add/Replace item — include each when you submit.",
       href: "#description",
       subs: impReq.map(r => ({ label: r.name, ok: !!r.file, note: r.file }))
     });
@@ -1056,19 +993,11 @@ function renderPacket() {
     items.push({
       label: `Property photos — ${attached} of ${photos.length} attached`,
       ok: attached === photos.length,
-      note: "Attach each photo file to your email.",
+      note: "Include each photo file when you submit.",
       href: "#photos-section",
       subs: photos.map(p => ({ label: p.title, ok: !!p.file, note: p.file }))
     });
   }
-  items.push({
-    label: "Signed neighbor signature form",
-    ok: nf.length > 0,
-    note: nf.length
-      ? nf.join(", ") + " — attach to your email."
-      : "Print the form in Step 2 below, collect signatures, then attach the scan.",
-    href: "#finish-step-2"
-  });
   packetListEl.textContent = "";
   items.forEach(item => packetListEl.appendChild(packetItemNode(item)));
 }
@@ -1091,8 +1020,8 @@ function refreshPlotDoneUI() {
     btn.classList.toggle("is-confirmed", confirmed);
     btn.textContent = confirmed ? "✓ Plan added to your packet" : "Done — use this plan";
   }
-  const clearBtn = $("#plot-clear");
-  if (clearBtn) clearBtn.hidden = confirmed;      // no clearing a locked plan
+  const secondaryNav = $("#plot-nav-secondary");  // Back to orientation + Clear plan
+  if (secondaryNav) secondaryNav.hidden = confirmed; // no clearing/reorienting a locked plan
   const editBtn = $("#plot-edit");
   if (editBtn) editBtn.hidden = !confirmed;       // unlock control, shown only while locked
   // Lock the drawing surface: hide the material palette, tool rail, and status/hints strip,
@@ -1122,7 +1051,6 @@ function collect() {
     submissions: {},
     items: improvementItems(),
     proposal: proposal.value.trim(),
-    neighbors: [],
     acks: {},
     ackDate: $("#ack-date").value,
     ownerAckSignature: sigPads.ownerAckSignature.toDataURL(),
@@ -1139,8 +1067,7 @@ function collect() {
     photoAreas: {},
     photoMaterial: selectedPhotoMaterial(),
     photos: {},
-    files: [],
-    neighborForm: neighborFormInput.files ? Array.from(neighborFormInput.files).map(f => f.name) : []
+    files: []
   };
   $$(".photo-quiz [data-area]").forEach(c => { data.photoAreas[c.dataset.area] = c.checked; });
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
@@ -1158,14 +1085,6 @@ function collect() {
   data.submissions.req_plot = plotProvided().ok;
   const reqPhotos = photoChecklist();
   data.submissions.req_photos = reqPhotos.length > 0 && reqPhotos.every(p => p.file);
-  data.submissions.req_neighbors = neighborFormFiles().length > 0;
-  $$(".neighbor").forEach(node => {
-    const idx = node.dataset.neighbor;
-    data.neighbors.push({
-      name: $(`[name=nb_name_${idx}]`, node)?.value.trim() || "",
-      address: $(`[name=nb_addr_${idx}]`, node)?.value.trim() || ""
-    });
-  });
   $$("#acks input[type=checkbox]").forEach(c => data.acks[c.name] = c.checked);
   return data;
 }
@@ -1254,16 +1173,9 @@ function restoreDraft() {
   // (No manual submission checkboxes remain — older drafts' req_sketches/req_fee/derived
   // keys are simply ignored; every packet row is derived from real app state.)
   if (d.acks) Object.entries(d.acks).forEach(([k, v]) => { const el = $(`#acks [name="${k}"]`); if (el) el.checked = v; });
-  // neighbors
-  if (Array.isArray(d.neighbors) && d.neighbors.length) {
-    neighborList.innerHTML = ""; neighborCount = 0;
-    d.neighbors.forEach(nb => {
-      const node = addNeighbor();
-      const idx = node.dataset.neighbor;
-      $(`[name=nb_name_${idx}]`, node).value = nb.name || "";
-      $(`[name=nb_addr_${idx}]`, node).value = nb.address || "";
-    });
-  }
+  // (Older drafts' neighbors roster / neighborForm keys restore harmlessly into
+  // nothing — the Adjacent Owners section was removed when the journey became
+  // print-first; the signature form is a blank page of the printed packet now.)
   // signatures
   if (typedSigInput) typedSigInput.value = d.ownerTypedSignature || "";
   if (d.ownerSigMethod === "type") setSigMethod("type");
@@ -1323,8 +1235,9 @@ $("#clear-draft").addEventListener("click", () => {
   deleteDraft();
   location.reload();
 });
-// Post-submission cleanup — same action, offered in context once the email step has
-// run (the draft holds PII including the signature image; see finishEmail()).
+// Post-submission cleanup — same action, offered in context once the packet has
+// been saved (the draft holds PII including the signature image; see the
+// #finish-pdf-btn handler).
 $("#post-submit-clear")?.addEventListener("click", () => {
   if (!confirm("Delete the saved application draft (including your signature) from this browser?")) return;
   deleteDraft();
@@ -1369,8 +1282,14 @@ const PHONE_RE = /^[\d\s().+-]{10,}$/;
 const PHONE_DIGITS_RE = /\d/g;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/;
 
-function validate() {
-  let firstBad = null;
+// Walk every [required] field, painting inline error messages as a side effect,
+// and return a list of {label, target} issues (empty = all complete). Advisory
+// only — nothing here blocks a path. The review gate surfaces this list and always
+// lets the user continue. (Replaced validate()/validateOrFocus, which force-scrolled
+// to the first bad field and aborted the whole action — the "it just yanks me to an
+// incomplete section" behavior we deliberately removed.)
+function fieldIssues() {
+  const issues = [];
   $$("#arc-form [required]").forEach(el => {
     clearFieldError(el);
     let bad = false;
@@ -1402,7 +1321,7 @@ function validate() {
     if (bad) {
       if (el.type !== "checkbox") setFieldError(el, errorMsg);
       else el.classList.add("invalid");
-      if (!firstBad) firstBad = el;
+      issues.push({ label: fieldLabel(el), target: el });
     }
   });
   // Owner signature — drawn ink or a typed full name, whichever method is selected.
@@ -1412,25 +1331,60 @@ function validate() {
     clearFieldError(typedSigInput);
     if (!typedSigInput.value.trim()) {
       setFieldError(typedSigInput, "Type your full legal name to sign.");
-      if (!firstBad) firstBad = typedSigInput;
+      issues.push({ label: "Your typed signature", target: typedSigInput });
     }
   } else {
     const empty = pad.isEmpty();
     pad.wrap.classList.toggle("invalid", empty);
-    if (empty && !firstBad) firstBad = pad.wrap;
+    if (empty) issues.push({ label: "Your signature", target: pad.wrap });
   }
-  return firstBad;
+  return issues;
 }
 
-// Validate and, on failure, paint the status line and scroll to the first bad
-// field. Shared by the preview, save-PDF, and email paths so they can't drift.
-function validateOrFocus() {
-  const bad = validate();
-  if (!bad) return true;
-  status("Please complete the highlighted required fields and signatures.", "err");
-  bad.scrollIntoView({ behavior: "smooth", block: "center" });
-  if (bad.focus) bad.focus({ preventScroll: true });
-  return false;
+// Human label for a field — its <label> text (trimmed of markers), falling back
+// to aria-label / name. Feeds the review-gate list.
+function fieldLabel(el) {
+  const sel = el.id ? 'label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]' : null;
+  let lab = sel ? document.querySelector(sel) : null;
+  if (!lab && el.closest) lab = el.closest("label");
+  let t = lab ? lab.textContent : (el.getAttribute("aria-label") || el.name || "A required field");
+  t = t.replace(/\s+/g, " ").replace(/[:*]\s*$/, "").trim();
+  return t.length > 80 ? t.slice(0, 79) + "…" : t;
+}
+
+// Scroll a review-gate target into view and focus it — user-initiated (clicked in
+// the modal), never forced. target is an element or a selector string.
+function scrollToIssue(target) {
+  const el = typeof target === "string" ? $(target) : target;
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  try { if (el.focus) el.focus({ preventScroll: true }); } catch (_) {}
+}
+
+// Map a packet-gap label (from packetMissingList) to the section it lives in.
+function packetTargetFor(label) {
+  if (/^Plot plan/i.test(label)) return "#siteplan";
+  if (/photo/i.test(label)) return "#photos-section";
+  if (/Example\/catalog picture/i.test(label)) return "#description";
+  return null;
+}
+
+// Everything currently incomplete — required-field issues (this also paints the
+// inline errors) plus packet gaps — as one flat {label, target} list. Advisory only.
+function allIssues() {
+  const issues = fieldIssues();
+  packetMissingList().forEach(label =>
+    issues.push({ label, target: packetTargetFor(label) }));
+  return issues;
+}
+
+// Run `action`, but first offer an advisory review of anything incomplete. Nothing
+// blocks: if items are missing we open the gate (per-item jump links + a Continue
+// button that runs `action`); if all clear, `action` runs straight away.
+function reviewThen(action, continueLabel) {
+  const issues = allIssues();
+  if (!issues.length) { action(); return; }
+  openGateModal(issues, action, continueLabel);
 }
 
 // Clear inline errors on input (the typed signature isn't [required] — its requiredness
@@ -1456,8 +1410,7 @@ const ownerSigHTML = d => d.ownerSigMethod === "type"
 
 const SUB_LABELS = {
   req_plot: "Plot design with modification marked",
-  req_photos: "Property photos (Section 04)",
-  req_neighbors: "Impacted neighbor signatures"
+  req_photos: "Property photos (Section 04)"
 };
 
 function photoPreviewHTML(d) {
@@ -1482,7 +1435,7 @@ function plotLegendHTML(cls) {
   const { materials, stamps } = plotLegend();
   if (!materials.length && !stamps.length) return "";
   const items = materials.map(m =>
-    `<li><span class="${cls}__swatch" style="background:${esc(m.color)}"></span>${esc(m.label)}</li>`
+    `<li><span class="${cls}__swatch" style="${esc(materialSwatchStyle(m))}"></span>${esc(m.label)}</li>`
   ).concat(stamps.map(s => `<li>${s.img
     ? `<img src="${esc(s.img)}" alt="" aria-hidden="true" />`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="#1e1a14" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${s.d}"/></svg>`
@@ -1536,17 +1489,6 @@ function buildPreview(d) {
     const k = "ack_" + (i + 1);
     return `<li>Item ${i + 1} — ${yn(d.acks[k])}</li>`;
   }).join("");
-  const neighbors = d.neighbors.map((nb, i) => `
-    <div style="margin:.6rem 0; padding:.6rem .8rem; border:1px solid #e0d9cd; border-radius:8px;">
-      <strong>Adjacent owner ${i + 1}</strong>
-      <dl>
-        <dt>Name</dt><dd>${esc(nb.name) || '<span class="no">—</span>'}</dd>
-        <dt>Address</dt><dd>${esc(nb.address) || '<span class="no">—</span>'}</dd>
-      </dl>
-    </div>`).join("") || '<p class="no">No neighbors added.</p>';
-  const neighborForm = d.neighborForm && d.neighborForm.length
-    ? `<span class="yes">✓ Attached</span> — ${d.neighborForm.map(esc).join(", ")}`
-    : '<span class="no">— signed form not attached</span>';
 
   return `
     <div class="doc">
@@ -1574,10 +1516,6 @@ function buildPreview(d) {
       <h3>Proposed Improvements</h3>
       ${improvementsTableHTML(d, { cls: "doc-table improvements-table", noteCls: "doc-note" })}
 
-      <h3>Adjacent Property Owners</h3>
-      ${neighbors}
-      <p style="margin-top:.6rem"><strong>Signed signature form:</strong> ${neighborForm}</p>
-
       <h3>Owner Acknowledgments</h3>
       <ul class="doc-list">${acks}</ul>
       <dl style="margin-top:.6rem">
@@ -1587,20 +1525,72 @@ function buildPreview(d) {
     </div>`;
 }
 
-/* Build a compact, single-page print layout */
+/* Page 1 of the printed packet: submission instructions, so the applicant never
+   needs to return to the web form after printing. Derived at print time from the
+   same packet-state helpers as the Review & Submit card. */
+function buildInstructionsHTML(d) {
+  const photoCount = Object.values(d.photos || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
+  const impPics = improvementChecklist().filter(it => it.file);
+  const missing = packetMissingList();
+  const uploadPlot = d.planMode === "upload";
+  const include = [
+    "<strong>This application packet (PDF)</strong>" + (uploadPlot ? "" : " — your drawn plot plan and signature are already inside it"),
+    ...(uploadPlot
+      ? ["<strong>Your plot plan file</strong>" + (d.plotUpload && d.plotUpload.length ? " — " + d.plotUpload.map(esc).join(", ") : " <em>(not attached yet)</em>")]
+      : []),
+    "<strong>Your property photos</strong>" + (photoCount
+      ? ` — the ${photoCount} photo file${photoCount === 1 ? "" : "s"} you attached while filling this out`
+      : " <em>(none attached yet)</em>"),
+    ...(impPics.length
+      ? [`<strong>Example / catalog pictures</strong> — ${impPics.map(it => esc(it.file)).join(", ")}`]
+      : []),
+    "<strong>The signed adjacent-owner signature form</strong> — the last page of this packet, scanned or photographed after signatures are collected"
+  ].map(li => `<li>${li}</li>`).join("");
+
+  const missingBlock = missing.length
+    ? `<div class="print-warn"><strong>Still outstanding when this packet was printed:</strong>
+        <ul>${missing.map(m => `<li>${esc(m)}</li>`).join("")}</ul>
+        An incomplete application is returned unreviewed — gather these before you submit.</div>`
+    : "";
+
+  return `
+    <section class="print-page">
+      <div class="print-header">
+        <div>
+          <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
+          <div class="print-title">How to Submit This Application</div>
+        </div>
+        <div class="print-contact">
+          CarolMarie Taylor — Sr. Architectural Specialist<br>
+          951-801-4246 · carolmarie.taylor@fsresidential.com
+        </div>
+      </div>
+
+      <ol class="print-steps">
+        <li><strong>Save or print this packet.</strong> Keep the PDF (or a paper copy) — it is your application and your record. The application itself is the next page; your plot plan and signature are already part of it.</li>
+        <li><strong>Collect adjacent-owner signatures.</strong> The signature form is the <strong>last page</strong> of this packet. Have the neighbors most affected by your change sign it in person — a signature confirms they were notified; it is not an approval or disapproval. Then scan or photograph the completed form.</li>
+        <li><strong>Email your complete packet</strong> to CarolMarie Taylor, Sr. Architectural Specialist. Applications are accepted <strong>by email only</strong> — no other staff member can accept them:<br>
+          <span class="print-email">carolmarie.taylor@fsresidential.com</span></li>
+      </ol>
+
+      <h4>What your email must include</h4>
+      <ul class="print-include">${include}</ul>
+      ${missingBlock}
+
+      <h4>Deadlines &amp; fees</h4>
+      <p class="print-info">The complete packet must arrive by the application deadline to make that month&rsquo;s board meeting — an incomplete application is returned unreviewed, and the 45-day review period does not begin until everything is received.</p>
+      <p class="print-info"><strong>No payment is due now.</strong> The fee is collected only after the Architectural Specialist has reviewed your application and confirmed it is complete — she will contact you directly to collect it, and a receipt is emailed to you.</p>
+
+      <h4>Questions?</h4>
+      <p class="print-info">CarolMarie Taylor — 951-801-4246 · Tuesday&ndash;Saturday, 9:00&nbsp;AM&nbsp;&ndash;&nbsp;4:30&nbsp;PM. In-person meetings require an appointment.</p>
+    </section>`;
+}
+
+/* The printed packet: instructions (page 1) + the compact application (page 2)
+   + the adjacent-owner signature form (last page). */
 function buildPrintHTML(d) {
   const subs = Object.entries(SUB_LABELS).map(([k, label]) =>
     `<tr><td style="width:18px;text-align:center;">${d.submissions[k] ? "&#9745;" : "&#9744;"}</td><td>${esc(label)}</td></tr>`).join("");
-
-  const neighborsRows = d.neighbors.map((nb, i) =>
-    `<tr>
-      <td>${esc(nb.name) || "—"}</td>
-      <td>${esc(nb.address) || "—"}</td>
-    </tr>`).join("") || '<tr><td colspan="2">No neighbors added.</td></tr>';
-
-  const neighborFormNote = d.neighborForm && d.neighborForm.length
-    ? "Signed adjacent-owner signature form attached: " + d.neighborForm.map(esc).join(", ")
-    : "⚠ Signed adjacent-owner signature form not yet attached.";
 
   const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
 
@@ -1614,6 +1604,9 @@ function buildPrintHTML(d) {
 
   return `
     <div class="print-doc">
+      ${buildInstructionsHTML(d)}
+
+      <section class="print-page">
       <!-- Header -->
       <div class="print-header">
         <div>
@@ -1664,14 +1657,6 @@ function buildPrintHTML(d) {
       <h4>Photos</h4>
       <p class="print-ack-summary">${esc(photoNote)}</p>
 
-      <!-- Neighbors -->
-      <h4>Adjacent Property Owners</h4>
-      <table class="print-table print-neighbors">
-        <thead><tr><th>Name</th><th>Address</th></tr></thead>
-        <tbody>${neighborsRows}</tbody>
-      </table>
-      <p class="print-ack-summary">${neighborFormNote}</p>
-
       <!-- Acknowledgments -->
       <h4>Owner Acknowledgments</h4>
       <p class="print-ack-summary">${acksChecked
@@ -1699,6 +1684,9 @@ function buildPrintHTML(d) {
       </div>
 
       <p class="print-footer-note">This application was generated from the Fairway Canyon HOA online form. The 45-day review period begins once the complete application packet is received.</p>
+      </section>
+
+      ${buildNeighborFormHTML(d)}
     </div>`;
 }
 
@@ -1713,7 +1701,7 @@ document.addEventListener("keydown", e => {
 
 form.addEventListener("submit", e => {
   e.preventDefault();
-  if (!validateOrFocus()) return;
+  // Preview is a harmless read-only look — always open it, even on a partial form.
   status("");
   const d = collect();
   saveDraft(true);
@@ -1738,6 +1726,17 @@ function printPreview() {
       * { box-sizing: border-box; }
       body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.35; font-size: 11px; margin: 0; }
       .print-doc { max-width: 100%; }
+      .print-page { page-break-after: always; }
+      .print-page:last-child { page-break-after: auto; }
+      /* --- page 1: submission instructions --- */
+      .print-steps { margin: 8px 0 10px; padding-left: 20px; font-size: 11.5px; }
+      .print-steps li { margin-bottom: 9px; }
+      .print-email { display: inline-block; margin-top: 3px; font-size: 14px; font-weight: 700; }
+      .print-include { margin: 4px 0 8px; padding-left: 18px; font-size: 11px; }
+      .print-include li { margin-bottom: 3px; }
+      .print-info { font-size: 11px; margin: 3px 0 6px; }
+      .print-warn { border: 1.5px solid #a4111f; background: #faf3f2; border-radius: 3px; padding: 7px 10px; font-size: 10.5px; margin: 8px 0 10px; }
+      .print-warn ul { margin: 4px 0; padding-left: 16px; }
       .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
       .print-eyebrow { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
       .print-title { font-family: Georgia, serif; font-size: 16px; font-weight: 600; line-height: 1.1; }
@@ -1758,7 +1757,6 @@ function printPreview() {
       .print-legend li { display: flex; align-items: center; gap: 4px; }
       .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #999; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-legend svg, .print-legend img { flex: none; width: 12px; height: 12px; }
-      .print-neighbors th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; }
       .print-ack-summary { font-size: 10px; margin: 2px 0 6px; }
       .print-sig-block { margin-top: 10px; }
       .print-sig-row { display: flex; gap: 20px; }
@@ -1769,81 +1767,8 @@ function printPreview() {
       .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 16px; }
       .print-sig-label { font-size: 9px; color: #777; margin-top: 2px; }
       .print-footer-note { font-size: 8px; color: #999; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
-    </style></head><body>
-    ${html}
-    </body></html>`);
-  w.document.close();
-  w.focus();
-  setTimeout(() => { w.print(); }, 350);
-}
-
-$("#do-print").addEventListener("click", () => printPreview());
-
-// Finish Step 1 — validate, then open the print/save-PDF view directly
-$("#finish-pdf-btn")?.addEventListener("click", () => {
-  if (!validateOrFocus()) return;
-  saveDraft(true);
-  printPreview();
-  status("Print view opened — choose “Save as PDF” and note where the file is saved.", "ok");
-});
-
-/* ----- ADJACENT-OWNER SIGNATURE FORM (physical, print → sign → re-attach) ----- */
-function buildNeighborFormHTML(d) {
-  const entered = d.neighbors.filter(nb => nb.name || nb.address);
-  const totalRows = Math.max(6, entered.length + 2);
-  let rows = "";
-  for (let i = 0; i < totalRows; i++) {
-    const nb = entered[i];
-    rows += `<tr>
-      <td class="nf-num">${i + 1}</td>
-      <td>${nb ? esc(nb.name) : ""}</td>
-      <td>${nb ? esc(nb.address) : ""}</td>
-      <td class="nf-sig"></td>
-      <td class="nf-date"></td>
-    </tr>`;
-  }
-  return `
-    <div class="nf-doc">
-      <div class="nf-header">
-        <div>
-          <div class="nf-eyebrow">Fairway Canyon Homeowners Association</div>
-          <div class="nf-title">Adjacent Property Owner Signature Form</div>
-        </div>
-        <div class="nf-contact">Architectural Review Committee<br>carolmarie.taylor@fsresidential.com</div>
-      </div>
-
-      <table class="nf-info">
-        <tr>
-          <td class="nf-label">Applicant</td><td>${esc(d.ownerName) || "&nbsp;"}</td>
-          <td class="nf-label">Property</td><td>${esc(d.propertyAddress) || "&nbsp;"}</td>
-        </tr>
-      </table>
-
-      <div class="nf-section">Proposed Change</div>
-      <div class="nf-proposal">${esc(d.proposal) || "&nbsp;"}</div>
-
-      <p class="nf-note">By signing below, I confirm that I am an adjacent property owner and that I have been made aware of the proposed change described above. <strong>My signature does not constitute approval or disapproval</strong> of the project &mdash; it confirms only that I was notified.</p>
-
-      <table class="nf-table">
-        <thead><tr><th class="nf-num">#</th><th>Adjacent Owner Name</th><th>Property Address</th><th>Signature</th><th>Date</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-
-      <p class="nf-footer">Scan or photograph this completed form and attach it to your Architectural Review Committee application packet.</p>
-    </div>`;
-}
-
-function printNeighborForm() {
-  const d = collect();
-  const html = buildNeighborFormHTML(d);
-  const w = window.open("", "_blank");
-  if (!w) { window.print(); return; }
-  w.document.write(`<!DOCTYPE html><html><head><title>Adjacent Property Owner Signature Form</title>
-    <meta charset="utf-8">
-    <style>
-      @page { margin: 16mm; size: letter; }
-      * { box-sizing: border-box; }
-      body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; font-size: 12px; line-height: 1.4; margin: 0; }
+      /* --- last page: adjacent-owner signature form (wet signatures) --- */
+      .nf-doc { font-size: 12px; line-height: 1.4; }
       .nf-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 8px; margin-bottom: 14px; }
       .nf-eyebrow { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
       .nf-title { font-family: Georgia, serif; font-size: 19px; font-weight: 600; line-height: 1.1; }
@@ -1869,56 +1794,102 @@ function printNeighborForm() {
   setTimeout(() => { w.print(); }, 350);
 }
 
-/* ----- EMAIL TO COMMITTEE ----- */
-const EMAIL_TO = "carolmarie.taylor@fsresidential.com,steven@stevenbrown.design";
+$("#do-print").addEventListener("click", () => printPreview());
 
-function openMailto(d) {
-  const subject = encodeURIComponent(
-    "ARC Application \u2013 " + (d.ownerName || "Applicant") + " \u2013 " + (d.propertyAddress || "")
-  );
-  // Attachment manifest \u2014 enumerate exactly which files belong on this email,
-  // so both the applicant and the reviewer can verify the packet is complete.
-  const plot = plotProvided();
-  const photos = photoChecklist();
-  const nf = neighborFormFiles();
-  const attach = [
-    "ARC application form PDF (saved from the online form" +
-    (plot.mode !== "upload" && plot.ok ? "; includes the drawn plot plan" : "") + ")"
-  ];
-  if (plot.mode === "upload" && plot.names.length) attach.push("Plot plan: " + plot.names.join(", "));
-  improvementChecklist().filter(it => it.file).forEach(it =>
-    attach.push("Example/catalog picture \u2014 " + it.name + ": " + it.file));
-  photos.filter(p => p.file).forEach(p => attach.push("Photo \u2014 " + p.title + ": " + p.file));
-  if (nf.length) attach.push("Signed neighbor signature form: " + nf.join(", "));
-  const missing = packetMissingList(false);
-  let bodyText =
-    "Please find attached my Architectural Review Committee application packet.\r\n\r\n" +
-    "Applicant: " + d.ownerName + "\r\n" +
-    "Property: " + d.propertyAddress + "\r\n" +
-    "Phone: " + d.ownerPhone + "\r\n" +
-    "Email: " + d.ownerEmail + "\r\n\r\n" +
-    "Attachment checklist \u2014 each of these should be attached to this email:\r\n" +
-    attach.map((a, i) => "  " + (i + 1) + ". " + a).join("\r\n") + "\r\n";
-  if (missing.length) {
-    bodyText +=
-      "\r\nStill outstanding (to follow separately):\r\n" +
-      missing.map(m => "  - " + m).join("\r\n") + "\r\n";
+// The one finish action — advisory review (never blocks), then open the
+// print/save-PDF view. The journey ends here: page 1 of the printed packet
+// carries the submission instructions, so the form has nothing left to do.
+$("#finish-pdf-btn")?.addEventListener("click", () => {
+  reviewThen(() => {
+    saveDraft(true);
+    printPreview();
+    status("Print view opened — choose “Save as PDF” or print copies. Page 1 of the packet explains how to submit it.", "ok");
+    // The draft (PII incl. the signature image) has served its purpose once the
+    // packet is saved — surface the delete offer here, in context. Not automatic:
+    // we can't observe the save, and the user may need the draft to revise.
+    const cleanup = $("#post-submit-cleanup");
+    if (cleanup) cleanup.hidden = false;
+  }, "Save the packet anyway");
+});
+
+/* ----- ADJACENT-OWNER SIGNATURE FORM -----
+   The last page of the printed packet: wet signatures, collected in person after
+   printing. Blank name/address rows — neighbors fill in their own details (the
+   on-form roster was removed when the journey became print-first). */
+function buildNeighborFormHTML(d) {
+  let rows = "";
+  for (let i = 0; i < 6; i++) {
+    rows += `<tr>
+      <td class="nf-num">${i + 1}</td>
+      <td></td>
+      <td></td>
+      <td class="nf-sig"></td>
+      <td class="nf-date"></td>
+    </tr>`;
   }
-  bodyText += "\r\n\u2014 Submitted via the Fairway Canyon HOA online form";
-  window.location.href = "mailto:" + EMAIL_TO + "?subject=" + subject + "&body=" + encodeURIComponent(bodyText);
+  // Summarize the proposed change for the neighbors from the Section 02 items,
+  // with the optional notes field as fallback for migrated pre-item drafts.
+  const changes = improvementRows(d).filter(it => it.name)
+    .map(it => `${ACTION_LABEL[it.action] ? ACTION_LABEL[it.action] + " — " : ""}${it.name}`);
+  const summary = changes.length ? changes.join("; ") : (d.proposal || "");
+  return `
+    <section class="print-page nf-doc">
+      <div class="nf-header">
+        <div>
+          <div class="nf-eyebrow">Fairway Canyon Homeowners Association</div>
+          <div class="nf-title">Adjacent Property Owner Signature Form</div>
+        </div>
+        <div class="nf-contact">Architectural Review Committee<br>carolmarie.taylor@fsresidential.com</div>
+      </div>
+
+      <table class="nf-info">
+        <tr>
+          <td class="nf-label">Applicant</td><td>${esc(d.ownerName) || "&nbsp;"}</td>
+          <td class="nf-label">Property</td><td>${esc(d.propertyAddress) || "&nbsp;"}</td>
+        </tr>
+      </table>
+
+      <div class="nf-section">Proposed Change</div>
+      <div class="nf-proposal">${esc(summary) || "&nbsp;"}</div>
+
+      <p class="nf-note">By signing below, I confirm that I am an adjacent property owner and that I have been made aware of the proposed change described above. <strong>My signature does not constitute approval or disapproval</strong> of the project &mdash; it confirms only that I was notified.</p>
+
+      <table class="nf-table">
+        <thead><tr><th class="nf-num">#</th><th>Adjacent Owner Name</th><th>Property Address</th><th>Signature</th><th>Date</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <p class="nf-footer">Scan or photograph this completed form and email it with your Architectural Review Committee application packet.</p>
+    </section>`;
 }
 
-/* ----- soft-gate: warn about missing packet items, allow explicit override ----- */
+/* ----- advisory review gate: list what's incomplete, but never block ----- */
 const gateModal = $("#packet-gate-modal");
 const gateMissingEl = $("#gate-missing");
+const gateContinueBtn = $("#gate-continue");
+let pendingGateAction = null;
 
-function openGateModal(missing) {
+// Show the review list. Each item with a target renders as a jump link that scrolls
+// there (user-initiated) and closes the modal; the Continue button runs onContinue.
+// Non-blocking by design — "Keep editing" or Continue, never a wall.
+function openGateModal(issues, onContinue, continueLabel) {
   gateMissingEl.textContent = "";
-  missing.forEach(m => {
+  issues.forEach(iss => {
     const li = document.createElement("li");
-    li.textContent = m;
+    if (iss.target) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "gate-jump";
+      btn.innerHTML = esc(iss.label) + " <span aria-hidden=\"true\">›</span>";
+      btn.addEventListener("click", () => { closeGateModal(); scrollToIssue(iss.target); });
+      li.appendChild(btn);
+    } else {
+      li.textContent = iss.label;
+    }
     gateMissingEl.appendChild(li);
   });
+  pendingGateAction = typeof onContinue === "function" ? onContinue : null;
+  gateContinueBtn.textContent = continueLabel || "Continue anyway";
   gateModal.hidden = false;
   document.body.style.overflow = "hidden";
 }
@@ -1927,34 +1898,12 @@ function closeGateModal() {
   document.body.style.overflow = "";
 }
 $$("[data-close]", gateModal).forEach(el => el.addEventListener("click", closeGateModal));
-
-// Shared email flow — both email buttons validate (they used to disagree),
-// then soft-gate on packet completeness before opening the mailto.
-function startEmailFlow() {
-  if (!modal.hidden) closeModal();
-  if (!validateOrFocus()) return;
-  status("");
-  const missing = packetMissingList(true);
-  if (missing.length) { openGateModal(missing); return; }
-  finishEmail();
-}
-
-function finishEmail() {
-  const d = collect();
-  saveDraft(true);
-  openMailto(d);
-  // The draft (PII incl. the signature image) has served its purpose once the email
-  // is sent — surface the delete offer here, in context, rather than nagging earlier.
-  // Not automatic: we can't observe whether the mail was actually sent, and the user
-  // may still need the draft to revise and resubmit.
-  const cleanup = $("#post-submit-cleanup");
-  if (cleanup) cleanup.hidden = false;
-  status("A pre-addressed email has been opened — attach each file in its checklist before sending.", "ok");
-}
-
-$("#email-btn").addEventListener("click", startEmailFlow);
-$("#do-email").addEventListener("click", startEmailFlow);
-$("#gate-send-anyway").addEventListener("click", () => { closeGateModal(); finishEmail(); });
+gateContinueBtn.addEventListener("click", () => {
+  const act = pendingGateAction;
+  pendingGateAction = null;
+  closeGateModal();
+  if (act) act();
+});
 
 /* ------------------------------------------------------
    DOWNLOAD JSON
