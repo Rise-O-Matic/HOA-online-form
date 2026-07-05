@@ -1722,31 +1722,13 @@ function printPreview() {
       .pagedjs_pages { background: #6b6b6b !important; padding: 4mm 0 !important; }
       .pagedjs_page { background: #fff !important; margin: 6mm auto !important; box-shadow: 0 3px 18px rgba(0,0,0,.32) !important; }
       @media print { .pagedjs_pages { background: #fff !important; padding: 0 !important; } .pagedjs_page { margin: 0 !important; box-shadow: none !important; } }
-      /* Screen-only toolbar (Sprint 17): the user drives Save-as-PDF / Print / Close from
-         here — we no longer auto-fire the print dialog. Hidden in @media print so it never
-         lands on a sheet; body padding keeps the first page clear of the fixed bar. */
-      @media screen {
-        body { padding-top: 58px !important; } /* !important: paged.js injects its own body styles after this */
-        .print-bar {
-          position: fixed; top: 0; left: 0; right: 0; z-index: 2147483000;
-          display: flex; align-items: center; gap: 16px;
-          min-height: 58px; padding: 8px 18px; box-sizing: border-box;
-          background: #1d1a17; color: #f4f1ec; box-shadow: 0 2px 12px rgba(0,0,0,.35);
-        }
-        .print-bar__title { font-weight: 600; font-size: 13px; }
-        .print-bar__hint { font-size: 11.5px; color: #b9b3aa; margin-top: 1px; }
-        .print-bar__spacer { flex: 1 1 auto; }
-        .print-bar__btn {
-          font: 600 13px 'Segoe UI', Arial, sans-serif; cursor: pointer;
-          border: 1px solid #4a453e; background: #2c2822; color: #f4f1ec;
-          padding: 8px 15px; border-radius: 6px;
-        }
-        .print-bar__btn:disabled { opacity: .45; cursor: default; }
-        .print-bar__btn--primary { background: #a4111f; border-color: #a4111f; }
-        .print-bar__btn--ghost { background: transparent; }
-        .print-bar__btn:not(:disabled):hover { filter: brightness(1.12); }
-      }
-      @media print { .print-bar { display: none !important; } }
+      /* NOTE: the Save/Print/Close toolbar is injected and FULLY INLINE-STYLED from the
+         parent window (see attachPrintBar), deliberately with no rules here. paged.js
+         disables the author stylesheet in its on-screen preview and re-applies @media print
+         rules to it — so styling the bar here did nothing, and an @media print{display:none}
+         rule got extracted and hid the bar in the very preview it belongs in (the first two
+         attempts' "no bar" bug). Inline styles can't be disabled/extracted; the bar is hidden
+         from real printouts via beforeprint/afterprint in JS instead of @media print. */
       /* --- page 1: submission instructions --- */
       .print-steps { margin: 8px 0 10px; padding-left: 20px; font-size: 11.5px; }
       .print-steps li { margin-bottom: 9px; }
@@ -1814,46 +1796,65 @@ function printPreview() {
       .nf-footer { font-size: 9px; color: #999; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
     </style></head><body>
     ${html}
-    <script>
-      // Screen-only toolbar (Sprint 17): the user drives Save-as-PDF / Print / Close — no
-      // auto-fired print dialog. It's BUILT IN JS AND APPENDED AFTER paged.js renders, not
-      // written into the body markup: paged.js paginates whatever body content exists at
-      // load, so a toolbar placed there gets swallowed into the page flow (that was the
-      // "no floating header" bug). Appending it in PagedConfig.after makes it a sibling of
-      // .pagedjs_pages, so position:fixed floats it over the paginated sheets. If paged.js
-      // never loads (offline / file missing), a 5s fallback + the <script> onerror build it
-      // anyway so the native @page flow is still drivable.
-      (function(){
-        var built = false;
-        function build(){
-          if (built) return; built = true;
-          var bar = document.createElement('div');
-          bar.className = 'print-bar';
-          bar.setAttribute('role', 'toolbar');
-          bar.setAttribute('aria-label', 'Packet actions');
-          bar.innerHTML =
-            '<div><div class="print-bar__title">Your application packet</div>' +
-            '<div class="print-bar__hint">For a PDF, choose “Save as PDF” as the destination in the print dialog.</div></div>' +
-            '<div class="print-bar__spacer"></div>' +
-            '<button type="button" class="print-bar__btn" data-act="print">Print</button>' +
-            '<button type="button" class="print-bar__btn print-bar__btn--primary" data-act="print">Save as PDF</button>' +
-            '<button type="button" class="print-bar__btn print-bar__btn--ghost" data-act="close">Close</button>';
-          document.body.appendChild(bar);
-          function doPrint(){ try { window.focus(); window.print(); } catch(e){} }
-          bar.querySelectorAll('[data-act]').forEach(function(b){
-            b.addEventListener('click', b.getAttribute('data-act') === 'close'
-              ? function(){ window.close(); } : doPrint);
-          });
-        }
-        window.__buildBar = build;
-        window.PagedConfig = { auto: true, after: function(){ build(); } };
-        setTimeout(build, 5000);
-      })();
-    <\/script>
-    <script src="${pagedSrc}" onerror="window.__buildBar && window.__buildBar()"><\/script>
+    <script src="${pagedSrc}"><\/script>
     </body></html>`);
   w.document.close();
   w.focus();
+
+  // Attach the screen-only toolbar from HERE, the PARENT window — NOT from inside the popup.
+  // Two earlier in-popup attempts failed outright (bar missing completely): paged.js
+  // paginates whatever is in the popup <body> at load, and driving the injection off its
+  // own hooks proved unreliable. The popup is same-origin (about:blank we wrote), so instead
+  // we poll it from here and append the bar once paged.js has produced .pagedjs_pages — or
+  // after a short cap if paged.js never loads (the native @page flow is still drivable). The
+  // buttons drive the popup's own print()/close(). paged.js (.polyfill build) auto-runs
+  // without a PagedConfig, so the running-header @page margin boxes are unaffected.
+  let barTries = 0;
+  const attachPrintBar = () => {
+    if (w.closed) return;
+    let doc;
+    try { doc = w.document; } catch (_) { return; } // cross-origin guard (shouldn't happen for about:blank)
+    if (doc && doc.querySelector(".print-bar")) return; // already attached
+    const ready = doc && doc.body && (doc.querySelector(".pagedjs_pages") || barTries >= 20);
+    if (!ready) { barTries++; setTimeout(attachPrintBar, 160); return; } // wait for pagination, ~3.2s cap
+    // Everything INLINE-styled on purpose: paged.js disables the author stylesheet in its
+    // preview, so class rules render nothing; inline styles survive.
+    const bar = doc.createElement("div");
+    bar.className = "print-bar";
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "Packet actions");
+    bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483000;display:flex;align-items:center;gap:16px;min-height:58px;padding:8px 18px;box-sizing:border-box;background:#1d1a17;color:#f4f1ec;box-shadow:0 2px 12px rgba(0,0,0,.35);font-family:'Segoe UI',Arial,sans-serif;";
+    const label = doc.createElement("div");
+    label.innerHTML = '<div style="font-weight:600;font-size:13px">Your application packet</div>'
+      + '<div style="font-size:11.5px;color:#b9b3aa;margin-top:1px">For a PDF, choose “Save as PDF” as the destination in the print dialog.</div>';
+    bar.appendChild(label);
+    const spacer = doc.createElement("div"); spacer.style.flex = "1 1 auto"; bar.appendChild(spacer);
+    const btnBase = "font:600 13px 'Segoe UI',Arial,sans-serif;cursor:pointer;border:1px solid #4a453e;background:#2c2822;color:#f4f1ec;padding:8px 15px;border-radius:6px;";
+    const doPrint = () => { try { w.focus(); w.print(); } catch (_) {} };
+    const addBtn = (text, variant, onClick) => {
+      const b = doc.createElement("button");
+      b.type = "button"; b.textContent = text;
+      b.style.cssText = btnBase + (variant === "primary" ? "background:#a4111f;border-color:#a4111f;"
+        : variant === "ghost" ? "background:transparent;" : "");
+      b.addEventListener("click", onClick);
+      bar.appendChild(b);
+    };
+    addBtn("Print", "", doPrint);
+    addBtn("Save as PDF", "primary", doPrint);
+    addBtn("Close", "ghost", () => w.close());
+    doc.body.appendChild(bar);
+    doc.body.style.paddingTop = "58px"; // clear the fixed bar in the preview
+    // Hide the bar (and its spacer padding) from ACTUAL printouts. We can't use @media print
+    // — paged.js re-applies print rules to its on-screen preview, which would hide it there
+    // too — so toggle inline around the print event instead.
+    const setHidden = h => { bar.style.display = h ? "none" : "flex"; doc.body.style.paddingTop = h ? "0" : "58px"; };
+    try { w.addEventListener("beforeprint", () => setHidden(true)); w.addEventListener("afterprint", () => setHidden(false)); } catch (_) {}
+    try {
+      const mq = w.matchMedia("print"); const onMq = e => setHidden(e.matches);
+      mq.addEventListener ? mq.addEventListener("change", onMq) : mq.addListener(onMq);
+    } catch (_) {}
+  };
+  setTimeout(attachPrintBar, 150);
 }
 
 // The one finish action — advisory review (never blocks), then open the
