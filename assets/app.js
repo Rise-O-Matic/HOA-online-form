@@ -20,6 +20,10 @@ import {
   parcelBearing, selectedAPN, selectedParcelGeoJSON, mapInstance
 } from "./map-wizard.js";
 import { registerDropzone, DROPZONE_ICON } from "./dropzone.js";
+import {
+  idbAvailable, saveAttachment, loadAttachment, delAttachment,
+  clearAttachments, clearAllAttachments
+} from "./attach-store.js";
 
 const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
 const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
@@ -343,18 +347,30 @@ function renumberImprovements() {
   });
 }
 
-function addImprovement() {
+// Stable per-row id for keying the improvement's picture in IndexedDB — survives the
+// display renumbering (which reassigns the visible label) AND a save/restore round trip
+// (persisted in items[].uid), where the monotonic data-improvement idx does NOT (restore
+// re-counts rows from 1). So a restored row rehydrates the right stored blob.
+let impUidSeq = 0;
+function newImpUid() { return "iu-" + Date.now().toString(36) + "-" + (impUidSeq++).toString(36); }
+
+function addImprovement(uid) {
   improvementCount++;
   const wrap = document.createElement("div");
   wrap.innerHTML = improvementTemplate(improvementCount).trim();
   const node = wrap.firstChild;
+  node.dataset.impUid = uid || newImpUid();
   improvementList.appendChild(node);
   $(".improvement__remove", node).addEventListener("click", () => {
+    const rowUid = node.dataset.impUid;
     node.remove();
+    // The row's stored picture goes with it (no orphan blob in IDB).
+    if (idbAvailable() && appRefId) delAttachment(appRefId, "imp:" + rowUid).catch(() => {});
     // Keep at least one item so "name required per item" always demands one named change.
     if (!$$(".improvement", improvementList).length) addImprovement();
     renumberImprovements();
     updateProgress();
+    scheduleAutosave();
   });
   $("[data-imp-category]", node).addEventListener("change", () => applyImprovementSchema(node));
   $("[data-imp-action]", node).addEventListener("change", () => {
@@ -362,7 +378,10 @@ function addImprovement() {
     updateImprovementStatus(node.dataset.improvement);
   });
   const photoInput = $(`[data-imp-photo="${improvementCount}"]`, node);
-  photoInput.addEventListener("change", () => updateImprovementStatus(node.dataset.improvement));
+  photoInput.addEventListener("change", () => {
+    updateImprovementStatus(node.dataset.improvement);
+    persistAttachment("imp:" + node.dataset.impUid, photoInput);
+  });
   registerDropzone(photoInput.closest(".dropzone"), photoInput);
   applyImprovementSchema(node);
   renumberImprovements();
@@ -400,6 +419,7 @@ function improvementItems() {
     const idx = node.dataset.improvement;
     const input = $(`[data-imp-photo="${idx}"]`, node);
     return {
+      uid: node.dataset.impUid, // stable IDB key for the row's picture (survives renumbering)
       category: $("[data-imp-category]", node)?.value || DEFAULT_CATEGORY,
       action: $("[data-imp-action]", node)?.value || "add",
       name: $("[data-imp-name]", node)?.value.trim() || "",
@@ -639,7 +659,10 @@ function buildPhotoRequests() {
   photoRequestsEl.appendChild(photoGroup("closeup", "Work-area close-ups", [PHOTO_CLOSEUP]));
   photoRequestsEl.appendChild(photoGroup("material", "Color / material sample", [PHOTO_MATERIAL]));
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
-    input.addEventListener("change", () => updatePhotoStatus(input.dataset.photoInput));
+    input.addEventListener("change", () => {
+      updatePhotoStatus(input.dataset.photoInput);
+      persistAttachment("photo:" + input.dataset.photoInput, input);
+    });
     // The whole card is the drop/paste target — the dropzone frame inside it is
     // hidden once a photo is attached (.has-thumb), but dropping on the card
     // still replaces the shot.
@@ -660,6 +683,8 @@ function buildPhotoRequests() {
       const inp = $(`[data-photo-input="${id}"]`, photoRequestsEl);
       if (inp) inp.value = "";
       updatePhotoStatus(id);
+      // Programmatic clear fires no change event — mirror the removal into IDB by hand.
+      if (inp) persistAttachment("photo:" + id, inp);
       updateProgress();
       scheduleAutosave();
       return;
@@ -677,6 +702,8 @@ function buildPhotoRequests() {
         inp.files = dt.files;
       }
       updatePhotoStatus(id);
+      // Rebuilding the FileList fires no change event — mirror the shorter list into IDB.
+      if (inp) persistAttachment("photo:" + id, inp);
       updateProgress();
       scheduleAutosave();
     }
@@ -1111,6 +1138,78 @@ function collect() {
    DRAFT PERSISTENCE
 ------------------------------------------------------ */
 const saveWarningEl = $("#save-warning");
+
+/* ----- ATTACHMENT PERSISTENCE (IndexedDB, via attach-store.js) -----
+   File inputs only hold bytes for the session and the localStorage draft persists
+   filenames only — so photos, improvement pictures, and the plot upload used to reload
+   as a "previously attached" note with no image. We mirror every attach/replace/remove
+   into IndexedDB keyed by the draft's refId, and rehydrate live Files (via DataTransfer)
+   on restore. Degrades gracefully: if IDB is unavailable or a write throws, the
+   filename-only is-prior path still stands. (Signatures + plot state stay in
+   localStorage; only file bytes move to IDB.) */
+
+// Suppresses persist-on-change while restore is pushing stored Files back into inputs
+// (the synthetic `change` we fire there would otherwise re-write what we just read).
+let rehydratingAttachments = false;
+
+// Mirror an input's current files to IDB (or clear the key when empty). Also nudges
+// autosave so the draft carries the refId these blobs are stored under before any reload
+// — without that, restore couldn't find them. Fire-and-forget; a failure lights the same
+// #save-warning indicator the localStorage path uses.
+function persistAttachment(inputKey, input) {
+  if (rehydratingAttachments) return;
+  scheduleAutosave(); // keep the draft (and its refId) current whenever attachments change
+  if (!idbAvailable()) return;
+  saveAttachment(getRefId(), inputKey, input.files)
+    .catch(() => { if (saveWarningEl) saveWarningEl.hidden = false; });
+}
+
+// Push stored Files into an input and let its existing change-listeners light up the UI
+// (thumbnail, status, progress) — the same path a real attach takes, so restored
+// attachments are indistinguishable from freshly-attached ones. No-op if nothing's stored.
+async function hydrateInput(input, inputKey) {
+  if (!input || !appRefId) return false;
+  let files;
+  try { files = await loadAttachment(appRefId, inputKey); } catch (e) { return false; }
+  if (!files.length) return false;
+  const dt = new DataTransfer();
+  files.forEach(f => dt.items.add(f));
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+// After a draft restore, upgrade every is-prior filename note to a live attachment
+// wherever the bytes still live in IDB. Runs async (IDB reads are promises) so
+// restoreDraft() stays synchronous; missing blobs simply leave is-prior in place.
+async function rehydrateAttachments(d) {
+  if (!idbAvailable() || !appRefId) return;
+  rehydratingAttachments = true;
+  try {
+    for (const id of Object.keys(d.photos || {})) {
+      await hydrateInput($(`[data-photo-input="${id}"]`, photoRequestsEl), "photo:" + id);
+    }
+    for (const node of $$(".improvement", improvementList)) {
+      await hydrateInput($("input[data-imp-photo]", node), "imp:" + node.dataset.impUid);
+    }
+    await hydrateInput(plotUploadInput, "plot");
+  } finally {
+    rehydratingAttachments = false;
+  }
+  updateProgress();
+}
+
+// Purge this draft's stored file bytes — paired with deleteDraft() (PII hygiene).
+async function wipeCurrentAttachments() {
+  if (!idbAvailable() || !appRefId) return;
+  try { await clearAttachments(appRefId); } catch (e) {}
+}
+
+// The plot upload (Section 03) is owned by map-wizard.js (it renders the file list on
+// change); we add our own change listener here so its bytes persist to IDB too. Both
+// listeners fire on the rehydrate synthetic change — ours is gated by the flag above.
+plotUploadInput.addEventListener("change", () => persistAttachment("plot", plotUploadInput));
+
 function saveDraft(silent) {
   const d = collect();
   try {
@@ -1169,7 +1268,7 @@ function restoreDraft() {
   if (Array.isArray(d.items) && d.items.length) {
     improvementList.innerHTML = ""; improvementCount = 0;
     d.items.forEach(it => {
-      const node = addImprovement();
+      const node = addImprovement(it.uid); // reuse the saved uid so its stored picture rehydrates
       const idx = node.dataset.improvement;
       const catSel = $("[data-imp-category]", node);
       if (catSel && it.category && CATEGORY_MAP[it.category]) catSel.value = it.category;
@@ -1243,22 +1342,27 @@ function restoreDraft() {
     if (notice) notice.hidden = false;
     saveDraft(true); // persist the migrated fields under the new key so this only runs once
   }
+  // Upgrade is-prior filename notes to live attachments wherever the bytes survive in IDB
+  // (async, fire-and-forget — restore stays synchronous and returns true for the caller).
+  rehydrateAttachments(d);
   setTimeout(updateProgress, 200);
   status("Draft restored from your last session.", "ok");
   return true;
 }
 
 $("#save-draft").addEventListener("click", () => saveDraft(false));
-$("#clear-draft").addEventListener("click", () => {
+$("#clear-draft").addEventListener("click", async () => {
   if (!confirm("Clear all fields and delete the saved draft?")) return;
+  await wipeCurrentAttachments(); // clear stored file bytes before the reload cancels the async delete
   deleteDraft();
   location.reload();
 });
 // Post-submission cleanup — same action, offered in context once the packet has
-// been saved (the draft holds PII including the signature image; see the
-// #finish-pdf-btn handler).
-$("#post-submit-clear")?.addEventListener("click", () => {
-  if (!confirm("Delete the saved application draft (including your signature) from this browser?")) return;
+// been saved (the draft holds PII including the signature image + the attached
+// photo bytes; see the #finish-pdf-btn handler).
+$("#post-submit-clear")?.addEventListener("click", async () => {
+  if (!confirm("Delete the saved application draft (including your signature and attached photos) from this browser?")) return;
+  await wipeCurrentAttachments();
   deleteDraft();
   location.reload();
 });
@@ -2033,6 +2137,8 @@ window.addEventListener("scroll", () => {
 // The param is stripped from the URL afterward so an ordinary reload doesn't keep wiping.
 if (new URLSearchParams(location.search).has("reset") || location.hash === "#reset") {
   deleteDraft();
+  // No refId adopted yet at this point, so purge the whole attachment store (fire-and-forget).
+  if (idbAvailable()) clearAllAttachments().catch(() => {});
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
 }
 

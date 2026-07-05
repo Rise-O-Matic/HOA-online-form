@@ -9,7 +9,9 @@ data can also be exported as JSON.
 Plain HTML/CSS/JS — no build step, no npm dependencies. Behavior is native ES modules
 under `assets/` (entry `app.js`; pure geometry in `geometry.js` is unit-tested with
 `node --test`). Maps come from MapLibre GL + Riverside County GIS; the plot-plan drawing
-surface is Konva.js (both vendored as pinned builds in `assets/vendor/`).
+surface is Konva.js; the print packet is paginated with Paged.js; file attachments persist
+across reloads via IndexedDB (idb-keyval). All four are vendored as pinned builds in
+`assets/vendor/` (Google Fonts is the one remaining CDN dependency, degrading gracefully).
 
 - **Run locally:** `python -m http.server 8000`, then visit `http://localhost:8000`
   (a real http origin is required — ES modules, county GIS calls and map tiles don't work over `file://`).
