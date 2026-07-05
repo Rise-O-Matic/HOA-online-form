@@ -1413,43 +1413,21 @@ form.addEventListener("input", e => {
 });
 
 /* ------------------------------------------------------
-   PREVIEW + PRINT
+   PRINT
+   The stripped-down "Preview first" modal was removed in Sprint 17 — it looked
+   nothing like the printed packet. The finish flow now opens the paged.js render
+   directly (see printPreview), which is a faithful WYSIWYG of what prints.
 ------------------------------------------------------ */
-const modal = $("#preview-modal");
-const previewContent = $("#preview-content");
-
-const yn = b => b ? '<span class="yes">✓ Included</span>' : '<span class="no">— not checked</span>';
-const sigImg = url => url ? `<img class="sig-img" src="${url}" alt="signature" />` : '<span class="no">— not signed</span>';
-// Owner signature per the selected method: drawn ink image, or the typed name set in a script face.
-const ownerSigHTML = d => d.ownerSigMethod === "type"
-  ? (d.ownerTypedSignature
-      ? `<span class="sig-typed-preview">${esc(d.ownerTypedSignature)}</span> <span class="no">(typed signature)</span>`
-      : '<span class="no">— not signed</span>')
-  : sigImg(d.ownerAckSignature);
-
 const SUB_LABELS = {
   req_plot: "Plot design with modification marked",
   req_photos: "Property photos (Section 04)"
 };
 
-function photoPreviewHTML(d) {
-  const areas = Object.entries(d.photoAreas || {})
-    .filter(([, v]) => v)
-    .map(([k]) => PHOTO_SPECS[k] ? PHOTO_SPECS[k].label : k);
-  const areaLine = areas.length
-    ? `<p><strong>Areas affected:</strong> ${areas.map(esc).join(", ")}${d.photoMaterial === "yes" ? ", plus a new color/material sample" : ""}</p>`
-    : '<p class="no">No areas selected — no photos requested.</p>';
-  const attached = Object.entries(d.photos || {});
-  const list = attached.length
-    ? `<ul class="doc-list">${attached.map(([id, name]) => `<li>${esc(photoTitle(id))} — <span class="yes">✓ ${esc(Array.isArray(name) ? name.join(", ") : name)}</span></li>`).join("")}</ul>`
-    : (areas.length ? '<p class="no">No photos attached yet.</p>' : "");
-  return areaLine + list;
-}
-
 // Auto legend beside the drawn plan: a swatch + name for every material actually painted
 // (incl. retired and custom ids) and a glyph + name for every stamp symbol placed. Without
 // this the reviewer's PDF shows colored regions with no key at all. `cls` is the CSS block
-// name — "plot-legend" (preview modal, styles.css) or "print-legend" (print doc's inline styles).
+// name — "print-legend" (print doc's inline styles); the preview-modal "plot-legend" caller
+// was removed in Sprint 17.
 function plotLegendHTML(cls) {
   const { materials, stamps } = plotLegend();
   if (!materials.length && !stamps.length) return "";
@@ -1497,51 +1475,6 @@ function improvementsTableHTML(d, opts) {
       <thead><tr><th>Action</th><th>Type</th><th>Item</th><th>Materials / details</th><th>Dimensions</th><th>Example picture</th></tr></thead>
       <tbody>${body}</tbody>
     </table>` + notes;
-}
-
-function buildPreview(d) {
-  // Submission items are derived/attested state, not checkboxes — "missing" reads better than "not checked"
-  const subYn = b => b ? '<span class="yes">✓ Included</span>' : '<span class="no">— missing</span>';
-  const subs = Object.entries(SUB_LABELS).map(([k, label]) =>
-    `<li>${esc(label)} — ${subYn(d.submissions[k])}</li>`).join("");
-  const acks = ACKS.map((_, i) => {
-    const k = "ack_" + (i + 1);
-    return `<li>Item ${i + 1} — ${yn(d.acks[k])}</li>`;
-  }).join("");
-
-  return `
-    <div class="doc">
-      <h3>Applicant Information</h3>
-      <dl>
-        <dt>Homeowner(s)</dt><dd>${esc(d.ownerName) || '<span class="no">—</span>'}</dd>
-        <dt>Property Address</dt><dd>${esc(d.propertyAddress) || '<span class="no">—</span>'}</dd>
-        <dt>Phone</dt><dd>${esc(d.ownerPhone) || '<span class="no">—</span>'}</dd>
-        <dt>E-Mail</dt><dd>${esc(d.ownerEmail) || '<span class="no">—</span>'}</dd>
-      </dl>
-
-      <h3>Required Submissions</h3>
-      <ul class="doc-list">${subs}</ul>
-
-      <h3>Site / Plot Plan</h3>
-      ${d.planMode === "upload"
-        ? (d.plotUpload && d.plotUpload.length
-            ? `<p><span class="yes">✓ Uploaded</span> — ${d.plotUpload.map(esc).join(", ")}</p>`
-            : '<p class="no">Upload selected — no file attached yet.</p>')
-        : (plotUsed() ? `<img class="plot-img" src="${renderPlotImage()}" alt="Site plan" />${plotLegendHTML("plot-legend")}` : '<p class="no">No site plan drawn.</p>')}
-
-      <h3>Photos</h3>
-      ${photoPreviewHTML(d)}
-
-      <h3>Proposed Improvements</h3>
-      ${improvementsTableHTML(d, { cls: "doc-table improvements-table", noteCls: "doc-note" })}
-
-      <h3>Owner Acknowledgments</h3>
-      <ul class="doc-list">${acks}</ul>
-      <dl style="margin-top:.6rem">
-        <dt>Owner Signature</dt><dd>${ownerSigHTML(d)}</dd>
-        <dt>Date</dt><dd>${esc(d.ackDate) || '<span class="no">—</span>'}</dd>
-      </dl>
-    </div>`;
 }
 
 /* The 2026 review-date table from the source form's "Architectural Review Dates"
@@ -1726,24 +1659,15 @@ function buildPrintHTML(d) {
     </div>`;
 }
 
-function openModal() { modal.hidden = false; document.body.style.overflow = "hidden"; }
-function closeModal() { modal.hidden = true; document.body.style.overflow = ""; }
-$$("[data-close]", modal).forEach(el => el.addEventListener("click", closeModal));
+// The preview modal is gone (Sprint 17); only the gate modal remains for Escape.
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (!gateModal.hidden) closeGateModal();
-  else if (!modal.hidden) closeModal();
 });
 
-form.addEventListener("submit", e => {
-  e.preventDefault();
-  // Preview is a harmless read-only look — always open it, even on a partial form.
-  status("");
-  const d = collect();
-  saveDraft(true);
-  previewContent.innerHTML = buildPreview(d);
-  openModal();
-});
+// No submit button remains, but Enter in a text field can still fire a form submit —
+// swallow it so the page can't reload. The finish action is the #finish-pdf-btn handler.
+form.addEventListener("submit", e => e.preventDefault());
 
 // Escape a value for use as a CSS string literal (paged.js margin-box `content`).
 // `<` is hex-escaped (\3c) so a field containing "</style>" can't break out of the
@@ -1798,6 +1722,31 @@ function printPreview() {
       .pagedjs_pages { background: #6b6b6b !important; padding: 4mm 0 !important; }
       .pagedjs_page { background: #fff !important; margin: 6mm auto !important; box-shadow: 0 3px 18px rgba(0,0,0,.32) !important; }
       @media print { .pagedjs_pages { background: #fff !important; padding: 0 !important; } .pagedjs_page { margin: 0 !important; box-shadow: none !important; } }
+      /* Screen-only toolbar (Sprint 17): the user drives Save-as-PDF / Print / Close from
+         here — we no longer auto-fire the print dialog. Hidden in @media print so it never
+         lands on a sheet; body padding keeps the first page clear of the fixed bar. */
+      @media screen {
+        body { padding-top: 58px; }
+        .print-bar {
+          position: fixed; top: 0; left: 0; right: 0; z-index: 2147483000;
+          display: flex; align-items: center; gap: 16px;
+          min-height: 58px; padding: 8px 18px; box-sizing: border-box;
+          background: #1d1a17; color: #f4f1ec; box-shadow: 0 2px 12px rgba(0,0,0,.35);
+        }
+        .print-bar__title { font-weight: 600; font-size: 13px; }
+        .print-bar__hint { font-size: 11.5px; color: #b9b3aa; margin-top: 1px; }
+        .print-bar__spacer { flex: 1 1 auto; }
+        .print-bar__btn {
+          font: 600 13px 'Segoe UI', Arial, sans-serif; cursor: pointer;
+          border: 1px solid #4a453e; background: #2c2822; color: #f4f1ec;
+          padding: 8px 15px; border-radius: 6px;
+        }
+        .print-bar__btn:disabled { opacity: .45; cursor: default; }
+        .print-bar__btn--primary { background: #a4111f; border-color: #a4111f; }
+        .print-bar__btn--ghost { background: transparent; }
+        .print-bar__btn:not(:disabled):hover { filter: brightness(1.12); }
+      }
+      @media print { .print-bar { display: none !important; } }
       /* --- page 1: submission instructions --- */
       .print-steps { margin: 8px 0 10px; padding-left: 20px; font-size: 11.5px; }
       .print-steps li { margin-bottom: 9px; }
@@ -1864,31 +1813,45 @@ function printPreview() {
       .nf-date { width: 92px; }
       .nf-footer { font-size: 9px; color: #999; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
     </style></head><body>
+    <div class="print-bar" role="toolbar" aria-label="Packet actions">
+      <div>
+        <div class="print-bar__title">Your application packet</div>
+        <div class="print-bar__hint" id="pb-status">Preparing preview&hellip;</div>
+      </div>
+      <div class="print-bar__spacer"></div>
+      <button type="button" class="print-bar__btn" id="pb-print" disabled>Print</button>
+      <button type="button" class="print-bar__btn print-bar__btn--primary" id="pb-save" disabled>Save as PDF</button>
+      <button type="button" class="print-bar__btn print-bar__btn--ghost" id="pb-close">Close</button>
+    </div>
     ${html}
     <script>
-      // Print once paged.js has laid out the pages (config.after), or fall back to the raw
-      // @page flow if it never starts (offline / file missing). __printed guards double-firing.
-      window.__printed = false;
-      window.__pagedStarted = false;
-      window.__doPrint = function(){
-        if (window.__printed) return;
-        window.__printed = true;
-        setTimeout(function(){ try { window.focus(); window.print(); } catch(e){} }, 200);
-      };
-      window.PagedConfig = {
-        auto: true,
-        before: function(){ window.__pagedStarted = true; },
-        after: function(){ window.__doPrint(); }
-      };
-      setTimeout(function(){ if (!window.__pagedStarted) window.__doPrint(); }, 5000);
+      // User-driven (Sprint 17): the toolbar buttons open the print dialog — we no longer
+      // auto-fire it. Buttons stay disabled until paged.js finishes laying out the pages
+      // (PagedConfig.after), so a click can't print a half-paginated doc. If paged.js never
+      // loads (offline / file missing), a 5s fallback — and the <script> onerror — enables
+      // them anyway so the native @page flow can still be printed: the flow, not nothing.
+      (function(){
+        var ready = false;
+        function markReady(){
+          if (ready) return; ready = true;
+          var s = document.getElementById('pb-status');
+          if (s) s.textContent = 'For a PDF, choose “Save as PDF” as the destination in the print dialog.';
+          ['pb-print','pb-save'].forEach(function(id){ var b = document.getElementById(id); if (b) b.disabled = false; });
+        }
+        window.__markReady = markReady;
+        function doPrint(){ try { window.focus(); window.print(); } catch(e){} }
+        var bp = document.getElementById('pb-print'); if (bp) bp.addEventListener('click', doPrint);
+        var bs = document.getElementById('pb-save');  if (bs) bs.addEventListener('click', doPrint);
+        var bc = document.getElementById('pb-close'); if (bc) bc.addEventListener('click', function(){ window.close(); });
+        window.PagedConfig = { auto: true, after: function(){ markReady(); } };
+        setTimeout(markReady, 5000);
+      })();
     <\/script>
-    <script src="${pagedSrc}" onerror="window.__doPrint()"><\/script>
+    <script src="${pagedSrc}" onerror="window.__markReady && window.__markReady()"><\/script>
     </body></html>`);
   w.document.close();
   w.focus();
 }
-
-$("#do-print").addEventListener("click", () => printPreview());
 
 // The one finish action — advisory review (never blocks), then open the
 // print/save-PDF view. The journey ends here: page 1 of the printed packet

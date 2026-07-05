@@ -580,7 +580,6 @@
               <p class="finish-step__note"><strong>No payment is due now.</strong> The fee is collected only after Carol reviews your application and confirms it&rsquo;s complete — she&rsquo;ll contact you directly to collect it, and a receipt is emailed to you.</p>
               <div class="finish-step__actions">
                 <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save &amp; print packet</button>
-                <button type="submit" class="btn btn--ghost">Preview first</button>
               </div>
             </div>
           </div>
@@ -613,23 +612,7 @@
   </main>
 </div>
 
-<!-- ===================== PREVIEW MODAL ===================== -->
-<div class="modal" id="preview-modal" hidden>
-  <div class="modal__backdrop" data-close></div>
-  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="preview-title">
-    <header class="modal__head">
-      <h2 id="preview-title">Application Preview</h2>
-      <button type="button" class="modal__x" data-close aria-label="Close">&times;</button>
-    </header>
-    <div class="modal__scroll" id="preview-content"></div>
-    <footer class="modal__foot">
-      <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
-      <button type="button" class="btn btn--primary" id="do-print">Save &amp; print packet</button>
-    </footer>
-  </div>
-</div>
-
-<!-- ===================== PACKET GATE MODAL (soft-gate before email) ===================== -->
+<!-- ===================== PACKET GATE MODAL (advisory review before print) ===================== -->
 <div class="modal" id="packet-gate-modal" hidden>
   <div class="modal__backdrop" data-close></div>
   <div class="modal__panel modal__panel--sm" role="dialog" aria-modal="true" aria-labelledby="gate-title">

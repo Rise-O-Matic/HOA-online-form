@@ -192,6 +192,71 @@ The three 2026-07-04 architecture questions, researched 2026-07-04 (web pass ove
 - [ ] **Improvements ↔ plot cross-check** (Sprint 9 v2 nicety, sharper since categories) — compare the item list against `plotLegend()` and nudge on mismatches ("you painted Concrete on the plan but no improvement item mentions it"); only structure/hardscape/pool categories are expected on the plan.
 - [ ] **Per-category required-field enforcement** (Sprint 11 deferral) — e.g. paint items really do need the color code; plants really do need type & quantity. Today only the name is `[required]`.
 
+## Print-packet overhaul (Sprints 17–22) — 2026-07-05 user request
+
+The print packet has drifted from the form: the Preview modal looks nothing like the printed output, photos never make it into the PDF (page 2 carries only a "N photos attached" text note), attachments can't survive a reload (file bytes are dropped, restore shows `is-prior`), and the cover/finish framing predates the print-first journey. Six sprints realign it. **User-prioritized ahead of the still-open Sprints 14–16** (callout anatomy / submission decision / cross-checks), which stay queued.
+
+**Pivotal architecture decision — LOCKED to Path A (2026-07-05 user decision).** Keep paged.js HTML-print; do *not* rewrite to client-side PDF generation.
+- **Path A — stay on paged.js ✅ chosen.** The browser's Save-as-PDF does the final encode. We control size by feeding it *pre-compressed* JPEGs (item 3 = a best-effort budget, not a hard cap) and add Adobe Sign fields as **text tags** (item 7). Incremental; fits the mockup; no new heavy dependency.
+- **Path B — generate with pdf-lib/jsPDF (not chosen).** Full control: a *hard* <25 MB cap (we embed exactly our compressed JPEGs) and **real AcroForm signature fields**. But it means abandoning the HTML/CSS/paged.js layout and re-laying every page by hand — a large rewrite — and it contradicts item 1's "paged.js render." Kept documented as the escalation path *only if* best-effort sizing (Sprint 19) or text tags (Sprint 22) prove insufficient in practice.
+
+All sprints below build on **Path A**. Build-vs-buy: IndexedDB persistence (Sprint 18) uses vendored **idb-keyval** (~600 B gzipped, MIT) rather than a hand-rolled store; Adobe fields (Sprint 22) use Adobe Acrobat Sign's documented text-tag syntax, no library.
+
+## Sprint 17 — Print entry: drop the Preview modal, drive the render from a header (item 1) ✅ 2026-07-05
+
+The "Preview first" modal (`buildPreview()`) rendered a stripped-down HTML view that looked nothing like the paged.js print, so it misled more than it helped. Send the user straight to the real render and let them drive it.
+
+- [x] **Removed the preview path** — deleted `#preview-modal`, `buildPreview()`, `photoPreviewHTML()`, the `ownerSigHTML`/`sigImg`/`yn` preview helpers, the `#do-print` button, the "Preview first" `type=submit` button, the form `submit`→preview handler (replaced by a bare `preventDefault` so Enter can't reload), and the `openModal`/`closeModal`/preview-Escape wiring. `SUB_LABELS` / `improvementsTableHTML` / `plotLegendHTML` kept (print-only callers now).
+- [x] **Header controls in the render popup** — `printPreview()` injects a `@media screen`-only `.print-bar` toolbar (**Save as PDF** / **Print** / **Close**), hidden in `@media print`; body `padding-top` keeps the first sheet clear of the fixed bar. Auto-`window.print()` is gone — the buttons drive it and stay disabled until `PagedConfig.after` fires (a 5s timer + the `<script onerror>` enable them anyway if paged.js won't load, so the native `@page` flow can still print). The Save/Print buttons both open the print dialog; the status line tells the user to pick "Save as PDF" as the destination.
+- [x] The finish button (`#finish-pdf-btn`) still runs `reviewThen(...)` first (advisory gate, reframed in Sprint 20), then opens the render.
+
+Deferred to a later sweep: the now-dead preview-only CSS in styles.css (`.doc*` / `.plot-legend` / `.sig-*` / `.yes` / `.no`) — harmless. `node --check` clean on app.js; 31/31 geometry tests. **Needs the user's eyes:** the render popup's toolbar look/behavior (buttons enable after pagination; Save-as-PDF destination; Close), since the print popup isn't reliably drivable from this agent's browser automation.
+
+## Sprint 18 — Attachments that survive a reload: IndexedDB photo storage (item 5)
+
+Today every file input holds bytes only for the session; the draft persists filenames only, so a reload shows `is-prior` with no image (the "browsers can't repopulate a file input" limitation stated all over the code). IndexedDB fixes it — it stores Blobs natively (no base64 bloat, hundreds of MB of headroom), and a `File` rebuilt from a stored Blob *can* be pushed back into an input via `DataTransfer`.
+
+- [ ] **Vendor idb-keyval** into `assets/vendor/` (pinned build, version in the filename, MIT); a thin `assets/attach-store.js` wraps get/set/del/clear keyed by input id, namespaced by `refId` (so a future multi-draft world doesn't collide).
+- [ ] **Persist on attach** — photos (Section 04, incl. the multi-file close-ups), improvement pictures (Section 02), and the plot upload (Section 03) write their Blob(s) to IDB on every commit (`input`/`change`/dropzone drop). Remove/Replace delete or overwrite the stored blob, mirroring the existing `photoThumbUrls` revoke logic.
+- [ ] **Rehydrate on restore** — `restoreDraft()` reads the stored Blobs, rebuilds `File`s, sets each input via `DataTransfer`, then runs the normal `updatePhotoStatus`/thumbnail path — so restored attachments are *live* (real thumbnails, counted in the meter/checks, embeddable in print), not `is-prior`. Keep `is-prior` only as the fallback when a blob is genuinely missing.
+- [ ] **Lifecycle** — `deleteDraft()` also clears the refId's IDB store; a quota / IDB-unavailable failure degrades gracefully to today's filename-only behavior with the `#save-warning` indicator lit. (Signatures + plot state stay in localStorage; only file bytes move to IDB.)
+
+## Sprint 19 — Compression budget + section print pages for improvements, plot & photos (items 2 + 3)
+
+The print packet crams the whole application onto one page and carries **no photos at all**. Give the heavy sections their own pages with real, scaled images, and keep the whole packet emailable.
+
+- [ ] **Image-budget utility** — takes the packet's source Blobs + a total byte target (25 MB) and returns compressed data URIs: downscale to a max dimension + JPEG re-encode, iterating quality/size down while the running total exceeds budget (the pure budget/allocation math goes in a testable module; the canvas encode itself isn't unit-testable). The plot PNG is re-encoded too. **Best-effort under Path A** — the browser does the final PDF encode, so pre-compressed JPEGs are the lever, not a guarantee; `log`/note the achieved total.
+- [ ] **Multi-photo per improvement** (item 2) — the improvement row's example-picture input becomes `multiple`; `improvementItems().photo` becomes a list; schema / persistence / `improvementChecklist()` / thumbnails follow the Sprint 12 close-up pattern (string-or-array handled everywhere).
+- [ ] **`printPreview()` goes async** — gather + compress every embedded image *before* writing the popup (it's synchronous today; the plot `aspect-ratio` trick that lets paged.js measure without decoding still applies).
+- [ ] **New `.print-page` sections:**
+  - **Photos** — one image per row at full page width, `object-fit: contain` (scaled, **uncropped**), captioned by shot title / filename; flows across as many pages as needed.
+  - **Proposed Improvements** — each improvement is a block (action / type / name / materials / dimensions + a row of its images, scaled & uncropped), `break-inside: avoid`, ~4 per page.
+  - **Site / Plot Plan** — the plot image (+ legend) on its own page, larger than today's half-column.
+- [ ] The compact one-page application (applicant + acks + signature) stays; the crammed improvements table + photo-count note there give way to the dedicated pages.
+
+## Sprint 20 — "Save & Print Packet": step-status checks, not packet checks (item 4)
+
+Section 06 "Review & Submit" audits *packet artifacts* (plot present, photos attached, catalog pics) — which now duplicates what the print pages show and reads as nagging. Rename it and re-key the checks to the workflow itself.
+
+- [ ] **Rename** Section 06 → **"Save & Print Packet"** across the card `<h2>` / `card__sub`, the sidenav link, and the masthead demo-banner reference.
+- [ ] **Drop the packet-artifact checklist** — remove the "Your packet" list (`renderPacket()`) and the `packetMissingList()`-driven gating of plot / photos / catalog pictures.
+- [ ] **Step-status overview instead** — a checklist mirroring the workflow's **names and order**: 01 Applicant · 02 Proposed Improvements · 03 Site/Plot Plan · 04 Photos · 05 Acknowledgments — each done/incomplete from that section's own required fields (reshape `fieldIssues()`/`allIssues()` to group by section). The advisory gate (`reviewThen`) uses these step checks, still never blocking.
+- [ ] Reconcile the progress meter (drop the 3 packet slots, or re-derive from steps) and the page-1 print "still outstanding" note (Sprint 21 cover) so both speak in workflow steps, not packet items.
+
+## Sprint 21 — Cover redesign: concise, dates in a right rail, neighbor signatures at the bottom (item 6)
+
+- [ ] **Two-column cover** — concise instructions / steps on the left; the 2026 review dates as **one** two-column table (Board meeting | Deadline) down the **right rail** (`printDatesHTML()` → a single table, not the current two side-by-side).
+- [ ] **Trim the copy** — tighten steps, include-list, fees, and questions so the page has vertical room.
+- [ ] **Neighbor signatures at the bottom** — a compact adjacent-owner signature block pinned to the bottom of the cover (CSS grid). **To decide:** fold the signature rows onto the cover and **retire the separate last-page neighbor form** (recommended — Sprint 19 already adds pages), or keep both. If folded, the change-summary + notice move with it.
+
+## Sprint 22 — Adobe Sign fields on the saved PDF (item 7)
+
+Realistic path under Path A: **Adobe Acrobat Sign text tags** — literal strings the PDF carries (e.g. `{{Sig_es_:signer1:signature}}`, `{{Dte_es_:signer1:date}}`, `{{N_es_:signer1:fullname}}`) that Adobe Sign auto-detects **on upload** and converts to fillable fields. Rendered as small, near-invisible text at the owner-signature and adjacent-owner rows so they don't mar the printed form.
+
+- [ ] **Tag the signature spots** — owner signature/date on the application page; a signer role per adjacent-owner row on the cover / neighbor form.
+- [ ] **Make tags optional** — a config flag (tags are inert *and* invisible in a plain PDF; they only "activate" when the PDF is uploaded to Adobe Acrobat Sign, so off if the HOA doesn't use it).
+- [ ] **To decide (with the HOA):** does FSResidential actually use Adobe Acrobat Sign? Owner-only, or each neighbor a separate signer? *(If real AcroForm fields in a plain, un-uploaded PDF are required instead, that forces Path B / pdf-lib — note the escalation; don't build it speculatively.)*
+
 ## Decision-gated / backlog
 
 - Photo questionnaire partially re-asks what the proposal/plot already express — acceptable; revisit only if users stumble.
