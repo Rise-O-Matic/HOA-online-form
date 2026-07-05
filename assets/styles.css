@@ -1461,6 +1461,13 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: block; width: 100%; aspect-ratio: 4 / 3;
   object-fit: cover; border-radius: 2px; background: #ece7dc;
 }
+/* Non-image attachment (e.g. a PDF catalog page on an improvement) — the frame shows the
+   file type instead of a preview it can't render. */
+.photo-thumb__doc {
+  display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3;
+  border-radius: 2px; background: #ece7dc; color: var(--ink-faint);
+  font-size: .72rem; font-weight: 700; letter-spacing: .06em;
+}
 .photo-thumb__img.is-fresh { animation: thumb-pop .34s ease; }
 @keyframes thumb-pop {
   from { opacity: .35; transform: scale(.92); }

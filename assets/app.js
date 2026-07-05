@@ -24,6 +24,7 @@ import {
   idbAvailable, saveAttachment, loadAttachment, delAttachment,
   clearAttachments, clearAllAttachments
 } from "./attach-store.js";
+import { allocateImageBudget, dataUrlByteLength, ENCODE_LADDER } from "./image-budget.js";
 
 const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
 const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
@@ -281,10 +282,11 @@ function improvementTemplate(idx) {
       <div class="improvement__upload">
         <label class="dropzone dropzone--compact">
           ${DROPZONE_ICON}
-          <span class="dropzone__text"><strong data-imp-photo-label>Attach example / catalog picture</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse</span></span>
-          <input type="file" id="imp_photo_${idx}" name="imp_photo_${idx}" data-imp-photo="${idx}" accept="image/*,application/pdf" class="dropzone__input" />
+          <span class="dropzone__text"><strong data-imp-photo-label>Attach example / catalog pictures</strong> — drag &amp; drop, paste, or <span class="dropzone__browse">browse</span> <span class="muted">(one or more)</span></span>
+          <input type="file" id="imp_photo_${idx}" name="imp_photo_${idx}" data-imp-photo="${idx}" accept="image/*,application/pdf" multiple class="dropzone__input" />
         </label>
         <span class="improvement__status" data-imp-status="${idx}">No picture attached yet.</span>
+        <div class="photo-thumb-list" data-imp-thumb-list hidden></div>
       </div>
     </div>`;
 }
@@ -331,8 +333,8 @@ function applyImprovementSchema(node) {
   const hasFile = !!(input && input.files && input.files.length);
   if (label && !hasFile) {
     label.textContent = removing
-      ? "Attach a photo of what's being removed (optional)"
-      : "Attach example / catalog picture";
+      ? "Attach photo(s) of what's being removed (optional)"
+      : "Attach example / catalog pictures";
   }
 }
 
@@ -363,6 +365,7 @@ function addImprovement(uid) {
   improvementList.appendChild(node);
   $(".improvement__remove", node).addEventListener("click", () => {
     const rowUid = node.dataset.impUid;
+    revokeThumbUrls("imp:" + rowUid); // release the row's thumbnail blob URLs
     node.remove();
     // The row's stored picture goes with it (no orphan blob in IDB).
     if (idbAvailable() && appRefId) delAttachment(appRefId, "imp:" + rowUid).catch(() => {});
@@ -388,32 +391,70 @@ function addImprovement(uid) {
   return node;
 }
 $("#add-improvement").addEventListener("click", () => addImprovement());
+// Per-file remove on a multi-file improvement picture list — rebuild the FileList
+// without that one file (immutable, so via DataTransfer), then repaint + re-persist by
+// hand (editing .files fires no change event). Mirrors the photo remove-one path.
+improvementList.addEventListener("click", e => {
+  const rm = e.target.closest("[data-imp-remove-one]");
+  if (!rm) return;
+  const node = rm.closest(".improvement");
+  if (!node) return;
+  const input = $("input[data-imp-photo]", node);
+  const idx = Number(rm.dataset.fileIndex);
+  if (input && input.files) {
+    const dt = new DataTransfer();
+    Array.from(input.files).forEach((f, i) => { if (i !== idx) dt.items.add(f); });
+    input.files = dt.files;
+  }
+  updateImprovementStatus(node.dataset.improvement);
+  if (input) persistAttachment("imp:" + node.dataset.impUid, input);
+  updateProgress();
+  scheduleAutosave();
+});
 // start with one improvement block
 addImprovement();
 
+// The improvement picture input is `multiple` (Sprint 19) — mirror the multi-file photo
+// pattern: a count in the status line plus one thumbnail card per file (with per-file
+// Remove), blob URLs cached under "imp:<uid>" so replacing/removing can't leak handles.
 function updateImprovementStatus(idx) {
   const node = $(`.improvement[data-improvement="${idx}"]`, improvementList);
   if (!node) return;
   const input = $(`[data-imp-photo="${idx}"]`, node);
   const statusEl = $(`[data-imp-status="${idx}"]`, node);
+  const list = $("[data-imp-thumb-list]", node);
   if (!input || !statusEl) return;
   const removing = ($("[data-imp-action]", node)?.value) === "remove";
+  const urlKey = "imp:" + node.dataset.impUid;
   statusEl.classList.remove("is-prior");
-  if (input.files && input.files.length) {
-    const f = input.files[0];
-    statusEl.textContent = `Attached: ${f.name} (${Math.round(f.size / 1024)} KB)`;
+  revokeThumbUrls(urlKey);
+  const files = Array.from(input.files || []);
+  if (files.length) {
+    const total = files.reduce((n, f) => n + f.size, 0);
+    statusEl.textContent = `Attached: ${files.length} picture${files.length === 1 ? "" : "s"} (${formatBytes(total)})`;
     statusEl.classList.add("is-attached");
     node.classList.add("is-attached");
+    if (list) {
+      list.innerHTML = files.map((f, i) => {
+        let url = null;
+        if (f.type.startsWith("image/")) { url = URL.createObjectURL(f); photoThumbUrls[urlKey].push(url); }
+        return thumbCardHTML(f, url, "data-imp-remove-one", node.dataset.improvement, i);
+      }).join("");
+      list.hidden = false;
+    }
   } else {
     statusEl.textContent = removing ? "Optional — no picture attached." : "No picture attached yet.";
     statusEl.classList.remove("is-attached");
     node.classList.remove("is-attached");
+    if (list) { list.hidden = true; list.innerHTML = ""; }
   }
 }
 
-// Single DOM->data source for the item list. `photo` is the real attached filename
-// or "" — a restored draft can't repopulate a file input (same browser limit as
-// photos), so an un-reattached picture is dropped on the next save by design.
+// Single DOM->data source for the item list. `photo` is a LIST of attached filenames
+// (Sprint 19 made the picture input `multiple`) — empty when none attached. A restored
+// draft can't repopulate a file input from localStorage alone (same browser limit as
+// photos), but the bytes rehydrate from IDB; an un-reattached picture drops on the next
+// save by design. (Older drafts stored `photo` as a single string — restore normalizes it.)
 function improvementItems() {
   return $$(".improvement", improvementList).map(node => {
     const idx = node.dataset.improvement;
@@ -425,9 +466,15 @@ function improvementItems() {
       name: $("[data-imp-name]", node)?.value.trim() || "",
       materials: $("[data-imp-materials]", node)?.value.trim() || "",
       dimensions: $("[data-imp-dims]", node)?.value.trim() || "",
-      photo: (input && input.files && input.files.length) ? input.files[0].name : ""
+      photo: (input && input.files && input.files.length) ? Array.from(input.files).map(f => f.name) : []
     };
   });
+}
+
+// Normalize an item's `photo` (a list since Sprint 19; a single string in older drafts)
+// to a plain array of filenames.
+function itemPhotoNames(it) {
+  return Array.isArray(it.photo) ? it.photo : (it.photo ? [it.photo] : []);
 }
 
 /* ------------------------------------------------------
@@ -720,13 +767,19 @@ function revokeThumbUrls(id) {
   photoThumbUrls[id] = [];
 }
 
-// One thumbnail card per attached file on a multi-file shot, each with its own
-// Remove (handled by the delegated [data-photo-remove-one] listener).
-function multiThumbCard(id, f, i, url) {
+// One thumbnail card per attached file in a multi-file list, each with its own Remove.
+// `removeAttr`/`removeVal` wire the button to whichever delegated remove-one listener owns
+// the list ([data-photo-remove-one] for photos, [data-imp-remove-one] for improvements).
+// `url` is null for non-image files (an improvement can attach a PDF) — those show a small
+// file-type placeholder instead of an <img> preview.
+function thumbCardHTML(f, url, removeAttr, removeVal, fileIndex) {
+  const frame = url
+    ? `<img class="photo-thumb__img is-fresh" src="${url}" alt="Your attached file" />`
+    : `<span class="photo-thumb__doc" aria-hidden="true">${esc((f.name.split(".").pop() || "file").toUpperCase())}</span>`;
   return `
     <figure class="photo-thumb photo-thumb--multi">
       <div class="photo-thumb__frame">
-        <img class="photo-thumb__img is-fresh" src="${url}" alt="Your attached photo" />
+        ${frame}
         <span class="photo-thumb__badge" aria-hidden="true">&#10003;</span>
       </div>
       <figcaption class="photo-thumb__meta">
@@ -734,10 +787,13 @@ function multiThumbCard(id, f, i, url) {
         <span class="photo-thumb__name">${esc(f.name)}</span>
         <span class="photo-thumb__size">${formatBytes(f.size)}</span>
         <span class="photo-thumb__actions">
-          <button type="button" class="photo-thumb__btn photo-thumb__btn--remove" data-photo-remove-one="${id}" data-file-index="${i}">Remove</button>
+          <button type="button" class="photo-thumb__btn photo-thumb__btn--remove" ${removeAttr}="${removeVal}" data-file-index="${fileIndex}">Remove</button>
         </span>
       </figcaption>
     </figure>`;
+}
+function multiThumbCard(id, f, i, url) {
+  return thumbCardHTML(f, url, "data-photo-remove-one", id, i);
 }
 
 function updateMultiPhotoStatus(id, input, statusEl, block) {
@@ -907,7 +963,10 @@ function photoChecklist() {
 function improvementChecklist() {
   return improvementItems()
     .filter(it => it.action !== "remove" && it.name)
-    .map(it => ({ name: it.name, action: it.action, file: it.photo || null }));
+    .map(it => {
+      const names = itemPhotoNames(it);
+      return { name: it.name, action: it.action, file: names.length ? names.join(", ") : null };
+    });
 }
 
 // Human-readable list of what's still missing, for the advisory review gate
@@ -1278,10 +1337,11 @@ function restoreDraft() {
       $(`[name=imp_materials_${idx}]`, node).value = it.materials || "";
       $(`[name=imp_dims_${idx}]`, node).value = it.dimensions || "";
       applyImprovementSchema(node);
-      if (it.photo) {
+      const priorNames = itemPhotoNames(it);
+      if (priorNames.length) {
         const st = $(`[data-imp-status="${idx}"]`, node);
         if (st) {
-          st.textContent = `Previously attached: ${it.photo} — re-attach to include it again.`;
+          st.textContent = `Previously attached: ${priorNames.join(", ")} — re-attach to include ${priorNames.length > 1 ? "them" : "it"} again.`;
           st.classList.add("is-prior");
           st.classList.remove("is-attached");
         }
@@ -1522,11 +1582,6 @@ form.addEventListener("input", e => {
    nothing like the printed packet. The finish flow now opens the paged.js render
    directly (see printPreview), which is a faithful WYSIWYG of what prints.
 ------------------------------------------------------ */
-const SUB_LABELS = {
-  req_plot: "Plot design with modification marked",
-  req_photos: "Property photos (Section 04)"
-};
-
 // Auto legend beside the drawn plan: a swatch + name for every material actually painted
 // (incl. retired and custom ids) and a glyph + name for every stamp symbol placed. Without
 // this the reviewer's PDF shows colored regions with no key at all. `cls` is the CSS block
@@ -1544,41 +1599,14 @@ function plotLegendHTML(cls) {
   return `<ul class="${cls}" aria-label="Site plan legend">${items.join("")}</ul>`;
 }
 
-/* ----- Proposed-improvements table (shared by preview + print) -----
-   Renders the Section 02 item list as a structured table — action / type / item /
-   materials-or-details / dimensions / picture filename — so the committee's "Must
-   Include: Materials, Dimensions, and Example Pictures" list is visibly satisfied
-   instead of buried in a prose blob. Per category, Remove shows n/a for materials
-   and paint shows n/a for dimensions (it has no dimensions field). */
+/* Section 02 item rows worth printing — anything with a name, materials, dimensions, or an
+   attached picture (an empty `photo` array is truthy in JS, so test its length). Feeds the
+   Proposed Improvements print page (item blocks with scaled pictures) and the neighbor
+   form's change summary. (The old single crammed improvements *table* on the application
+   page was replaced by the dedicated page in Sprint 19.) */
 const ACTION_LABEL = { add: "Add", replace: "Replace", remove: "Remove" };
 function improvementRows(d) {
-  return (d.items || []).filter(it => it.name || it.materials || it.dimensions || it.photo);
-}
-function improvementsTableHTML(d, opts) {
-  const rows = improvementRows(d);
-  const cls = opts.cls;
-  const no = txt => `<span class="no">${txt}</span>`;
-  const notes = d.proposal
-    ? `<p class="${opts.noteCls}"><strong>Additional notes:</strong> ${esc(d.proposal)}</p>`
-    : "";
-  if (!rows.length) return `<p class="no">No improvement items listed.</p>` + notes;
-  const body = rows.map(it => {
-    const remove = it.action === "remove";
-    const cat = CATEGORY_MAP[it.category];
-    const noDims = !!cat && !cat.dims; // paint: no dimensions field at all
-    return `<tr>
-      <td>${esc(ACTION_LABEL[it.action] || it.action || "—")}</td>
-      <td>${esc(categoryLabelShort(it.category)) || no("—")}</td>
-      <td>${esc(it.name) || no("—")}</td>
-      <td>${remove ? no("n/a") : (esc(it.materials) || no("—"))}</td>
-      <td>${noDims ? no("n/a") : (esc(it.dimensions) || no("—"))}</td>
-      <td>${it.photo ? esc(it.photo) : (remove ? no("—") : no("not attached"))}</td>
-    </tr>`;
-  }).join("");
-  return `<table class="${cls}">
-      <thead><tr><th>Action</th><th>Type</th><th>Item</th><th>Materials / details</th><th>Dimensions</th><th>Example picture</th></tr></thead>
-      <tbody>${body}</tbody>
-    </table>` + notes;
+  return (d.items || []).filter(it => it.name || it.materials || it.dimensions || itemPhotoNames(it).length);
 }
 
 /* The 2026 review-date table from the source form's "Architectural Review Dates"
@@ -1659,28 +1687,13 @@ function buildInstructionsHTML(d) {
     </section>`;
 }
 
-/* The printed packet: instructions (page 1) + the compact application (page 2)
-   + the adjacent-owner signature form (last page). */
-function buildPrintHTML(d) {
-  const subs = Object.entries(SUB_LABELS).map(([k, label]) =>
-    `<tr><td style="width:18px;text-align:center;">${d.submissions[k] ? "&#9745;" : "&#9744;"}</td><td>${esc(label)}</td></tr>`).join("");
-
+/* ----- application page (compact): applicant + acknowledgments + signature -----
+   The heavy sections (improvements, site/plot, photos) each get their own dedicated
+   page(s) below with real scaled images (Sprint 19), so this page stays to one sheet. */
+function buildApplicationPageHTML(d) {
   const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
-
-  const photoAreasList = Object.entries(d.photoAreas || {})
-    .filter(([, v]) => v)
-    .map(([k]) => PHOTO_SPECS[k] ? PHOTO_SPECS[k].label : k);
-  const photoCount = Object.values(d.photos || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
-  const photoNote = photoAreasList.length
-    ? `Areas: ${photoAreasList.join(", ")}${d.photoMaterial === "yes" ? ", color/material sample" : ""} — ${photoCount} photo${photoCount === 1 ? "" : "s"} attached.`
-    : "No photo areas indicated.";
-
   return `
-    <div class="print-doc">
-      ${buildInstructionsHTML(d)}
-
-      <section class="print-page">
-      <!-- Header -->
+    <section class="print-page">
       <div class="print-header">
         <div>
           <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
@@ -1692,7 +1705,6 @@ function buildPrintHTML(d) {
         </div>
       </div>
 
-      <!-- Applicant row -->
       <table class="print-table">
         <tr>
           <td class="print-label">Homeowner(s)</td>
@@ -1708,35 +1720,13 @@ function buildPrintHTML(d) {
         </tr>
       </table>
 
-      <!-- Two-column middle -->
-      <div class="print-columns">
-        <div class="print-col">
-          <h4>Required Submissions</h4>
-          <table class="print-checklist">${subs}</table>
-        </div>
-        <div class="print-col">
-          <h4>Site / Plot Plan</h4>
-          ${d.planMode === "upload"
-            ? `<p style="font-size:11px;">${d.plotUpload && d.plotUpload.length ? "Plot plan uploaded separately: " + d.plotUpload.map(esc).join(", ") : "⚠ No plot plan attached."}</p>`
-            : (plotUsed() ? `<img class="print-plot"${d.plot && d.plot.cols && d.plot.rows ? ` style="aspect-ratio:${d.plot.cols}/${d.plot.rows}"` : ""} src="${renderPlotImage()}" />${plotLegendHTML("print-legend")}` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
-        </div>
-      </div>
+      <p class="print-info">The pages that follow are part of this application: your proposed improvements, your site / plot plan, and your property photos. The adjacent-owner signature form is the last page.</p>
 
-      <!-- Proposed improvements -->
-      <h4>Proposed Improvements</h4>
-      ${improvementsTableHTML(d, { cls: "print-table print-improvements", noteCls: "print-ack-summary" })}
-
-      <!-- Photos -->
-      <h4>Photos</h4>
-      <p class="print-ack-summary">${esc(photoNote)}</p>
-
-      <!-- Acknowledgments -->
       <h4>Owner Acknowledgments</h4>
       <p class="print-ack-summary">${acksChecked
         ? "All 8 acknowledgment items have been read and accepted."
         : "⚠ Not all acknowledgment items were checked."}</p>
 
-      <!-- Signature block — printable lines -->
       <div class="print-sig-block">
         <div class="print-sig-row">
           <div class="print-sig-field">
@@ -1757,8 +1747,100 @@ function buildPrintHTML(d) {
       </div>
 
       <p class="print-footer-note">This application was generated from the Fairway Canyon HOA online form. The 45-day review period begins once the complete application packet is received.</p>
-      </section>
+    </section>`;
+}
 
+// A print <img> sized by its encoded pixel dims via aspect-ratio, so paged.js can measure
+// the page deterministically without waiting for the (large) data: URI to decode.
+function printImg(entry, cls) {
+  return `<img class="${cls}" src="${entry.dataUrl}" style="aspect-ratio:${entry.w}/${entry.h}" alt="" />`;
+}
+
+/* ----- Proposed Improvements page: one block per item (~4 per page), each with its
+   fields and a row of its scaled, uncropped example/catalog pictures (item 2 + 3). ----- */
+function buildImprovementsPageHTML(d, imgs) {
+  const rows = improvementRows(d);
+  if (!rows.length) return "";
+  const blocks = rows.map(it => {
+    const remove = it.action === "remove";
+    const cat = CATEGORY_MAP[it.category];
+    const noDims = !!cat && !cat.dims; // paint: no dimensions field at all
+    const pics = imgs.filter(e => e.kind === "imp" && e.ownerId === it.uid);
+    const picNames = itemPhotoNames(it); // includes non-image (PDF) attachments too
+    const fields = [
+      remove ? "" : `<tr><td>Materials / details</td><td>${esc(it.materials) || "—"}</td></tr>`,
+      (remove || noDims) ? "" : `<tr><td>Dimensions</td><td>${esc(it.dimensions) || "—"}</td></tr>`
+    ].join("");
+    const picsHTML = pics.length
+      ? `<div class="print-imp-imgs">${pics.map(e => printImg(e, "print-imp-img")).join("")}</div>`
+      : picNames.length
+        ? `<p class="print-imp-noimg">Example / catalog file attached separately: ${picNames.map(esc).join(", ")}.</p>`
+        : `<p class="print-imp-noimg">${remove ? "No picture (optional for a removal)." : "⚠ No example / catalog picture attached."}</p>`;
+    return `<div class="print-imp-block">
+      <div class="print-imp-head">
+        <span class="print-imp-action print-imp-action--${esc(it.action)}">${esc(ACTION_LABEL[it.action] || it.action || "—")}</span>
+        <span class="print-imp-name">${esc(it.name) || "Unnamed item"}</span>
+        <span class="print-imp-type">${esc(categoryLabelShort(it.category))}</span>
+      </div>
+      ${fields ? `<table class="print-imp-fields">${fields}</table>` : ""}
+      ${picsHTML}
+    </div>`;
+  }).join("");
+  const notes = d.proposal
+    ? `<p class="print-ack-summary"><strong>Additional notes:</strong> ${esc(d.proposal)}</p>` : "";
+  return `<section class="print-page">
+      <h3 class="print-pagetitle">Proposed Improvements</h3>
+      ${blocks}
+      ${notes}
+    </section>`;
+}
+
+/* ----- Site / Plot Plan page: the drawn (or uploaded) plan on its own page, larger
+   than the old half-column, with the auto legend beneath a drawn plan. ----- */
+function buildPlotPageHTML(d, imgs) {
+  const plot = imgs.find(e => e.kind === "plot");
+  const upload = d.planMode === "upload";
+  const uploadNote = d.plotUpload && d.plotUpload.length ? d.plotUpload.map(esc).join(", ") : "";
+  if (!plot && !uploadNote) return ""; // nothing drawn or uploaded — skip an empty page
+  const body = plot
+    ? `<figure class="print-plot-figure">${printImg(plot, "print-plot-large")}</figure>${upload ? "" : plotLegendHTML("print-legend")}`
+    : `<p class="print-info">Plot plan uploaded as a separate file: <strong>${uploadNote}</strong>. Include ${d.plotUpload.length > 1 ? "these files" : "this file"} when you email your packet.</p>`;
+  return `<section class="print-page">
+      <h3 class="print-pagetitle">Site / Plot Plan</h3>
+      ${body}
+    </section>`;
+}
+
+/* ----- Property Photos page(s): one image per row at full page width, object-fit:
+   contain (scaled, never cropped), captioned by shot title + filename. Flows across as
+   many pages as needed. ----- */
+function buildPhotosPageHTML(d, imgs) {
+  const photos = imgs.filter(e => e.kind === "photo");
+  if (!photos.length) return "";
+  const blocks = photos.map(e => `
+    <figure class="print-photo-block">
+      ${printImg(e, "print-photo-img")}
+      <figcaption class="print-photo-cap"><strong>${esc(e.caption || "Photo")}</strong>${e.name ? " — " + esc(e.name) : ""}</figcaption>
+    </figure>`).join("");
+  return `<section class="print-page">
+      <h3 class="print-pagetitle">Property Photos</h3>
+      <div class="print-photos">${blocks}</div>
+    </section>`;
+}
+
+/* The printed packet: instructions (page 1) + the compact application + a dedicated page
+   per heavy section (improvements, site/plot, photos — each with real scaled images) +
+   the adjacent-owner signature form (last page). `imgs` is the pre-compressed image set
+   gathered asynchronously by printPreview (see preparePrintImages). */
+function buildPrintHTML(d, imgs) {
+  imgs = imgs || [];
+  return `
+    <div class="print-doc">
+      ${buildInstructionsHTML(d)}
+      ${buildApplicationPageHTML(d)}
+      ${buildImprovementsPageHTML(d, imgs)}
+      ${buildPlotPageHTML(d, imgs)}
+      ${buildPhotosPageHTML(d, imgs)}
       ${buildNeighborFormHTML(d)}
     </div>`;
 }
@@ -1782,26 +1864,145 @@ function cssStr(s) {
     .replace(/</g, "\\3c ").replace(/[\r\n\t]+/g, " ") + '"';
 }
 
+/* ----- PRINT-IMAGE COMPRESSION (Sprint 19, best-effort under Path A) -----
+   The print packet now embeds real photos + the plot, which would balloon the saved PDF.
+   Before writing the popup we downscale + JPEG-re-encode every image toward a per-image
+   byte budget (allocated by image-budget.js) so the whole packet stays emailable. The
+   browser's own "Save as PDF" still does the final encode, so this is a lever, not a hard
+   cap — we note the achieved total in the status line. */
+const PRINT_IMAGE_BUDGET = 24 * 1024 * 1024; // 24 MB of images (headroom under a ~25 MB email cap)
+let lastPrintImageBytes = 0; // achieved compressed total of the most recent packet build
+
+// A PNG/JPEG data: URI (e.g. the rendered plot) back to a Blob, so it flows through the
+// same decode → re-encode path as the file attachments.
+function dataURLToBlob(dataUrl) {
+  const comma = dataUrl.indexOf(",");
+  const mime = (dataUrl.slice(0, comma).match(/data:([^;]+)/) || [])[1] || "image/png";
+  const bin = atob(dataUrl.slice(comma + 1));
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new Blob([u8], { type: mime });
+}
+
+// Decode a Blob to something drawable, preferring createImageBitmap (fast, off-DOM) with an
+// <img> fallback. Returns {src, w, h, done()} — call done() to release the bitmap/object URL.
+async function decodeForCanvas(blob) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bmp = await createImageBitmap(blob);
+      return { src: bmp, w: bmp.width, h: bmp.height, done: () => { try { bmp.close && bmp.close(); } catch (_) {} } };
+    } catch (_) { /* fall through to <img> */ }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error("image decode failed"));
+      im.src = url;
+    });
+    return { src: img, w: img.naturalWidth, h: img.naturalHeight, done: () => URL.revokeObjectURL(url) };
+  } catch (e) { URL.revokeObjectURL(url); throw e; }
+}
+
+// Walk the shared quality/size ladder, re-encoding to JPEG until the result fits the byte
+// target (or the ladder bottoms out — best-effort). Returns {dataUrl, bytes, w, h}.
+async function encodeToBudget(blob, targetBytes) {
+  const dec = await decodeForCanvas(blob);
+  const sw = dec.w, sh = dec.h;
+  let best = null;
+  try {
+    for (const step of ENCODE_LADDER) {
+      const scale = Math.min(1, step.maxDim / Math.max(sw, sh || 1));
+      const w = Math.max(1, Math.round(sw * scale));
+      const h = Math.max(1, Math.round(sh * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); // flatten alpha — JPEG has none
+      ctx.drawImage(dec.src, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL("image/jpeg", step.quality);
+      best = { dataUrl, bytes: dataUrlByteLength(dataUrl), w, h };
+      if (best.bytes <= targetBytes) break;
+    }
+  } finally { dec.done(); }
+  return best;
+}
+
+// Gather every embeddable image in the packet (requested photos in questionnaire order,
+// each improvement's example pictures, and the plot — drawn→rendered PNG or uploaded
+// image), allocate the byte budget across them, and compress each. Returns an array of
+// entries {key, kind, ownerId, caption, name, dataUrl, w, h, bytes} for the page builders;
+// non-image attachments (a PDF) are skipped here and stay named-only in the instructions.
+async function preparePrintImages(d) {
+  const sources = [];
+  photoChecklist().forEach(r => {
+    const input = $(`[data-photo-input="${r.id}"]`, photoRequestsEl);
+    Array.from((input && input.files) || []).forEach((f, i) => {
+      if (f.type && f.type.startsWith("image/")) sources.push({ key: `photo:${r.id}:${i}`, kind: "photo", ownerId: r.id, caption: r.title, name: f.name, blob: f });
+    });
+  });
+  $$(".improvement", improvementList).forEach(node => {
+    const uid = node.dataset.impUid;
+    const input = $("input[data-imp-photo]", node);
+    Array.from((input && input.files) || []).forEach((f, i) => {
+      if (f.type && f.type.startsWith("image/")) sources.push({ key: `imp:${uid}:${i}`, kind: "imp", ownerId: uid, name: f.name, blob: f });
+    });
+  });
+  if (d.planMode === "upload") {
+    const f = plotUploadInput.files && plotUploadInput.files[0];
+    if (f && f.type && f.type.startsWith("image/")) sources.push({ key: "plot", kind: "plot", name: f.name, blob: f });
+  } else if (plotUsed()) {
+    const url = renderPlotImage();
+    if (url) sources.push({ key: "plot", kind: "plot", blob: dataURLToBlob(url) });
+  }
+  lastPrintImageBytes = 0;
+  if (!sources.length) return [];
+  const targets = allocateImageBudget(sources.map(s => s.blob.size), PRINT_IMAGE_BUDGET);
+  const out = [];
+  for (let i = 0; i < sources.length; i++) {
+    try {
+      const enc = await encodeToBudget(sources[i].blob, targets[i]);
+      if (enc) { out.push({ ...sources[i], dataUrl: enc.dataUrl, w: enc.w, h: enc.h, bytes: enc.bytes }); lastPrintImageBytes += enc.bytes; }
+    } catch (_) { /* skip an image that won't decode */ }
+  }
+  return out;
+}
+
 /* ----- SHARED: open the print/save-PDF window -----
    Paged.js (vendored, same-origin) fragments the packet into real letter pages with
    visible margins in the popup itself — so what you see is what prints — and renders the
    @page margin boxes as running headers/footers (reference id + applicant + page numbers).
    If paged.js can't load, the doc still prints via native @page margins (no running head). */
-function printPreview() {
+async function printPreview() {
   const d = collect();
-  const html = buildPrintHTML(d);
   // The finish flow treats "opened the print/save view" as Step 1 done —
   // we can't observe whether the user actually saved the PDF from here.
   pdfSaved = true;
   refreshPacketUI();
+  // Open the window synchronously (inside the click gesture) so the popup blocker allows it,
+  // then show a placeholder while we gather + compress the packet's images (async — photos
+  // and the plot can be tens of MB raw). Only after that do we write the real paginated doc
+  // into the same window.
   const w = window.open("", "_blank");
   if (!w) { window.print(); return; }
+  w.document.write('<!DOCTYPE html><meta charset="utf-8"><title>Preparing your packet…</title>'
+    + '<body style="font:15px \'Segoe UI\',Arial,sans-serif;color:#4a453e;margin:0;padding:48px 40px">'
+    + '<p>Preparing your application packet — scaling and compressing images so it stays emailable…</p></body>');
+  w.document.close();
+
+  let imgs = [];
+  try { imgs = await preparePrintImages(d); } catch (_) { imgs = []; }
+  if (w.closed) return; // the user closed the placeholder while we worked
+
+  const html = buildPrintHTML(d, imgs);
   // Running-header content: reference id + applicant name/address, plus page counters.
   const applicant = [d.ownerName, d.propertyAddress].filter(Boolean).join("  ·  ");
   const refCss = cssStr("Ref " + (d.refId || ""));
   const applicantCss = cssStr(applicant);
   // Absolute URL so the about:blank popup (no base URL of its own) can resolve the vendored file.
   const pagedSrc = new URL("assets/vendor/paged.polyfill.0.4.3.js", location.href).href;
+  w.document.open();
   w.document.write(`<!DOCTYPE html><html><head><title>Fairway Canyon HOA — ARC Application</title>
     <meta charset="utf-8">
     <style>
@@ -1857,14 +2058,6 @@ function printPreview() {
       .print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
       .print-table td, .print-table th { padding: 3px 6px; border: 1px solid #ddd; vertical-align: top; }
       .print-label { font-weight: 600; color: #555; width: 100px; white-space: nowrap; background: #faf8f4; }
-      .print-checklist { border-collapse: collapse; font-size: 10px; }
-      .print-checklist td { padding: 1px 4px; border: none; vertical-align: top; }
-      .print-columns { display: flex; gap: 14px; }
-      .print-col { flex: 1; min-width: 0; }
-      .print-improvements { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 4px; }
-      .print-improvements th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 2px 5px; border: 1px solid #ddd; }
-      .print-improvements td { padding: 2px 5px; border: 1px solid #ddd; vertical-align: top; }
-      .print-plot { width: 100%; border: 1px solid #ccc; }
       .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 0; padding: 0; font-size: 9px; }
       .print-legend li { display: flex; align-items: center; gap: 4px; }
       .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #999; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -1879,6 +2072,29 @@ function printPreview() {
       .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 16px; }
       .print-sig-label { font-size: 9px; color: #777; margin-top: 2px; }
       .print-footer-note { font-size: 8px; color: #999; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
+      /* --- dedicated section pages (Sprint 19): improvements, site/plot, photos --- */
+      .print-pagetitle { font-family: Georgia, serif; font-size: 17px; font-weight: 600; color: #7d0d18; border-bottom: 3px solid #a4111f; padding-bottom: 5px; margin: 0 0 12px; }
+      /* Proposed Improvements — one block per item, kept whole across a page break. */
+      .print-imp-block { break-inside: avoid; border: 1px solid #e2ddd6; border-radius: 4px; padding: 9px 11px; margin-bottom: 11px; }
+      .print-imp-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 6px; }
+      .print-imp-action { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: #a4111f; border-radius: 3px; padding: 1px 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-imp-action--remove { background: #8a8580; }
+      .print-imp-name { font-size: 13px; font-weight: 600; }
+      .print-imp-type { font-size: 9.5px; color: #8a8580; margin-left: auto; }
+      .print-imp-fields { border-collapse: collapse; font-size: 10.5px; margin-bottom: 6px; }
+      .print-imp-fields td { padding: 1px 10px 1px 0; vertical-align: top; }
+      .print-imp-fields td:first-child { color: #8a8580; white-space: nowrap; }
+      .print-imp-imgs { display: flex; flex-wrap: wrap; gap: 8px; }
+      .print-imp-img { height: 150px; max-width: 100%; object-fit: contain; border: 1px solid #ccc; background: #f7f5f2; }
+      .print-imp-noimg { font-size: 10px; color: #999; font-style: italic; margin: 2px 0 0; }
+      /* Site / Plot Plan — the plan on its own page, larger than the old half-column. */
+      .print-plot-figure { margin: 0 0 6px; }
+      .print-plot-large { display: block; width: 100%; max-height: 8in; object-fit: contain; border: 1px solid #ccc; }
+      /* Property Photos — one image per row, full width, scaled but never cropped. */
+      .print-photos { display: flex; flex-direction: column; gap: 14px; }
+      .print-photo-block { break-inside: avoid; }
+      .print-photo-img { display: block; width: 100%; max-height: 8.2in; object-fit: contain; border: 1px solid #ccc; background: #f7f5f2; }
+      .print-photo-cap { font-size: 10px; color: #555; margin-top: 3px; }
       /* --- last page: adjacent-owner signature form (wet signatures) --- */
       .nf-doc { font-size: 12px; line-height: 1.4; }
       .nf-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 8px; margin-bottom: 14px; }
@@ -1959,16 +2175,25 @@ function printPreview() {
     } catch (_) {}
   };
   setTimeout(attachPrintBar, 150);
+  // Confirm ready, noting the achieved compressed image total when there is one (best-effort
+  // under Path A — the browser's "Save as PDF" still does the final encode, so this is the
+  // input size, not the PDF's).
+  status(lastPrintImageBytes
+    ? `Packet ready — embedded images ≈ ${formatBytes(lastPrintImageBytes)} after compression. Choose “Save as PDF” in the print dialog.`
+    : "Packet ready — choose “Save as PDF” in the print dialog. Page 1 explains how to submit it.", "ok");
 }
 
-// The one finish action — advisory review (never blocks), then open the
-// print/save-PDF view. The journey ends here: page 1 of the printed packet
-// carries the submission instructions, so the form has nothing left to do.
+// The one finish action — advisory review (never blocks), then open the print/save-PDF
+// view. printPreview is async (it compresses images first), but the window it opens is
+// created synchronously inside this gesture, so the popup blocker allows it; the status
+// message below shows immediately, and printPreview updates it with the achieved size once
+// compression finishes. The journey ends here: page 1 of the printed packet carries the
+// submission instructions, so the form has nothing left to do.
 $("#finish-pdf-btn")?.addEventListener("click", () => {
   reviewThen(() => {
     saveDraft(true);
     printPreview();
-    status("Print view opened — choose “Save as PDF” or print copies. Page 1 of the packet explains how to submit it.", "ok");
+    status("Preparing your packet — compressing images, then the print view opens. Page 1 explains how to submit it.", "ok");
     // The draft (PII incl. the signature image) has served its purpose once the
     // packet is saved — surface the delete offer here, in context. Not automatic:
     // we can't observe the save, and the user may need the draft to revise.
