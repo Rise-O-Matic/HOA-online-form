@@ -258,13 +258,15 @@ Done with a user modification: the incompleteness warning that used to sit inlin
 - [x] **Trim the copy** — steps, include-list, and fees tightened to make vertical room for the folded signature strip.
 - [x] **Neighbor signatures folded onto the cover** (user decision) — `buildNeighborStripHTML(d)` (change summary via `neighborChangeSummary(d)` + 6 blank rows) pins to the **bottom** of the cover (`.print-cover-page` flex column + `margin-top:auto`); the standalone last-page `buildNeighborFormHTML` was retired.
 
-## Sprint 22 — Adobe Sign fields on the saved PDF (item 7)
+## Sprint 22 — Adobe Sign fields on the saved PDF (item 7) ✅ 2026-07-05
 
 Realistic path under Path A: **Adobe Acrobat Sign text tags** — literal strings the PDF carries (e.g. `{{Sig_es_:signer1:signature}}`, `{{Dte_es_:signer1:date}}`, `{{N_es_:signer1:fullname}}`) that Adobe Sign auto-detects **on upload** and converts to fillable fields. Rendered as small, near-invisible text at the owner-signature and adjacent-owner rows so they don't mar the printed form.
 
-- [ ] **Tag the signature spots** — owner signature/date on the application page; a signer role per adjacent-owner row on the cover / neighbor form.
-- [ ] **Make tags optional** — a config flag (tags are inert *and* invisible in a plain PDF; they only "activate" when the PDF is uploaded to Adobe Acrobat Sign, so off if the HOA doesn't use it).
-- [ ] **To decide (with the HOA):** does FSResidential actually use Adobe Acrobat Sign? Owner-only, or each neighbor a separate signer? *(If real AcroForm fields in a plain, un-uploaded PDF are required instead, that forces Path B / pdf-lib — note the escalation; don't build it speculatively.)*
+- [x] **Tag the signature spots** — `esignTag(directive)` emits one near-invisible `.print-esign-tag` span (or `""` when off). Owner signature → `{{Sig_es_:signer1:signature}}` and date → `{{Dte_es_:signer1:date}}` on the application page; each adjacent-owner row on the cover strip is its own signer role (signer2…signer7) with fullname / address / signature / date tags.
+- [x] **Make tags optional** — an `ADOBE_SIGN = { enabled: false, neighbors: true }` config object near the top of the print builders. Default **OFF** (the packet is byte-for-byte unchanged, since `esignTag` returns `""`); `enabled` flips all tags on, `neighbors` toggles the per-row neighbor signer roles for an owner-only flow. Tags are inert *and* near-invisible in a plain PDF; they only "activate" on upload to Adobe Acrobat Sign. No library — just the documented text-tag syntax embedded as text.
+- [ ] **To decide (with the HOA):** does FSResidential actually use Adobe Acrobat Sign? Owner-only, or each neighbor a separate signer? **Left open** — the flag stays OFF until confirmed. *(If real AcroForm fields in a plain, un-uploaded PDF are required instead, that forces Path B / pdf-lib — the escalation is noted, not built.)*
+
+Verified: `esignTag`/toggle logic proven in a throwaway node harness (owner tags exact; 6 distinct neighbor signer roles signer2–7; OFF → all empty; `neighbors:false` → owner-only). Browser smoke test (fresh port 8231): zero console errors on load, app boots with all sections — the default-OFF path is unchanged. `node --check` clean; 47/47 tests. **Needs the user's eyes / an HOA decision:** the real paged.js print popup with `enabled:true` (tag invisibility on paper + Adobe field detection/sizing on upload), and whether to enable it at all.
 
 ## Decision-gated / backlog
 

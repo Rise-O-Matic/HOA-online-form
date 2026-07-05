@@ -1563,6 +1563,29 @@ function improvementRows(d) {
   return (d.items || []).filter(it => it.name || it.materials || it.dimensions || itemPhotoNames(it).length);
 }
 
+/* ----- Adobe Acrobat Sign text tags (Sprint 22, item 7) --------------------------------
+   OPTIONAL, OFF by default. When ADOBE_SIGN.enabled is on, the printed packet carries literal
+   Adobe Acrobat Sign "text tags" — e.g. {{Sig_es_:signer1:signature}} / {{Dte_es_:signer1:date}}
+   / {{N_es_:signer2:fullname}} — at the signature spots. Adobe Sign scans an *uploaded* PDF,
+   auto-detects these strings, and converts each to a fillable e-signature field; in a plain,
+   un-uploaded PDF they are completely inert and render near-invisibly (tiny, near-white via
+   .print-esign-tag) so they never mar the printed form. No library — just the documented
+   text-tag syntax embedded as text (Path A, per the roadmap).
+
+   Flip `enabled` on only if FSResidential actually routes received packets through Adobe
+   Acrobat Sign (open HOA decision — see ROADMAP Sprint 22). `neighbors` additionally gives
+   each adjacent-owner row its own signer role (signer2, signer3, …) so every neighbor can
+   e-sign their own line; set it false for an owner-only e-signing flow. */
+const ADOBE_SIGN = { enabled: false, neighbors: true };
+
+// One Adobe Sign text tag as a near-invisible inline span — or "" when tagging is off, so it
+// drops out of the markup entirely (the default-OFF packet is byte-for-byte unchanged).
+// `directive` is the literal inside the braces, e.g. "Sig_es_:signer1:signature". Call sites
+// pass hardcoded strings (no user input), so no escaping is needed.
+function esignTag(directive) {
+  return ADOBE_SIGN.enabled ? `<span class="print-esign-tag">{{${directive}}}</span>` : "";
+}
+
 /* The 2026 review-date table from the source form's "Architectural Review Dates"
    page — each board-meeting date paired with its application deadline (the DATES
    constant, same data the landing page shows). Sprint 21 stacks all twelve months
@@ -1742,12 +1765,12 @@ function buildApplicationPageHTML(d) {
               d.ownerSigMethod === "type"
                 ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
                 : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" />` : "")
-            }</div>
+            }${esignTag("Sig_es_:signer1:signature")}</div>
             <div class="print-sig-line"></div>
             <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " — signed electronically by typing name" : ""}</div>
           </div>
           <div class="print-sig-field print-sig-field--narrow">
-            <div class="print-sig-ink">${esc(d.ackDate)}</div>
+            <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
             <div class="print-sig-line"></div>
             <div class="print-sig-label">Date</div>
           </div>
@@ -2114,6 +2137,10 @@ async function printPreview() {
       .print-sig-line { border-bottom: 1px solid #333; margin-top: 2px; }
       .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 16px; }
       .print-sig-label { font-size: 9px; color: #777; margin-top: 2px; }
+      /* Adobe Acrobat Sign text tags (Sprint 22): inert in a plain PDF; Adobe Sign converts
+         them to fillable fields on upload. Tiny near-white text so they don't mar the printed
+         signature spots. print-color-adjust:exact keeps the near-white from being darkened. */
+      .print-esign-tag { font-size: 5px; line-height: 1; color: #efece7; letter-spacing: 0; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-footer-note { font-size: 8px; color: #999; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
       /* --- dedicated section pages (Sprint 19): improvements, site/plot, photos --- */
       .print-pagetitle { font-family: Georgia, serif; font-size: 17px; font-weight: 600; color: #7d0d18; border-bottom: 3px solid #a4111f; padding-bottom: 5px; margin: 0 0 12px; }
@@ -2254,12 +2281,17 @@ function neighborChangeSummary(d) {
 function buildNeighborStripHTML(d) {
   let rows = "";
   for (let i = 0; i < 6; i++) {
+    // Each adjacent-owner row is its own Adobe Sign participant (signer2, signer3, …) so every
+    // neighbor e-signs their own line. Untagged in an owner-only flow (ADOBE_SIGN.neighbors=false)
+    // or when tagging is off entirely (esignTag returns "").
+    const signer = "signer" + (i + 2);
+    const nt = ADOBE_SIGN.neighbors ? esignTag : () => "";
     rows += `<tr>
       <td class="nf-num">${i + 1}</td>
-      <td></td>
-      <td></td>
-      <td class="nf-sig"></td>
-      <td class="nf-date"></td>
+      <td>${nt(`N_es_:${signer}:fullname`)}</td>
+      <td>${nt(`Addr_es_:${signer}`)}</td>
+      <td class="nf-sig">${nt(`Sig_es_:${signer}:signature`)}</td>
+      <td class="nf-date">${nt(`Dte_es_:${signer}:date`)}</td>
     </tr>`;
   }
   const summary = neighborChangeSummary(d);
