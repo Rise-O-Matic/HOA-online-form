@@ -54,7 +54,7 @@ function getRefId() { return appRefId || (appRefId = genRefId()); }
 const ACKS = [
   'Compliance with the <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Guidelines</a>, <a href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Protective Covenants</a> and ARC approval does <strong>not</strong> necessarily constitute compliance with building and zoning codes of <a href="https://www.rivcocob.org/building-and-safety/" target="_blank" rel="noopener">Riverside County</a>. A building permit may still be required.',
   "No exterior alteration shall commence until <strong>written ARC approval</strong> has been returned to the homeowner. Unapproved or out-of-scope work may require restoration to the former condition at the homeowner's expense, plus legal costs.",
-  'I am responsible to provide all required details on attached sheets (plot, sketches, scale drawings, photos, illustrations, plans, contracts, etc.), with the location of the change indicated on a color-coded plot. <span class="muted">(The packet checklist in Review &amp; Submit tracks these attachments for you.)</span>',
+  'I am responsible to provide all required details on attached sheets (plot, sketches, scale drawings, photos, illustrations, plans, contracts, etc.), with the location of the change indicated on a color-coded plot. <span class="muted">(Your improvement details, plot plan, and photos are assembled into the printed packet as you fill this out.)</span>',
   'For changes in <strong>paint color</strong>, I will attach a manufacturer\'s sample indicating the color/code and the proposed vendor\'s name. <span class="muted">(If your project adds a new color or material, the sample photo requested in Section 04 covers this.)</span>',
   "ARC members may enter the property at a reasonable, pre-arranged time to inspect the project site(s) during and upon completion of the work. Such entry does not constitute trespass.",
   "Any approval is contingent upon construction or alterations being completed in a <strong>workmanlike manner</strong>.",
@@ -897,17 +897,14 @@ export function updateProgress() {
   // count the ack signature as required-ish (drawn ink or a typed name, per the chosen method)
   let total = required.length + 1;
   if (ownerSignatureProvided()) done++;
-  // Packet items count too — 100% must not be reachable with an empty packet.
-  // Three items: the plot plan, the requested photos (questionnaire answered AND
-  // every requested shot attached), and the example pictures for every
-  // Add/Replace improvement item.
-  total += 3;
+  // Two workflow signals that aren't [required] DOM fields still count, so 100% stays
+  // unreachable with an empty packet: a provided plot plan (Step 03) and every requested
+  // photo attached (Step 04). Catalog pictures no longer gate (Sprint 20) — the print
+  // pages show them, and requiring one per improvement read as nagging.
+  total += 2;
   if (plotProvided().ok) done++;
   const reqPhotos = photoChecklist();
   if (reqPhotos.length > 0 && reqPhotos.every(p => p.file)) done++;
-  // Lenient: a Remove-only (or empty) item list needs no catalog pictures, so [].every() -> done;
-  // the always-required item name still keeps the denominator honest for an empty packet.
-  if (improvementChecklist().every(r => r.file)) done++;
   const pct = Math.round((done / total) * 100);
   $("#progress-fill").style.width = pct + "%";
   $("#progress-text").textContent = pct + "% complete";
@@ -919,13 +916,17 @@ form.addEventListener("change", updateProgress);
 ["pointerup"].forEach(ev => document.addEventListener(ev, () => setTimeout(updateProgress, 50)));
 
 /* ------------------------------------------------------
-   PACKET STATUS
-   One source of truth for "what's in the packet": the plot
-   plan, every requested photo, and the improvement pictures —
-   all derived from real app state (the old manual sketches/fee
-   checkboxes are gone). Feeds the Review & Submit packet list,
-   the advisory review gate, and the printed packet's page-1
-   checklist.
+   WORKFLOW-STEP STATUS  (Sprint 20)
+   The "Save & Print Packet" card used to audit packet artifacts
+   (plot present, each photo attached, each catalog picture) — which
+   duplicated what the print pages already show and read as nagging.
+   Now one source of truth reports each WORKFLOW STEP as done/incomplete,
+   judged by that section's own inputs: 01 Applicant · 02 Proposed
+   Improvements · 03 Site/Plot Plan · 04 Photos · 05 Acknowledgments.
+   Feeds the Save & Print Packet overview, the advisory review gate,
+   and the printed cover's "still to finish" note.
+   (plotProvided/photoChecklist below are still the per-section signals
+   for steps 03/04; catalog pictures no longer gate anywhere.)
 ------------------------------------------------------ */
 let pdfSaved = false; // flips once the print/save-PDF view is opened this session
 
@@ -969,26 +970,84 @@ function improvementChecklist() {
     });
 }
 
-// Human-readable list of what's still missing, for the advisory review gate
-// and the printed packet's page-1 "still outstanding" note.
-function packetMissingList() {
-  const missing = [];
-  const plot = plotProvided();
-  if (!plot.ok) missing.push(plot.mode === "upload"
-    ? "Plot plan file (upload chosen, but nothing attached in Section 03)"
-    : plot.started
-      ? "Plot plan — drawn but not marked finished (press “Done — use this plan” in Section 03)"
-      : "Plot plan (nothing drawn yet in Section 03)");
-  const photos = photoChecklist();
-  if (!photos.length) missing.push("Property photos — the questionnaire in Section 04 hasn't been answered");
-  else photos.filter(p => !p.file).forEach(p => missing.push("Photo — " + p.title));
-  improvementChecklist().filter(it => !it.file).forEach(it =>
-    missing.push("Example/catalog picture — " + it.name + " (Section 02)"));
-  return missing;
+/* ----- WORKFLOW STEPS -----
+   The five form sections, in order, keyed to their DOM containers. The step-status
+   overview, the advisory gate, and the printed cover all read from stepStatus(). */
+const STEPS = [
+  { num: "01", label: "Applicant Information", id: "applicant" },
+  { num: "02", label: "Proposed Improvements", id: "description" },
+  { num: "03", label: "Site / Plot Plan", id: "siteplan" },
+  { num: "04", label: "Photos", id: "photos-section" },
+  { num: "05", label: "Acknowledgments", id: "acknowledgments" }
+];
+const FIELDS_REASON = "Some required details are still blank.";
+
+// Shared required-field predicate — used by the (pure) section-completeness check
+// AND by fieldIssues() (which additionally paints inline errors). Returns {bad, msg}.
+function checkRequired(el) {
+  let bad = false, msg = "This field is required.";
+  if (el.type === "checkbox") bad = !el.checked;
+  else bad = !el.value || !el.value.trim();
+  if (!bad && el.type === "email" && !EMAIL_RE.test(el.value.trim())) {
+    bad = true; msg = "Please enter a valid email address.";
+  }
+  if (!bad && el.type === "tel") {
+    const digits = (el.value.match(PHONE_DIGITS_RE) || []).length;
+    if (digits < 10 || !PHONE_RE.test(el.value.trim())) {
+      bad = true; msg = "Please enter a valid phone number (at least 10 digits).";
+    }
+  }
+  return { bad, msg };
 }
 
-/* ----- packet list rendering (Review & Submit card) ----- */
-const packetListEl = $("#packet-list");
+// Pure (no DOM side effects) — is every [required] input inside this section satisfied?
+// The live overview + progress meter use this; the gate uses the painting fieldIssues().
+function sectionRequiredComplete(sectionId) {
+  const sec = document.getElementById(sectionId);
+  if (!sec) return true;
+  return $$("[required]", sec).every(el => !checkRequired(el).bad);
+}
+
+// One-line reason a plot step isn't done (build vs upload, and the "drawn but not
+// confirmed" third state).
+function plotStepReason(plot) {
+  if (plot.mode === "upload") return "Upload chosen, but no plot-plan file is attached.";
+  if (plot.started) return "Plan drawn — press “Done — use this plan” to finish it.";
+  return "No plot plan yet — draw one, or switch to uploading a file.";
+}
+
+// Per-step done/incomplete for the overview, gate, meter, and printed cover — each step
+// judged by its OWN inputs. Steps 03/04/05 add the non-field signals (plot provided,
+// photos attached, signature present). Pure — never paints inline errors.
+function stepStatus() {
+  return STEPS.map(step => {
+    const fieldsOk = sectionRequiredComplete(step.id);
+    let ok = fieldsOk, reason = fieldsOk ? "" : FIELDS_REASON;
+    if (step.id === "siteplan") {
+      const plot = plotProvided();
+      ok = fieldsOk && plot.ok;
+      if (!plot.ok) reason = plotStepReason(plot);
+    } else if (step.id === "photos-section") {
+      const photos = photoChecklist();
+      const photosOk = photos.length > 0 && photos.every(p => p.file);
+      ok = fieldsOk && photosOk;
+      if (!photos.length) reason = "Answer the questionnaire to see which photos are needed.";
+      else if (!photosOk) {
+        const need = photos.filter(p => !p.file).length;
+        reason = `${need} of ${photos.length} requested photo${photos.length === 1 ? "" : "s"} still to attach.`;
+      }
+    } else if (step.id === "acknowledgments") {
+      const signed = ownerSignatureProvided();
+      ok = fieldsOk && signed;
+      if (!fieldsOk) reason = "Check each acknowledgment to finish.";
+      else if (!signed) reason = "Sign the acknowledgment — draw or type your full legal name.";
+    }
+    return { ...step, href: "#" + step.id, ok, reason };
+  });
+}
+
+/* ----- step-status overview rendering (Save & Print Packet card) ----- */
+const stepStatusEl = $("#step-status");
 
 function packetItemNode(item) {
   const li = document.createElement("li");
@@ -1009,24 +1068,6 @@ function packetItemNode(item) {
     note.textContent = item.note;
     body.appendChild(note);
   }
-  if (item.subs) {
-    const ul = document.createElement("ul");
-    ul.className = "packet-sublist";
-    item.subs.forEach(s => {
-      const sli = document.createElement("li");
-      sli.className = "packet-sub" + (s.ok ? " is-ok" : "");
-      const si = document.createElement("span");
-      si.className = "packet-sub__icon";
-      si.setAttribute("aria-hidden", "true");
-      si.textContent = s.ok ? "✓" : "✗";
-      sli.appendChild(si);
-      const st = document.createElement("span");
-      st.textContent = s.label + (s.note ? " — " + s.note : "");
-      sli.appendChild(st);
-      ul.appendChild(sli);
-    });
-    body.appendChild(ul);
-  }
   li.appendChild(body);
   if (item.href && !item.ok) {
     const a = document.createElement("a");
@@ -1038,71 +1079,18 @@ function packetItemNode(item) {
   return li;
 }
 
-function renderPacket() {
-  if (!packetListEl) return;
-  const plot = plotProvided();
-  const photos = photoChecklist();
-  const items = [];
-  items.push({
-    label: "Application packet (PDF)",
-    ok: pdfSaved,
-    note: pdfSaved
-      ? "Saved this session — page 1 of the packet explains how to submit it."
-      : "Not saved yet — the Save & print button below creates it."
-  });
-  if (plot.mode === "upload") {
-    items.push({
-      label: "Plot plan (uploaded)",
-      ok: plot.ok,
-      note: plot.ok
-        ? plot.names.join(", ") + " — include this file when you submit."
-        : "Upload chosen, but no file attached yet.",
-      href: "#siteplan"
-    });
-  } else {
-    items.push({
-      label: "Plot plan (drawn)",
-      ok: plot.ok,
-      note: plot.ok
-        ? "Included automatically in the form PDF — nothing extra to attach."
-        : plot.started
-          ? "In progress — mark it finished in Section 03 (“Done — use this plan”)."
-          : "Nothing drawn yet.",
-      href: "#siteplan"
-    });
-  }
-  // Example / catalog pictures for each Add/Replace improvement item (Section 02).
-  // Remove-only lists need none, so the row only appears when pictures are expected.
-  const impReq = improvementChecklist();
-  if (impReq.length) {
-    const impAttached = impReq.filter(r => r.file).length;
-    items.push({
-      label: `Example / catalog pictures — ${impAttached} of ${impReq.length} attached`,
-      ok: impAttached === impReq.length,
-      note: "One picture per Add/Replace item — include each when you submit.",
-      href: "#description",
-      subs: impReq.map(r => ({ label: r.name, ok: !!r.file, note: r.file }))
-    });
-  }
-  if (!photos.length) {
-    items.push({
-      label: "Property photos",
-      ok: false,
-      note: "Answer the questionnaire in Section 04 to see which photos are needed.",
-      href: "#photos-section"
-    });
-  } else {
-    const attached = photos.filter(p => p.file).length;
-    items.push({
-      label: `Property photos — ${attached} of ${photos.length} attached`,
-      ok: attached === photos.length,
-      note: "Include each photo file when you submit.",
-      href: "#photos-section",
-      subs: photos.map(p => ({ label: p.title, ok: !!p.file, note: p.file }))
-    });
-  }
-  packetListEl.textContent = "";
-  items.forEach(item => packetListEl.appendChild(packetItemNode(item)));
+// The Save & Print Packet card's at-a-glance overview: one row per workflow step,
+// each done (green ✓) or incomplete (✗ + a one-line reason and a jump link). No
+// per-artifact itemization — that lived in the old packet list and read as nagging.
+function renderStepStatus() {
+  if (!stepStatusEl) return;
+  stepStatusEl.textContent = "";
+  stepStatus().forEach(s => stepStatusEl.appendChild(packetItemNode({
+    label: `${s.num} · ${s.label}`,
+    ok: s.ok,
+    note: s.ok ? null : s.reason,
+    href: s.href
+  })));
 }
 
 function refreshFinishSteps() {
@@ -1136,7 +1124,7 @@ function refreshPlotDoneUI() {
 }
 
 export function refreshPacketUI() {
-  renderPacket();
+  renderStepStatus();
   refreshFinishSteps();
   refreshPlotDoneUI();
 }
@@ -1467,42 +1455,18 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/;
 
 // Walk every [required] field, painting inline error messages as a side effect,
 // and return a list of {label, target} issues (empty = all complete). Advisory
-// only — nothing here blocks a path. The review gate surfaces this list and always
-// lets the user continue. (Replaced validate()/validateOrFocus, which force-scrolled
-// to the first bad field and aborted the whole action — the "it just yanks me to an
-// incomplete section" behavior we deliberately removed.)
+// only — nothing here blocks a path. Called from the review gate purely for the
+// painting side effect: the gate lists incomplete workflow STEPS (see reviewThen /
+// stepStatus), and painting here means jumping to a step shows its bad fields.
+// (Replaced validate()/validateOrFocus, which force-scrolled to the first bad field
+// and aborted the whole action — the "it just yanks me around" behavior we removed.)
 function fieldIssues() {
   const issues = [];
   $$("#arc-form [required]").forEach(el => {
     clearFieldError(el);
-    let bad = false;
-    let errorMsg = "This field is required.";
-
-    if (el.type === "checkbox") {
-      bad = !el.checked;
-    } else {
-      bad = !el.value || !el.value.trim();
-    }
-
-    // Email format check
-    if (el.type === "email" && el.value && el.value.trim()) {
-      if (!EMAIL_RE.test(el.value.trim())) {
-        bad = true;
-        errorMsg = "Please enter a valid email address.";
-      }
-    }
-
-    // Phone format check
-    if (el.type === "tel" && el.value && el.value.trim()) {
-      const digits = (el.value.match(PHONE_DIGITS_RE) || []).length;
-      if (digits < 10 || !PHONE_RE.test(el.value.trim())) {
-        bad = true;
-        errorMsg = "Please enter a valid phone number (at least 10 digits).";
-      }
-    }
-
+    const { bad, msg } = checkRequired(el);
     if (bad) {
-      if (el.type !== "checkbox") setFieldError(el, errorMsg);
+      if (el.type !== "checkbox") setFieldError(el, msg);
       else el.classList.add("invalid");
       issues.push({ label: fieldLabel(el), target: el });
     }
@@ -1544,30 +1508,20 @@ function scrollToIssue(target) {
   try { if (el.focus) el.focus({ preventScroll: true }); } catch (_) {}
 }
 
-// Map a packet-gap label (from packetMissingList) to the section it lives in.
-function packetTargetFor(label) {
-  if (/^Plot plan/i.test(label)) return "#siteplan";
-  if (/photo/i.test(label)) return "#photos-section";
-  if (/Example\/catalog picture/i.test(label)) return "#description";
-  return null;
-}
-
-// Everything currently incomplete — required-field issues (this also paints the
-// inline errors) plus packet gaps — as one flat {label, target} list. Advisory only.
-function allIssues() {
-  const issues = fieldIssues();
-  packetMissingList().forEach(label =>
-    issues.push({ label, target: packetTargetFor(label) }));
-  return issues;
-}
-
 // Run `action`, but first offer an advisory review of anything incomplete. Nothing
-// blocks: if items are missing we open the gate (per-item jump links + a Continue
-// button that runs `action`); if all clear, `action` runs straight away.
+// blocks: if any workflow step is incomplete we open the gate (one jump link per step
+// + a Continue button that runs `action`); if all clear, `action` runs straight away.
+// The gate speaks in workflow STEPS, not packet artifacts (Sprint 20) — but we still
+// paint the [required]-field errors first, so jumping to a step highlights its gaps.
 function reviewThen(action, continueLabel) {
-  const issues = allIssues();
-  if (!issues.length) { action(); return; }
-  openGateModal(issues, action, continueLabel);
+  fieldIssues(); // paint inline errors on incomplete [required] fields
+  const incomplete = stepStatus().filter(s => !s.ok);
+  if (!incomplete.length) { action(); return; }
+  const rows = incomplete.map(s => ({
+    label: `${s.num} · ${s.label}${s.reason ? " — " + s.reason : ""}`,
+    target: s.href
+  }));
+  openGateModal(rows, action, continueLabel);
 }
 
 // Clear inline errors on input (the typed signature isn't [required] — its requiredness
@@ -1624,11 +1578,11 @@ function printDatesHTML() {
 
 /* Page 1 of the printed packet: submission instructions, so the applicant never
    needs to return to the web form after printing. Derived at print time from the
-   same packet-state helpers as the Review & Submit card. */
+   same workflow-step helpers as the Save & Print Packet card. */
 function buildInstructionsHTML(d) {
   const photoCount = Object.values(d.photos || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
   const impPics = improvementChecklist().filter(it => it.file);
-  const missing = packetMissingList();
+  const incompleteSteps = stepStatus().filter(s => !s.ok);
   const uploadPlot = d.planMode === "upload";
   const include = [
     "<strong>This application packet (PDF)</strong>" + (uploadPlot ? "" : " — your drawn plot plan and signature are already inside it"),
@@ -1644,10 +1598,10 @@ function buildInstructionsHTML(d) {
     "<strong>The signed adjacent-owner signature form</strong> — the last page of this packet, scanned or photographed after signatures are collected"
   ].map(li => `<li>${li}</li>`).join("");
 
-  const missingBlock = missing.length
-    ? `<div class="print-warn"><strong>Still outstanding when this packet was printed:</strong>
-        <ul>${missing.map(m => `<li>${esc(m)}</li>`).join("")}</ul>
-        An incomplete application is returned unreviewed — gather these before you submit.</div>`
+  const missingBlock = incompleteSteps.length
+    ? `<div class="print-warn"><strong>Sections still to finish when this packet was printed:</strong>
+        <ul>${incompleteSteps.map(s => `<li>${esc(s.num + " " + s.label)}${s.reason ? " — " + esc(s.reason) : ""}</li>`).join("")}</ul>
+        An incomplete application is returned unreviewed — finish these before you submit.</div>`
     : "";
 
   return `

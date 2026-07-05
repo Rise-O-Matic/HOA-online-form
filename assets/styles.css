@@ -1560,11 +1560,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .packet-item__note { display: block; font-size: .82rem; color: var(--ink-faint); margin-top: .1rem; overflow-wrap: anywhere; }
 .packet-item.is-ok .packet-item__note { color: var(--ink-soft); }
 .packet-item__link { flex-shrink: 0; align-self: center; font-size: .82rem; font-weight: 600; white-space: nowrap; }
-.packet-sublist { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .25rem; }
-.packet-sub { display: flex; gap: .5rem; font-size: .82rem; color: var(--ink-soft); }
-.packet-sub__icon { flex-shrink: 0; width: 1rem; text-align: center; font-weight: 700; color: var(--crimson); }
-.packet-sub.is-ok .packet-sub__icon { color: var(--green); }
-.packet-sub span:last-child { overflow-wrap: anywhere; }
 
 .finish-steps { display: grid; gap: .8rem; }
 .finish-step {
