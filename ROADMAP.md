@@ -249,11 +249,14 @@ Section 06 "Review & Submit" audits *packet artifacts* (plot present, photos att
 
 Verified in-browser (fresh port 8203): zero console errors on load and through the whole flow. The overview renders 5 workflow-step rows (correct labels/reasons/jump-links); filling Applicant + one improvement name + acks + typed signature flips steps 01/02/05 to ✓ (03/04 stay ✗ with their reasons), meter reads 88%; the finish gate lists only the two incomplete steps (03 Site/Plot, 04 Photos) as jump buttons, not per-artifact rows; the printed cover's warning reads "Sections still to finish … 03 Site / Plot Plan — … 04 Photos — …"; sidenav + `<h2>` + masthead banner all say "Save & Print Packet"; a save→reload draft round-trip restores fields and recomputes the overview identically. `node --check` clean on app.js; 47/47 tests. **Needs the user's eyes:** the overview's visual read in the real card, and a fully-complete run reaching 100% once a plot + all photos are attached.
 
-## Sprint 21 — Cover redesign: concise, dates in a right rail, neighbor signatures at the bottom (item 6)
+## Sprint 21 — Cover redesign + incompleteness warning moved to a front page (item 6) ✅ 2026-07-05
 
-- [ ] **Two-column cover** — concise instructions / steps on the left; the 2026 review dates as **one** two-column table (Board meeting | Deadline) down the **right rail** (`printDatesHTML()` → a single table, not the current two side-by-side).
-- [ ] **Trim the copy** — tighten steps, include-list, fees, and questions so the page has vertical room.
-- [ ] **Neighbor signatures at the bottom** — a compact adjacent-owner signature block pinned to the bottom of the cover (CSS grid). **To decide:** fold the signature rows onto the cover and **retire the separate last-page neighbor form** (recommended — Sprint 19 already adds pages), or keep both. If folded, the change-summary + notice move with it.
+Done with a user modification: the incompleteness warning that used to sit inline on the cover moves to its **own leading "cover-cover" page** (a hazard-striped stop page with a warning triangle, the list of what's missing, and an "attach these to your submission email" callout) that **prints only while something is incomplete** and vanishes for a completed application.
+
+- [x] **Incompleteness warning page** (user's change) — `buildWarningCoverHTML()` prepends a conditional stop-page before the cover: hazard bands, an SVG warning triangle, a `stepStatus()`-derived "Still to finish" card, and the attach-to-email instruction. Returns `""` (no page at all) when every step is complete. Replaced the old inline `.print-warn` note buried in the instructions.
+- [x] **Two-column cover** — concise steps + include-list + fees on the left; the 2026 review dates in a **right rail** via `printDatesHTML()` (now **one** narrow table, abbreviated months + a "† tentative" footnote, not two side-by-side columns) plus a Questions? contact card.
+- [x] **Trim the copy** — steps, include-list, and fees tightened to make vertical room for the folded signature strip.
+- [x] **Neighbor signatures folded onto the cover** (user decision) — `buildNeighborStripHTML(d)` (change summary via `neighborChangeSummary(d)` + 4 blank rows) pins to the **bottom** of the cover (`.print-cover-page` flex column + `margin-top:auto`); the standalone last-page `buildNeighborFormHTML` was retired.
 
 ## Sprint 22 — Adobe Sign fields on the saved PDF (item 7)
 

@@ -1565,47 +1565,89 @@ function improvementRows(d) {
 
 /* The 2026 review-date table from the source form's "Architectural Review Dates"
    page — each board-meeting date paired with its application deadline (the DATES
-   constant, same data the landing page shows). Split into two side-by-side columns
-   so all twelve months fit on the instructions page. */
+   constant, same data the landing page shows). Sprint 21 stacks all twelve months
+   into ONE narrow table that lives down the cover's right rail; month names are
+   abbreviated and "(tentative)" collapses to a "†" footnote so the column stays tight. */
 function printDatesHTML() {
-  const half = Math.ceil(DATES.length / 2);
-  const col = rows => `<table class="print-dates-tbl">
-      <thead><tr><th>Board meeting</th><th>Deadline</th></tr></thead>
-      <tbody>${rows.map(([m, dl]) => `<tr><td>${esc(m)}</td><td>${esc(dl)}</td></tr>`).join("")}</tbody>
-    </table>`;
-  return `<div class="print-dates">${col(DATES.slice(0, half))}${col(DATES.slice(half))}</div>`;
+  const compact = s => String(s).replace(/^(\w{3})\w*/, "$1").replace(/\s*\(tentative\)/i, " †");
+  const anyTentative = DATES.some(([m]) => /tentative/i.test(m));
+  return `<table class="print-dates-tbl">
+      <thead><tr><th>Meeting</th><th>Deadline</th></tr></thead>
+      <tbody>${DATES.map(([m, dl]) => `<tr><td>${esc(compact(m))}</td><td>${esc(compact(dl))}</td></tr>`).join("")}</tbody>
+    </table>${anyTentative ? `<p class="print-rail__foot">† date tentative</p>` : ""}`;
 }
 
-/* Page 1 of the printed packet: submission instructions, so the applicant never
-   needs to return to the web form after printing. Derived at print time from the
-   same workflow-step helpers as the Save & Print Packet card. */
+/* Sprint 21 — the incompleteness "cover-cover" page (a warning that prints BEFORE the
+   cover). It carries the same stepStatus()-derived "what's still missing" the cover used
+   to bury, elevated to a full stop-page: a hazard triangle, the outstanding items, and the
+   "attach these to your email" instruction. Returns "" when nothing is missing, so the
+   page simply doesn't exist for a completed application — the packet then opens on the
+   cover. Driven from the live form state at print time, exactly like the old inline note. */
+function buildWarningCoverHTML() {
+  const incompleteSteps = stepStatus().filter(s => !s.ok);
+  if (!incompleteSteps.length) return ""; // completed properly → no warning page at all
+  const items = incompleteSteps.map(s => `<li>
+      <span class="print-warncover__num">${esc(s.num)}</span>
+      <span class="print-warncover__what"><strong>${esc(s.label)}</strong>${s.reason ? `<span>${esc(s.reason)}</span>` : ""}</span>
+    </li>`).join("");
+  const n = incompleteSteps.length;
+  return `
+    <section class="print-page print-warncover">
+      <div class="print-warncover__band" aria-hidden="true"></div>
+      <div class="print-warncover__body">
+        <svg class="print-warncover__icon" viewBox="0 0 120 106" role="img" aria-label="Warning">
+          <path d="M60 6 L116 100 H4 Z" fill="#a4111f" stroke="#7d0d18" stroke-width="4" stroke-linejoin="round"/>
+          <rect x="54" y="40" width="12" height="34" rx="5" fill="#fff"/>
+          <circle cx="60" cy="87" r="6.5" fill="#fff"/>
+        </svg>
+        <div class="print-warncover__eyebrow">Stop — do not submit yet</div>
+        <h1 class="print-warncover__title">This application is incomplete</h1>
+        <p class="print-warncover__lead">This packet was printed before every section was finished.
+          <strong>An incomplete application is returned unreviewed</strong>, and the 45-day review period
+          does not begin until everything is received.</p>
+
+        <div class="print-warncover__card">
+          <div class="print-warncover__cardhead">Still to finish<span>${n} item${n === 1 ? "" : "s"}</span></div>
+          <ul class="print-warncover__list">${items}</ul>
+        </div>
+
+        <div class="print-warncover__attach">
+          <strong>You must attach any outstanding photos or files to your submission email.</strong>
+          Best of all: return to the online form, finish the items above, and re-print — a complete
+          packet drops this page automatically.
+        </div>
+      </div>
+      <div class="print-warncover__foot">This page appears only while something is missing. Complete every section and it disappears.</div>
+      <div class="print-warncover__band" aria-hidden="true"></div>
+    </section>`;
+}
+
+/* Page 1 of the printed packet (the cover): concise submission instructions so the
+   applicant never needs to return to the web form. Sprint 21 reshaped it into a
+   two-column cover — steps + what-to-email + fees on the left, the 2026 review dates
+   down a right rail — with the adjacent-owner signature block folded onto the bottom
+   (the standalone last-page neighbor form was retired). The incompleteness warning that
+   used to sit inline here now prints as its own front page (buildWarningCoverHTML). */
 function buildInstructionsHTML(d) {
   const photoCount = Object.values(d.photos || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
   const impPics = improvementChecklist().filter(it => it.file);
-  const incompleteSteps = stepStatus().filter(s => !s.ok);
   const uploadPlot = d.planMode === "upload";
   const include = [
-    "<strong>This application packet (PDF)</strong>" + (uploadPlot ? "" : " — your drawn plot plan and signature are already inside it"),
+    "<strong>This packet (PDF)</strong>" + (uploadPlot ? "" : " — plot plan &amp; signature are inside"),
     ...(uploadPlot
-      ? ["<strong>Your plot plan file</strong>" + (d.plotUpload && d.plotUpload.length ? " — " + d.plotUpload.map(esc).join(", ") : " <em>(not attached yet)</em>")]
+      ? ["<strong>Your plot-plan file</strong>" + (d.plotUpload && d.plotUpload.length ? " — " + d.plotUpload.map(esc).join(", ") : " <em>(not attached yet)</em>")]
       : []),
     "<strong>Your property photos</strong>" + (photoCount
-      ? ` — the ${photoCount} photo file${photoCount === 1 ? "" : "s"} you attached while filling this out`
+      ? ` — the ${photoCount} original file${photoCount === 1 ? "" : "s"} you attached`
       : " <em>(none attached yet)</em>"),
     ...(impPics.length
       ? [`<strong>Example / catalog pictures</strong> — ${impPics.map(it => esc(it.file)).join(", ")}`]
       : []),
-    "<strong>The signed adjacent-owner signature form</strong> — the last page of this packet, scanned or photographed after signatures are collected"
+    "<strong>The signed cover</strong> — scan or photograph it once adjacent owners have signed below"
   ].map(li => `<li>${li}</li>`).join("");
 
-  const missingBlock = incompleteSteps.length
-    ? `<div class="print-warn"><strong>Sections still to finish when this packet was printed:</strong>
-        <ul>${incompleteSteps.map(s => `<li>${esc(s.num + " " + s.label)}${s.reason ? " — " + esc(s.reason) : ""}</li>`).join("")}</ul>
-        An incomplete application is returned unreviewed — finish these before you submit.</div>`
-    : "";
-
   return `
-    <section class="print-page">
+    <section class="print-page print-cover-page">
       <div class="print-header">
         <div>
           <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
@@ -1617,27 +1659,39 @@ function buildInstructionsHTML(d) {
         </div>
       </div>
 
-      <ol class="print-steps">
-        <li><strong>Save or print this packet.</strong> Keep the PDF (or a paper copy) — it is your application and your record. The application itself is the next page; your plot plan and signature are already part of it.</li>
-        <li><strong>Collect adjacent-owner signatures.</strong> The signature form is the <strong>last page</strong> of this packet. Have the neighbors most affected by your change sign it in person — a signature confirms they were notified; it is not an approval or disapproval. Then scan or photograph the completed form.</li>
-        <li><strong>Email your complete packet</strong> to CarolMarie Taylor, Sr. Architectural Specialist. Applications are accepted <strong>by email only</strong> — no other staff member can accept them:<br>
-          <span class="print-email">carolmarie.taylor@fsresidential.com</span></li>
-      </ol>
+      <div class="print-cover">
+        <div class="print-cover__main">
+          <h4>How to submit</h4>
+          <ol class="print-steps">
+            <li><strong>Save or print this packet.</strong> It is your application and your record — the plot plan and signature are already inside.</li>
+            <li><strong>Collect adjacent-owner signatures</strong> on the block below, in person. A signature confirms your neighbor was notified — not approval. Then scan or photograph the signed cover.</li>
+            <li><strong>Email the complete packet</strong> to CarolMarie Taylor. Applications are accepted <strong>by email only</strong>:<br>
+              <span class="print-email">carolmarie.taylor@fsresidential.com</span></li>
+          </ol>
 
-      <h4>What your email must include</h4>
-      <ul class="print-include">${include}</ul>
-      ${missingBlock}
+          <h4>What to email</h4>
+          <ul class="print-include">${include}</ul>
 
-      <h4>2026 Architectural Review Dates</h4>
-      <p class="print-info">Submit the completed packet by the <strong>application deadline</strong> to make that month&rsquo;s board meeting &mdash; <strong>no exceptions</strong>. An application that misses its deadline is reviewed at the following scheduled board meeting. Dates are subject to change.</p>
-      ${printDatesHTML()}
+          <h4>Deadlines &amp; fees</h4>
+          <p class="print-info">The complete packet must arrive by the deadline (right) to make that month&rsquo;s board meeting; an incomplete application is returned unreviewed, and the 45-day review clock starts only once everything is received.</p>
+          <p class="print-info"><strong>No payment is due now</strong> — the fee is collected only after your application is reviewed and confirmed complete, and a receipt is emailed to you.</p>
+        </div>
 
-      <h4>Deadlines &amp; fees</h4>
-      <p class="print-info">The complete packet must arrive by the application deadline above to make that month&rsquo;s board meeting — an incomplete application is returned unreviewed, and the 45-day review period does not begin until everything is received.</p>
-      <p class="print-info"><strong>No payment is due now.</strong> The fee is collected only after the Architectural Specialist has reviewed your application and confirmed it is complete — she will contact you directly to collect it, and a receipt is emailed to you.</p>
+        <aside class="print-rail">
+          <div class="print-rail__title">2026 Review Dates</div>
+          ${printDatesHTML()}
+          <p class="print-rail__note">Submit by the <strong>deadline</strong> to make that month&rsquo;s board meeting — no exceptions. A late packet is held for the next meeting. Dates subject to change.</p>
+          <div class="print-rail__contact">
+            <strong>Questions?</strong><br>
+            CarolMarie Taylor<br>
+            951-801-4246<br>
+            Tue&ndash;Sat · 9:00&nbsp;AM&ndash;4:30&nbsp;PM<br>
+            <span>(in-person by appointment)</span>
+          </div>
+        </aside>
+      </div>
 
-      <h4>Questions?</h4>
-      <p class="print-info">CarolMarie Taylor — 951-801-4246 · Tuesday&ndash;Saturday, 9:00&nbsp;AM&nbsp;&ndash;&nbsp;4:30&nbsp;PM. In-person meetings require an appointment.</p>
+      ${buildNeighborStripHTML(d)}
     </section>`;
 }
 
@@ -1782,20 +1836,21 @@ function buildPhotosPageHTML(d, imgs) {
     </section>`;
 }
 
-/* The printed packet: instructions (page 1) + the compact application + a dedicated page
-   per heavy section (improvements, site/plot, photos — each with real scaled images) +
-   the adjacent-owner signature form (last page). `imgs` is the pre-compressed image set
-   gathered asynchronously by printPreview (see preparePrintImages). */
+/* The printed packet: an incompleteness warning page FIRST (Sprint 21 — printed only when
+   something's missing, else absent), then the cover/instructions (with the adjacent-owner
+   signatures folded onto its bottom), the compact application, and a dedicated page per
+   heavy section (improvements, site/plot, photos — each with real scaled images). `imgs`
+   is the pre-compressed image set gathered asynchronously by printPreview (preparePrintImages). */
 function buildPrintHTML(d, imgs) {
   imgs = imgs || [];
   return `
     <div class="print-doc">
+      ${buildWarningCoverHTML()}
       ${buildInstructionsHTML(d)}
       ${buildApplicationPageHTML(d)}
       ${buildImprovementsPageHTML(d, imgs)}
       ${buildPlotPageHTML(d, imgs)}
       ${buildPhotosPageHTML(d, imgs)}
-      ${buildNeighborFormHTML(d)}
     </div>`;
 }
 
@@ -1988,21 +2043,53 @@ async function printPreview() {
          rule got extracted and hid the bar in the very preview it belongs in (the first two
          attempts' "no bar" bug). Inline styles can't be disabled/extracted; the bar is hidden
          from real printouts via beforeprint/afterprint in JS instead of @media print. */
-      /* --- page 1: submission instructions --- */
-      .print-steps { margin: 8px 0 10px; padding-left: 20px; font-size: 11.5px; }
-      .print-steps li { margin-bottom: 9px; }
-      .print-email { display: inline-block; margin-top: 3px; font-size: 14px; font-weight: 700; }
-      .print-include { margin: 4px 0 8px; padding-left: 18px; font-size: 11px; }
+      /* --- Sprint 21 warning "cover-cover" page (printed ONLY when something is missing;
+         buildWarningCoverHTML returns "" for a complete application, so it simply vanishes) --- */
+      .print-warncover { display: flex; flex-direction: column; min-height: 8.8in; }
+      .print-warncover__band { flex: none; height: 15px; background: repeating-linear-gradient(-45deg, #a4111f 0 15px, #2a2320 15px 30px); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-warncover__body { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px 9% 26px; }
+      .print-warncover__icon { width: 112px; height: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; filter: drop-shadow(0 3px 5px rgba(124,13,24,.22)); }
+      .print-warncover__eyebrow { margin-top: 22px; font-size: 11px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: #a4111f; }
+      .print-warncover__title { font-family: Georgia, serif; font-size: 30px; font-weight: 700; color: #1d1a17; margin: 5px 0 0; line-height: 1.04; }
+      .print-warncover__lead { font-size: 12.5px; line-height: 1.5; max-width: 31em; color: #3a352f; margin: 13px 0 22px; }
+      .print-warncover__lead strong { color: #7d0d18; }
+      .print-warncover__card { width: 100%; max-width: 33em; text-align: left; border: 1.5px solid #e6c9c6; border-radius: 6px; overflow: hidden; }
+      .print-warncover__cardhead { display: flex; justify-content: space-between; align-items: baseline; background: #a4111f; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 6px 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-warncover__cardhead span { font-size: 10px; font-weight: 600; letter-spacing: .04em; opacity: .88; text-transform: none; }
+      .print-warncover__list { list-style: none; margin: 0; padding: 2px 0; }
+      .print-warncover__list li { display: flex; gap: 11px; align-items: baseline; padding: 7px 13px; border-top: 1px solid #f2e5e3; }
+      .print-warncover__list li:first-child { border-top: none; }
+      .print-warncover__num { flex: none; font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: #a4111f; width: 20px; }
+      .print-warncover__what { font-size: 11.5px; color: #1d1a17; line-height: 1.35; }
+      .print-warncover__what strong { display: block; }
+      .print-warncover__what span { display: block; color: #6b645c; font-size: 10.5px; }
+      .print-warncover__attach { width: 100%; max-width: 33em; text-align: left; margin-top: 18px; font-size: 11.5px; line-height: 1.5; color: #3a352f; background: #faf3f2; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 11px 15px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-warncover__attach strong { color: #7d0d18; }
+      .print-warncover__foot { flex: none; text-align: center; font-size: 9.5px; color: #8a8580; padding: 0 9% 18px; }
+      /* --- cover (page 1): concise submission instructions, two-column --- */
+      /* Flex column so the folded signature strip pins to the bottom of the sheet
+         (min-height under the ~9.66in content box keeps it to one page). */
+      .print-cover-page { display: flex; flex-direction: column; min-height: 8.8in; }
+      .print-cover-page .print-neighbors { margin-top: auto; }
+      .print-cover { display: grid; grid-template-columns: 1fr 1.95in; gap: 22px; align-items: start; }
+      .print-cover__main { min-width: 0; }
+      .print-cover__main h4:first-child { margin-top: 2px; }
+      .print-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 11px; }
+      .print-steps li { margin-bottom: 6px; }
+      .print-email { display: inline-block; margin-top: 3px; font-size: 13px; font-weight: 700; }
+      .print-include { margin: 4px 0 8px; padding-left: 17px; font-size: 10.5px; }
       .print-include li { margin-bottom: 3px; }
-      .print-info { font-size: 11px; margin: 3px 0 6px; }
-      .print-warn { border: 1.5px solid #a4111f; background: #faf3f2; border-radius: 3px; padding: 7px 10px; font-size: 10.5px; margin: 8px 0 10px; }
-      .print-warn ul { margin: 4px 0; padding-left: 16px; }
-      /* 2026 review-date table (from the source form's "Architectural Review Dates" page),
-         split into two side-by-side columns so all 12 months stay on the instructions page. */
-      .print-dates { display: flex; gap: 14px; margin: 4px 0 8px; }
-      .print-dates-tbl { flex: 1; border-collapse: collapse; font-size: 9.5px; }
-      .print-dates-tbl th { text-align: left; font-size: 8px; text-transform: uppercase; letter-spacing: .04em; color: #a4111f; background: #faf8f4; padding: 2px 6px; border: 1px solid #ddd; }
-      .print-dates-tbl td { padding: 2px 6px; border: 1px solid #ddd; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-info { font-size: 10.5px; margin: 3px 0 6px; }
+      /* right rail: the 2026 review dates in ONE narrow table + a contact card */
+      .print-rail { border: 1px solid #e2ddd6; border-radius: 5px; padding: 9px 11px 10px; background: #faf8f4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-rail__title { font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: #7d0d18; border-bottom: 2px solid #a4111f; padding-bottom: 4px; margin-bottom: 6px; }
+      .print-rail__note { font-size: 8.5px; line-height: 1.45; color: #6b645c; margin: 8px 0 0; }
+      .print-rail__foot { font-size: 8px; color: #8a8580; margin: 2px 0 0; }
+      .print-rail__contact { font-size: 9px; line-height: 1.5; color: #3a352f; margin-top: 9px; padding-top: 8px; border-top: 1px solid #e2ddd6; }
+      .print-rail__contact span { color: #8a8580; }
+      .print-dates-tbl { width: 100%; border-collapse: collapse; font-size: 9px; }
+      .print-dates-tbl th { text-align: left; font-size: 7.5px; text-transform: uppercase; letter-spacing: .04em; color: #a4111f; background: #fff; padding: 2px 5px; border: 1px solid #e2ddd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-dates-tbl td { padding: 1.5px 5px; border: 1px solid #e2ddd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-dates-tbl td:last-child { font-weight: 600; }
       .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
       .print-eyebrow { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
@@ -2049,25 +2136,21 @@ async function printPreview() {
       .print-photo-block { break-inside: avoid; }
       .print-photo-img { display: block; width: 100%; max-height: 8.2in; object-fit: contain; border: 1px solid #ccc; background: #f7f5f2; }
       .print-photo-cap { font-size: 10px; color: #555; margin-top: 3px; }
-      /* --- last page: adjacent-owner signature form (wet signatures) --- */
-      .nf-doc { font-size: 12px; line-height: 1.4; }
-      .nf-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 8px; margin-bottom: 14px; }
-      .nf-eyebrow { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
-      .nf-title { font-family: Georgia, serif; font-size: 19px; font-weight: 600; line-height: 1.1; }
-      .nf-contact { font-size: 10px; color: #555; text-align: right; }
-      .nf-info { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-      .nf-info td { padding: 4px 8px; border: 1px solid #ddd; }
-      .nf-label { font-weight: 600; color: #555; background: #faf8f4; width: 88px; white-space: nowrap; }
-      .nf-section { font-size: 12px; color: #7d0d18; font-weight: 600; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 14px 0 4px; }
-      .nf-proposal { font-size: 11px; white-space: pre-wrap; background: #faf8f4; border: 1px solid #ddd; border-radius: 3px; padding: 6px 8px; min-height: 44px; }
-      .nf-note { font-size: 10.5px; margin: 12px 0; }
-      .nf-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-      .nf-table th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 5px 6px; border: 1px solid #ccc; }
-      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 44px; vertical-align: bottom; }
-      .nf-num { width: 24px; text-align: center; color: #999; }
-      .nf-sig { width: 32%; }
-      .nf-date { width: 92px; }
-      .nf-footer { font-size: 9px; color: #999; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
+      /* --- adjacent-owner signature strip, folded onto the cover bottom (Sprint 21) --- */
+      .print-neighbors { margin-top: 18px; padding-top: 11px; border-top: 2px solid #a4111f; break-inside: avoid; }
+      .print-neighbors__head { display: flex; justify-content: space-between; align-items: baseline; }
+      .print-neighbors__hint { font-size: 9px; color: #8a8580; font-style: italic; }
+      .print-neighbors__change { font-size: 10.5px; margin: 5px 0 3px; color: #1d1a17; }
+      .print-neighbors__lbl { display: inline-block; font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #a4111f; margin-right: 6px; }
+      .nf-section { font-family: Georgia, serif; font-size: 13px; color: #7d0d18; font-weight: 700; }
+      .nf-note { font-size: 9.5px; line-height: 1.4; color: #6b645c; margin: 4px 0 6px; }
+      .nf-note strong { color: #3a352f; }
+      .nf-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
+      .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 4px 6px; border: 1px solid #ccc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 30px; vertical-align: bottom; }
+      .nf-num { width: 22px; text-align: center; color: #999; }
+      .nf-sig { width: 30%; }
+      .nf-date { width: 82px; }
     </style></head><body>
     ${html}
     <script src="${pagedSrc}"><\/script>
@@ -2156,13 +2239,19 @@ $("#finish-pdf-btn")?.addEventListener("click", () => {
   }, "Save the packet anyway");
 });
 
-/* ----- ADJACENT-OWNER SIGNATURE FORM -----
-   The last page of the printed packet: wet signatures, collected in person after
-   printing. Blank name/address rows — neighbors fill in their own details (the
-   on-form roster was removed when the journey became print-first). */
-function buildNeighborFormHTML(d) {
+/* ----- ADJACENT-OWNER SIGNATURE STRIP (folded onto the cover, Sprint 21) -----
+   Wet signatures, collected in person after printing — the standalone last-page form
+   was retired and this compact block now pins to the bottom of the cover. Blank rows;
+   neighbors fill in their own details. The proposed-change summary comes from the
+   Section 02 items (optional notes field as fallback for migrated pre-item drafts). */
+function neighborChangeSummary(d) {
+  const changes = improvementRows(d).filter(it => it.name)
+    .map(it => `${ACTION_LABEL[it.action] ? ACTION_LABEL[it.action] + " — " : ""}${it.name}`);
+  return changes.length ? changes.join("; ") : (d.proposal || "");
+}
+function buildNeighborStripHTML(d) {
   let rows = "";
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 4; i++) {
     rows += `<tr>
       <td class="nf-num">${i + 1}</td>
       <td></td>
@@ -2171,40 +2260,20 @@ function buildNeighborFormHTML(d) {
       <td class="nf-date"></td>
     </tr>`;
   }
-  // Summarize the proposed change for the neighbors from the Section 02 items,
-  // with the optional notes field as fallback for migrated pre-item drafts.
-  const changes = improvementRows(d).filter(it => it.name)
-    .map(it => `${ACTION_LABEL[it.action] ? ACTION_LABEL[it.action] + " — " : ""}${it.name}`);
-  const summary = changes.length ? changes.join("; ") : (d.proposal || "");
+  const summary = neighborChangeSummary(d);
   return `
-    <section class="print-page nf-doc">
-      <div class="nf-header">
-        <div>
-          <div class="nf-eyebrow">Fairway Canyon Homeowners Association</div>
-          <div class="nf-title">Adjacent Property Owner Signature Form</div>
-        </div>
-        <div class="nf-contact">Architectural Review Committee<br>carolmarie.taylor@fsresidential.com</div>
+    <div class="print-neighbors">
+      <div class="print-neighbors__head">
+        <div class="nf-section">Adjacent Owner Signatures</div>
+        <span class="print-neighbors__hint">Collect in person, then scan the signed cover</span>
       </div>
-
-      <table class="nf-info">
-        <tr>
-          <td class="nf-label">Applicant</td><td>${esc(d.ownerName) || "&nbsp;"}</td>
-          <td class="nf-label">Property</td><td>${esc(d.propertyAddress) || "&nbsp;"}</td>
-        </tr>
-      </table>
-
-      <div class="nf-section">Proposed Change</div>
-      <div class="nf-proposal">${esc(summary) || "&nbsp;"}</div>
-
-      <p class="nf-note">By signing below, I confirm that I am an adjacent property owner and that I have been made aware of the proposed change described above. <strong>My signature does not constitute approval or disapproval</strong> of the project &mdash; it confirms only that I was notified.</p>
-
+      <p class="print-neighbors__change"><span class="print-neighbors__lbl">Proposed change</span> ${esc(summary) || "&mdash;"}</p>
+      <p class="nf-note">By signing, each adjacent owner confirms they were <strong>notified</strong> of this change. A signature is <strong>not approval or disapproval</strong>.</p>
       <table class="nf-table">
         <thead><tr><th class="nf-num">#</th><th>Adjacent Owner Name</th><th>Property Address</th><th>Signature</th><th>Date</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-
-      <p class="nf-footer">Scan or photograph this completed form and email it with your Architectural Review Committee application packet.</p>
-    </section>`;
+    </div>`;
 }
 
 /* ----- advisory review gate: list what's incomplete, but never block ----- */
