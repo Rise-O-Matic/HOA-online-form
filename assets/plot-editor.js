@@ -317,9 +317,12 @@ const ANNOTATION_FONT_PX = 9;   // callout + measurement text baseline, in CSS p
                                 // out. renderPlotImage() re-normalizes them to land at 9px on the printed page.
 const ANNOTATION_REF_ZOOM = 0.71; // pivot: at/below this zoom labels hold at ANNOTATION_FONT_PX (the size
                                   // the user found right at ~71%); above it they scale proportionally.
-const PRINT_PLOT_WIDTH_PX = 348; // how wide the plan prints, in the print doc's CSS px: letter page
-                                 // (8.5in) minus 14mm side margins ≈ 710px, split into two flex
+const PRINT_PLOT_WIDTH_PX = 340; // how wide the plan prints, in the print doc's CSS px: letter page
+                                 // (8.5in) minus 16mm side margins ≈ 695px, split into two flex
                                  // columns with a 14px gap (see buildPrintHTML's .print-col/.print-plot)
+const SCREEN_AERIAL_OPACITY = 0.33; // faint tracing aid on the live stage (multiply paint reads over it)
+const PRINT_AERIAL_OPACITY = 0.72;  // stronger on paper — it's the actual satellite base map of the lot,
+                                    // not a tracing aid, and there's no screen backlight/multiply to help it
 const SAFE_CANVAS_PX = 3200;  // cap on the backing canvas's longest side (content × zoom) to bound memory
 // Baked aerial alignment correction. The county's 2020 orthophoto sits a few feet off the parcel
 // vectors — verified NOT a datum issue (a NAD83↔WGS84 datumTransformation on the query moves the
@@ -339,6 +342,8 @@ const plotHost = $("#plot-konva-host");
 let plotBgDataUrl = null; // aerial snapshot from the Orient step, shown behind the drawing as a tracing aid
 let plotBgParcelPx = null; // the parcel ring projected into the snapshot's own pixel space, so the
                            // aerial can be registered 1:1 to parcelPolygonPx instead of blindly cover-fit
+let plotBgImg = null;      // the decoded aerial <img>, cached once loaded so the synchronous print/preview
+                           // export (renderPlotImage) can composite it without re-waiting on an async load
 
 let stage = null, bgLayer = null, gridLayer = null, drawLayer = null, overlayLayer = null;
 let gridLinesCanvas = null, paintCanvas = null, gridCtx = null; // offscreen 2D canvases behind the grid
@@ -869,52 +874,65 @@ function onViewportResize() {
   applyStageSize();
 }
 
+// Build the aerial-backdrop Konva.Image, registered to the parcel outline, at the
+// given opacity — the single source of the fit/nudge math so the live bgLayer and the
+// print/preview export (renderPlotImage) can never drift out of alignment. Returns null
+// if no aerial has loaded yet. `img` must already be decoded (its .width/.height read).
+function buildAerialNode(img, opacity) {
+  if (!img || !img.width || !img.height) return null;
+  const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
+  let node;
+  const fit = (plotBgParcelPx && plotBgParcelPx.length && parcelPolygonPx && parcelPolygonPx.length)
+    ? fitSimilarity(plotBgParcelPx, parcelPolygonPx) : null;
+  if (fit) {
+    // Register the aerial to the drawn parcel outline by a least-squares similarity
+    // fit over every corresponding parcel vertex (see fitSimilarity). This lines the
+    // lot/house up 1:1 with the dashed outline at the correct scale AND angle, fixing
+    // the small drift the old bounding-box registration left behind (it ignored any
+    // rotation between the snapshot's and the grid's projections of the ring).
+    const scale = Math.hypot(fit.a, fit.b);
+    node = new Konva.Image({
+      image: img,
+      width: img.width, height: img.height,
+      x: fit.tx, y: fit.ty,
+      scaleX: scale, scaleY: scale,
+      rotation: Math.atan2(fit.b, fit.a) * 180 / Math.PI,
+      opacity, listening: false
+    });
+  } else {
+    // Fallback (e.g. a restored draft with no fresh capture): cover-fit + center.
+    const scale = Math.max(w / img.width, h / img.height);
+    node = new Konva.Image({
+      image: img,
+      width: img.width * scale, height: img.height * scale,
+      x: (w - img.width * scale) / 2, y: (h - img.height * scale) / 2,
+      opacity, listening: false
+    });
+  }
+  // Apply the baked ortho correction (see AERIAL_NUDGE_FT). It's a ground vector in feet;
+  // rotate it by the parcel bearing and flip Y to land in stage pixels, then translate the
+  // whole aerial by it. At bearing 0 this is just (+E → +x, +N → −y). A pure translation of
+  // the node origin is unaffected by the node's own rotation, so this composes cleanly.
+  if (AERIAL_NUDGE_FT.east || AERIAL_NUDGE_FT.north) {
+    const b = (lastPlotBearing || 0) * Math.PI / 180;
+    const e = AERIAL_NUDGE_FT.east, nth = AERIAL_NUDGE_FT.north;
+    node.x(node.x() + (e * Math.cos(b) - nth * Math.sin(b)) * CELL_SIZE);
+    node.y(node.y() - (e * Math.sin(b) + nth * Math.cos(b)) * CELL_SIZE);
+  }
+  return node;
+}
+
 function rebuildBgLayer() {
   if (!stageReady) return;
   bgLayer.destroyChildren();
+  plotBgImg = null; // reloaded below; stays null (print omits the aerial, gracefully) until decode
   if (plotBgDataUrl) {
     const img = new Image();
     img.onload = () => {
       if (!stageReady) return;
-      const w = gridCols * CELL_SIZE, h = gridRows * CELL_SIZE;
-      let node;
-      const fit = (plotBgParcelPx && plotBgParcelPx.length && parcelPolygonPx && parcelPolygonPx.length)
-        ? fitSimilarity(plotBgParcelPx, parcelPolygonPx) : null;
-      if (fit) {
-        // Register the aerial to the drawn parcel outline by a least-squares similarity
-        // fit over every corresponding parcel vertex (see fitSimilarity). This lines the
-        // lot/house up 1:1 with the dashed outline at the correct scale AND angle, fixing
-        // the small drift the old bounding-box registration left behind (it ignored any
-        // rotation between the snapshot's and the grid's projections of the ring).
-        const scale = Math.hypot(fit.a, fit.b);
-        node = new Konva.Image({
-          image: img,
-          width: img.width, height: img.height,
-          x: fit.tx, y: fit.ty,
-          scaleX: scale, scaleY: scale,
-          rotation: Math.atan2(fit.b, fit.a) * 180 / Math.PI,
-          opacity: 0.33, listening: false
-        });
-      } else {
-        // Fallback (e.g. a restored draft with no fresh capture): cover-fit + center.
-        const scale = Math.max(w / img.width, h / img.height);
-        node = new Konva.Image({
-          image: img,
-          width: img.width * scale, height: img.height * scale,
-          x: (w - img.width * scale) / 2, y: (h - img.height * scale) / 2,
-          opacity: 0.33, listening: false
-        });
-      }
-      // Apply the baked ortho correction (see AERIAL_NUDGE_FT). It's a ground vector in feet;
-      // rotate it by the parcel bearing and flip Y to land in stage pixels, then translate the
-      // whole aerial by it. At bearing 0 this is just (+E → +x, +N → −y). A pure translation of
-      // the node origin is unaffected by the node's own rotation, so this composes cleanly.
-      if (node && (AERIAL_NUDGE_FT.east || AERIAL_NUDGE_FT.north)) {
-        const b = (lastPlotBearing || 0) * Math.PI / 180;
-        const e = AERIAL_NUDGE_FT.east, nth = AERIAL_NUDGE_FT.north;
-        node.x(node.x() + (e * Math.cos(b) - nth * Math.sin(b)) * CELL_SIZE);
-        node.y(node.y() - (e * Math.sin(b) + nth * Math.cos(b)) * CELL_SIZE);
-      }
+      plotBgImg = img; // cache for the synchronous print/preview export
+      const node = buildAerialNode(img, SCREEN_AERIAL_OPACITY);
+      if (!node) return;
       bgLayer.add(node);
       node.moveToBottom();
       bgLayer.batchDraw();
@@ -2039,6 +2057,14 @@ export function renderPlotImage() {
   const layer = new Konva.Layer();
   exportStage.add(layer);
   layer.add(new Konva.Rect({ x: 0, y: 0, width: w, height: h, fill: "#fff" }));
+  // Satellite base map: the same aerial the user traced over in the Draw step, registered to
+  // the parcel outline. Sits above the white fill but below the grid/paint/annotations, so the
+  // graph paper reads over it and painted materials (opaque in print) sit on top of the ground.
+  // Only composited once the image has decoded (cached in plotBgImg); omitted gracefully if not.
+  if (plotBgImg && plotBgImg.complete && plotBgImg.naturalWidth) {
+    const aerial = buildAerialNode(plotBgImg, PRINT_AERIAL_OPACITY);
+    if (aerial) layer.add(aerial);
+  }
   if (gridLinesCanvas) layer.add(new Konva.Image({ image: gridLinesCanvas, x: 0, y: 0 }));
   if (paintCanvas) {
     // Occlude paint outside the footprint in print/preview too (same clip as the live stage).

@@ -26,6 +26,23 @@ const PLOT_VERSION = 4;                              // kept in lockstep with DR
 const LEGACY_DRAFT_KEYS = ["fairwayCanyonArcDraft.v3", "fairwayCanyonArcDraft.v2"]; // pre-grid-painter formats — read once for a one-time non-destructive migration (all non-plot fields carry over; the drawing itself is left to be redrawn)
 const SCROLL_KEY = "fairwayCanyonArcDraft.scroll"; // sessionStorage — per-tab only, so a stale position never haunts a fresh visit later
 
+/* A per-application reference id, stamped once and persisted with the draft (so it's
+   stable across reprints/reloads) and printed in the packet's running header. NOTE: this
+   is a client-side mockup with no backend, so this is a locally-generated handle for the
+   applicant/reviewer to cite — NOT an official HOA case number. */
+let appRefId = null;
+function genRefId() {
+  const uuid = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    // Fallback for non-secure contexts where randomUUID is unavailable (e.g. plain http/file).
+    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.floor(Math.random() * 16), v = c === "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+  return "FC-ARC-" + uuid.toUpperCase();
+}
+function getRefId() { return appRefId || (appRefId = genRefId()); }
+
 /* ------------------------------------------------------
    DATA: acknowledgments, palette, review dates
 ------------------------------------------------------ */
@@ -1044,6 +1061,7 @@ export function refreshPacketUI() {
 function collect() {
   const plotData = serializePlot();
   const data = {
+    refId: getRefId(),
     ownerName: $("#owner-name").value.trim(),
     propertyAddress: $("#property-address").value.trim(),
     ownerPhone: $("#owner-phone").value.trim(),
@@ -1136,6 +1154,7 @@ function restoreDraft() {
   }
   let d;
   try { d = JSON.parse(raw); } catch (e) { return false; }
+  if (d.refId) appRefId = d.refId; // adopt the saved reference before any collect()/save mints a new one
   if (migratedFromLegacy) d.plot = null; // old format — not convertible, don't try
   $("#owner-name").value = d.ownerName || "";
   $("#property-address").value = d.propertyAddress || "";
@@ -1525,6 +1544,19 @@ function buildPreview(d) {
     </div>`;
 }
 
+/* The 2026 review-date table from the source form's "Architectural Review Dates"
+   page — each board-meeting date paired with its application deadline (the DATES
+   constant, same data the landing page shows). Split into two side-by-side columns
+   so all twelve months fit on the instructions page. */
+function printDatesHTML() {
+  const half = Math.ceil(DATES.length / 2);
+  const col = rows => `<table class="print-dates-tbl">
+      <thead><tr><th>Board meeting</th><th>Deadline</th></tr></thead>
+      <tbody>${rows.map(([m, dl]) => `<tr><td>${esc(m)}</td><td>${esc(dl)}</td></tr>`).join("")}</tbody>
+    </table>`;
+  return `<div class="print-dates">${col(DATES.slice(0, half))}${col(DATES.slice(half))}</div>`;
+}
+
 /* Page 1 of the printed packet: submission instructions, so the applicant never
    needs to return to the web form after printing. Derived at print time from the
    same packet-state helpers as the Review & Submit card. */
@@ -1577,8 +1609,12 @@ function buildInstructionsHTML(d) {
       <ul class="print-include">${include}</ul>
       ${missingBlock}
 
+      <h4>2026 Architectural Review Dates</h4>
+      <p class="print-info">Submit the completed packet by the <strong>application deadline</strong> to make that month&rsquo;s board meeting &mdash; <strong>no exceptions</strong>. An application that misses its deadline is reviewed at the following scheduled board meeting. Dates are subject to change.</p>
+      ${printDatesHTML()}
+
       <h4>Deadlines &amp; fees</h4>
-      <p class="print-info">The complete packet must arrive by the application deadline to make that month&rsquo;s board meeting — an incomplete application is returned unreviewed, and the 45-day review period does not begin until everything is received.</p>
+      <p class="print-info">The complete packet must arrive by the application deadline above to make that month&rsquo;s board meeting — an incomplete application is returned unreviewed, and the 45-day review period does not begin until everything is received.</p>
       <p class="print-info"><strong>No payment is due now.</strong> The fee is collected only after the Architectural Specialist has reviewed your application and confirmed it is complete — she will contact you directly to collect it, and a receipt is emailed to you.</p>
 
       <h4>Questions?</h4>
@@ -1645,7 +1681,7 @@ function buildPrintHTML(d) {
           <h4>Site / Plot Plan</h4>
           ${d.planMode === "upload"
             ? `<p style="font-size:11px;">${d.plotUpload && d.plotUpload.length ? "Plot plan uploaded separately: " + d.plotUpload.map(esc).join(", ") : "⚠ No plot plan attached."}</p>`
-            : (plotUsed() ? `<img class="print-plot" src="${renderPlotImage()}" />${plotLegendHTML("print-legend")}` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
+            : (plotUsed() ? `<img class="print-plot"${d.plot && d.plot.cols && d.plot.rows ? ` style="aspect-ratio:${d.plot.cols}/${d.plot.rows}"` : ""} src="${renderPlotImage()}" />${plotLegendHTML("print-legend")}` : '<p style="color:#999;font-size:11px;">No site plan drawn.</p>')}
         </div>
       </div>
 
@@ -1709,7 +1745,20 @@ form.addEventListener("submit", e => {
   openModal();
 });
 
-/* ----- SHARED: open a print window with compact 1-page layout ----- */
+// Escape a value for use as a CSS string literal (paged.js margin-box `content`).
+// `<` is hex-escaped (\3c) so a field containing "</style>" can't break out of the
+// inline <style> this is written into via document.write (self-XSS hardening).
+function cssStr(s) {
+  return '"' + String(s == null ? "" : s)
+    .replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+    .replace(/</g, "\\3c ").replace(/[\r\n\t]+/g, " ") + '"';
+}
+
+/* ----- SHARED: open the print/save-PDF window -----
+   Paged.js (vendored, same-origin) fragments the packet into real letter pages with
+   visible margins in the popup itself — so what you see is what prints — and renders the
+   @page margin boxes as running headers/footers (reference id + applicant + page numbers).
+   If paged.js can't load, the doc still prints via native @page margins (no running head). */
 function printPreview() {
   const d = collect();
   const html = buildPrintHTML(d);
@@ -1719,15 +1768,36 @@ function printPreview() {
   refreshPacketUI();
   const w = window.open("", "_blank");
   if (!w) { window.print(); return; }
+  // Running-header content: reference id + applicant name/address, plus page counters.
+  const applicant = [d.ownerName, d.propertyAddress].filter(Boolean).join("  ·  ");
+  const refCss = cssStr("Ref " + (d.refId || ""));
+  const applicantCss = cssStr(applicant);
+  // Absolute URL so the about:blank popup (no base URL of its own) can resolve the vendored file.
+  const pagedSrc = new URL("assets/vendor/paged.polyfill.0.4.3.js", location.href).href;
   w.document.write(`<!DOCTYPE html><html><head><title>Fairway Canyon HOA — ARC Application</title>
     <meta charset="utf-8">
     <style>
-      @page { margin: 12mm 14mm; size: letter; }
+      @page {
+        size: letter;
+        margin: 18mm 16mm 16mm;
+        /* Running header/footer, rendered by paged.js into the page margin boxes. */
+        @top-left { content: ${applicantCss}; font: 8px 'Segoe UI', Arial, sans-serif; color: #8a8580; vertical-align: bottom; padding-bottom: 3mm; }
+        @top-right { content: ${refCss}; font: 700 8px 'Segoe UI', Arial, sans-serif; color: #a4111f; letter-spacing: .03em; vertical-align: bottom; padding-bottom: 3mm; }
+        @bottom-left { content: "Fairway Canyon HOA — Architectural Review Committee Application"; font: 8px 'Segoe UI', Arial, sans-serif; color: #b3aea8; vertical-align: top; padding-top: 2.5mm; }
+        @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8px 'Segoe UI', Arial, sans-serif; color: #8a8580; vertical-align: top; padding-top: 2.5mm; }
+      }
       * { box-sizing: border-box; }
-      body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.35; font-size: 11px; margin: 0; }
+      body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.4; font-size: 11px; margin: 0; }
       .print-doc { max-width: 100%; }
-      .print-page { page-break-after: always; }
-      .print-page:last-child { page-break-after: auto; }
+      /* One section per sheet. paged.js honors break-after: page (native @page fallback uses it too). */
+      .print-page { break-after: page; }
+      .print-page:last-child { break-after: auto; }
+      /* paged.js preview chrome: a soft gray desk behind the white sheets, so the popup
+         reads as paginated paper (with its margins visible) rather than flush-to-edge flow.
+         !important because paged.js injects its own page stylesheet after this one. */
+      .pagedjs_pages { background: #6b6b6b !important; padding: 4mm 0 !important; }
+      .pagedjs_page { background: #fff !important; margin: 6mm auto !important; box-shadow: 0 3px 18px rgba(0,0,0,.32) !important; }
+      @media print { .pagedjs_pages { background: #fff !important; padding: 0 !important; } .pagedjs_page { margin: 0 !important; box-shadow: none !important; } }
       /* --- page 1: submission instructions --- */
       .print-steps { margin: 8px 0 10px; padding-left: 20px; font-size: 11.5px; }
       .print-steps li { margin-bottom: 9px; }
@@ -1737,6 +1807,13 @@ function printPreview() {
       .print-info { font-size: 11px; margin: 3px 0 6px; }
       .print-warn { border: 1.5px solid #a4111f; background: #faf3f2; border-radius: 3px; padding: 7px 10px; font-size: 10.5px; margin: 8px 0 10px; }
       .print-warn ul { margin: 4px 0; padding-left: 16px; }
+      /* 2026 review-date table (from the source form's "Architectural Review Dates" page),
+         split into two side-by-side columns so all 12 months stay on the instructions page. */
+      .print-dates { display: flex; gap: 14px; margin: 4px 0 8px; }
+      .print-dates-tbl { flex: 1; border-collapse: collapse; font-size: 9.5px; }
+      .print-dates-tbl th { text-align: left; font-size: 8px; text-transform: uppercase; letter-spacing: .04em; color: #a4111f; background: #faf8f4; padding: 2px 6px; border: 1px solid #ddd; }
+      .print-dates-tbl td { padding: 2px 6px; border: 1px solid #ddd; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-dates-tbl td:last-child { font-weight: 600; }
       .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
       .print-eyebrow { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
       .print-title { font-family: Georgia, serif; font-size: 16px; font-weight: 600; line-height: 1.1; }
@@ -1788,10 +1865,27 @@ function printPreview() {
       .nf-footer { font-size: 9px; color: #999; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
     </style></head><body>
     ${html}
+    <script>
+      // Print once paged.js has laid out the pages (config.after), or fall back to the raw
+      // @page flow if it never starts (offline / file missing). __printed guards double-firing.
+      window.__printed = false;
+      window.__pagedStarted = false;
+      window.__doPrint = function(){
+        if (window.__printed) return;
+        window.__printed = true;
+        setTimeout(function(){ try { window.focus(); window.print(); } catch(e){} }, 200);
+      };
+      window.PagedConfig = {
+        auto: true,
+        before: function(){ window.__pagedStarted = true; },
+        after: function(){ window.__doPrint(); }
+      };
+      setTimeout(function(){ if (!window.__pagedStarted) window.__doPrint(); }, 5000);
+    <\/script>
+    <script src="${pagedSrc}" onerror="window.__doPrint()"><\/script>
     </body></html>`);
   w.document.close();
   w.focus();
-  setTimeout(() => { w.print(); }, 350);
 }
 
 $("#do-print").addEventListener("click", () => printPreview());

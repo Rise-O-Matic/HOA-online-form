@@ -2,8 +2,9 @@
 
 A static, client-side **mockup** of the Fairway Canyon HOA ARC application, rebuilt from
 the printed PDF as a web form for GitHub Pages. **There is no backend** — drafts persist
-to `localStorage`, "submitting" opens a printable preview or a pre-addressed `mailto:`,
-and data can be exported as JSON.
+to `localStorage`, and the journey ends at a **printable packet** (submission instructions +
+application + neighbor signature form) the applicant saves/prints and submits themselves;
+data can also be exported as JSON.
 
 Plain HTML/CSS/JS — no build step, no npm dependencies. Behavior is native ES modules
 under `assets/` (entry `app.js`; pure geometry in `geometry.js` is unit-tested with
