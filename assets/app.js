@@ -1726,7 +1726,7 @@ function printPreview() {
          here — we no longer auto-fire the print dialog. Hidden in @media print so it never
          lands on a sheet; body padding keeps the first page clear of the fixed bar. */
       @media screen {
-        body { padding-top: 58px; }
+        body { padding-top: 58px !important; } /* !important: paged.js injects its own body styles after this */
         .print-bar {
           position: fixed; top: 0; left: 0; right: 0; z-index: 2147483000;
           display: flex; align-items: center; gap: 16px;
@@ -1813,41 +1813,44 @@ function printPreview() {
       .nf-date { width: 92px; }
       .nf-footer { font-size: 9px; color: #999; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
     </style></head><body>
-    <div class="print-bar" role="toolbar" aria-label="Packet actions">
-      <div>
-        <div class="print-bar__title">Your application packet</div>
-        <div class="print-bar__hint" id="pb-status">Preparing preview&hellip;</div>
-      </div>
-      <div class="print-bar__spacer"></div>
-      <button type="button" class="print-bar__btn" id="pb-print" disabled>Print</button>
-      <button type="button" class="print-bar__btn print-bar__btn--primary" id="pb-save" disabled>Save as PDF</button>
-      <button type="button" class="print-bar__btn print-bar__btn--ghost" id="pb-close">Close</button>
-    </div>
     ${html}
     <script>
-      // User-driven (Sprint 17): the toolbar buttons open the print dialog — we no longer
-      // auto-fire it. Buttons stay disabled until paged.js finishes laying out the pages
-      // (PagedConfig.after), so a click can't print a half-paginated doc. If paged.js never
-      // loads (offline / file missing), a 5s fallback — and the <script> onerror — enables
-      // them anyway so the native @page flow can still be printed: the flow, not nothing.
+      // Screen-only toolbar (Sprint 17): the user drives Save-as-PDF / Print / Close — no
+      // auto-fired print dialog. It's BUILT IN JS AND APPENDED AFTER paged.js renders, not
+      // written into the body markup: paged.js paginates whatever body content exists at
+      // load, so a toolbar placed there gets swallowed into the page flow (that was the
+      // "no floating header" bug). Appending it in PagedConfig.after makes it a sibling of
+      // .pagedjs_pages, so position:fixed floats it over the paginated sheets. If paged.js
+      // never loads (offline / file missing), a 5s fallback + the <script> onerror build it
+      // anyway so the native @page flow is still drivable.
       (function(){
-        var ready = false;
-        function markReady(){
-          if (ready) return; ready = true;
-          var s = document.getElementById('pb-status');
-          if (s) s.textContent = 'For a PDF, choose “Save as PDF” as the destination in the print dialog.';
-          ['pb-print','pb-save'].forEach(function(id){ var b = document.getElementById(id); if (b) b.disabled = false; });
+        var built = false;
+        function build(){
+          if (built) return; built = true;
+          var bar = document.createElement('div');
+          bar.className = 'print-bar';
+          bar.setAttribute('role', 'toolbar');
+          bar.setAttribute('aria-label', 'Packet actions');
+          bar.innerHTML =
+            '<div><div class="print-bar__title">Your application packet</div>' +
+            '<div class="print-bar__hint">For a PDF, choose “Save as PDF” as the destination in the print dialog.</div></div>' +
+            '<div class="print-bar__spacer"></div>' +
+            '<button type="button" class="print-bar__btn" data-act="print">Print</button>' +
+            '<button type="button" class="print-bar__btn print-bar__btn--primary" data-act="print">Save as PDF</button>' +
+            '<button type="button" class="print-bar__btn print-bar__btn--ghost" data-act="close">Close</button>';
+          document.body.appendChild(bar);
+          function doPrint(){ try { window.focus(); window.print(); } catch(e){} }
+          bar.querySelectorAll('[data-act]').forEach(function(b){
+            b.addEventListener('click', b.getAttribute('data-act') === 'close'
+              ? function(){ window.close(); } : doPrint);
+          });
         }
-        window.__markReady = markReady;
-        function doPrint(){ try { window.focus(); window.print(); } catch(e){} }
-        var bp = document.getElementById('pb-print'); if (bp) bp.addEventListener('click', doPrint);
-        var bs = document.getElementById('pb-save');  if (bs) bs.addEventListener('click', doPrint);
-        var bc = document.getElementById('pb-close'); if (bc) bc.addEventListener('click', function(){ window.close(); });
-        window.PagedConfig = { auto: true, after: function(){ markReady(); } };
-        setTimeout(markReady, 5000);
+        window.__buildBar = build;
+        window.PagedConfig = { auto: true, after: function(){ build(); } };
+        setTimeout(build, 5000);
       })();
     <\/script>
-    <script src="${pagedSrc}" onerror="window.__markReady && window.__markReady()"><\/script>
+    <script src="${pagedSrc}" onerror="window.__buildBar && window.__buildBar()"><\/script>
     </body></html>`);
   w.document.close();
   w.focus();
