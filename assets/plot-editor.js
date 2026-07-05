@@ -127,7 +127,7 @@ const TOOL_MODES = [
   { id: "measure",  label: "Measure",  icon: ICON.measure,
     hint: "Drag between two points to add a dimension arrow labeled with the distance in feet." },
   { id: "select",   label: "Select",   icon: ICON.select,
-    hint: "Drag an outline, callout, or measurement to reposition it." },
+    hint: "Drag a shape to move it. Round handles reshape an outline, measurement, or callout — double-click a callout to edit its text." },
   { id: "pan",      label: "Pan",      icon: ICON.pan,
     hint: "Drag to move around your plan. From any tool: middle-mouse drag pans, the mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
@@ -241,6 +241,7 @@ let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in re
 let dragOrigin = null, ghostNode = null;         // measure drag
 let calloutDraft = null, calloutGhost = null;    // callout
 let selectedNode = null, selectionRect = null;   // Select/move tool
+let editAnchors = [];                            // reshape handles on the selected shape (overlayLayer)
 let activeStamp = "canopy_tree";                 // selected symbol in the Stamp picker
 let stampArmed = null, stampGhost = null;        // press position awaiting release + cursor preview
 
@@ -572,6 +573,7 @@ function applyStageSize() {
   stage.height(h * viewZoom);
   stage.scale({ x: viewZoom, y: viewZoom });
   syncAnnotationTextScale();
+  syncEditAnchorScale();
   stage.batchDraw();
   updateZoomReadout();
 }
@@ -870,13 +872,9 @@ function setActiveMode(mode) {
   const stampControl = $("#stamp-control");
   if (stampControl) stampControl.hidden = mode !== "stamp";
   if (mode !== "stamp") { stampArmed = null; removeStampGhost(); }
-  // Annotations intercept pointer events in Erase (click removes) and Select (click/drag to
-  // move) modes, and are draggable only in Select; otherwise they're inert so a paint stroke
-  // passes straight through to the grid underneath.
-  if (drawLayer) drawLayer.getChildren().forEach(n => {
-    n.listening(mode === "erase" || mode === "select");
-    n.draggable(mode === "select");
-  });
+  // Outside Erase/Select, annotations go inert so a paint stroke passes straight through
+  // to the grid underneath (the mode/lock logic lives in syncNodeInteractivity).
+  if (drawLayer) drawLayer.getChildren().forEach(n => syncNodeInteractivity(n));
   if (plotHost) plotHost.style.cursor = cursorForMode(mode);
 }
 
@@ -893,9 +891,9 @@ function refreshBrushControl() {
 
 /* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
 function attachShapeInteractions(node) {
-  node.listening(activeMode === "erase" || activeMode === "select");
-  node.draggable(activeMode === "select");
+  syncNodeInteractivity(node);
   node.on("click tap", () => {
+    if (plotConfirmedFlag) return;
     if (activeMode === "erase") {
       recordUndoPoint();
       if (node === selectedNode) clearSelection();
@@ -906,15 +904,35 @@ function attachShapeInteractions(node) {
       selectShape(node);
     }
   });
+  // Double-click re-opens a callout's text (Select only — in Erase the first click has
+  // already deleted the node before a double-click could land).
+  if (node.getAttr("kind") === "callout") {
+    node.on("dblclick dbltap", () => {
+      if (!plotConfirmedFlag && activeMode === "select") editCalloutText(node);
+    });
+  }
   node.on("dragstart", () => { recordUndoPoint(); selectShape(node); });
-  node.on("dragmove", updateSelectionRect);
-  node.on("dragend", () => { updateSelectionRect(); scheduleAutosave(); });
+  node.on("dragmove", () => { updateSelectionRect(); refreshEditAnchorPositions(); });
+  node.on("dragend", () => { updateSelectionRect(); refreshEditAnchorPositions(); scheduleAutosave(); });
 }
 
-/* --- Select / move: highlight a callout or measurement and drag it to reposition --- */
+// One place decides whether annotations respond to the pointer: they intercept events in
+// Erase (click removes) and Select (click/drag to move, handles reshape), are draggable only
+// in Select, and go fully inert while the plan is locked (marked Done). The lock HAS to be
+// reflected down here on the nodes — Konva starts a node drag from its own hit graph without
+// ever consulting the plotConfirmedFlag guards in the stage-level pointer handlers.
+function syncNodeInteractivity(node) {
+  node.listening(!plotConfirmedFlag && (activeMode === "erase" || activeMode === "select"));
+  node.draggable(!plotConfirmedFlag && activeMode === "select");
+}
+
+/* --- Select / move / reshape: highlight a shape, drag it to reposition, or drag its round
+   edit handles to reshape it (outline & measurement endpoints; callout tip + label box).
+   Handles live on overlayLayer, so they can never leak into persistence or print. --- */
 function selectShape(node) {
   selectedNode = node;
   updateSelectionRect();
+  buildEditAnchors(node);
 }
 
 function updateSelectionRect() {
@@ -931,7 +949,121 @@ function updateSelectionRect() {
 
 function clearSelection() {
   selectedNode = null;
-  if (selectionRect) { selectionRect.destroy(); selectionRect = null; overlayLayer?.batchDraw(); }
+  destroyEditAnchors();
+  if (selectionRect) { selectionRect.destroy(); selectionRect = null; }
+  overlayLayer?.batchDraw();
+}
+
+/* --- Edit handles ---
+   Each handle is a get/set pair working in CONTENT coordinates; set() converts back into
+   the node's local space, so handles stay correct after the whole shape has been dragged
+   to a nonzero x/y offset. Stamps get no handles (move/erase only — their size is the
+   symbol's real-world footprint, not something to reshape). */
+function anchorSpecsFor(node) {
+  const kind = node.getAttr("kind");
+  const toLocal = pos => ({ x: pos.x - node.x(), y: pos.y - node.y() });
+  const toContent = (x, y) => ({ x: x + node.x(), y: y + node.y() });
+  if (kind === "line") {
+    return [0, 1].map(i => ({
+      snap: true, // outline endpoints re-snap to grid intersections, same as when drawn
+      get: () => { const p = node.points(); return toContent(p[i * 2], p[i * 2 + 1]); },
+      set: pos => { const p = node.points().slice(); const l = toLocal(pos); p[i * 2] = l.x; p[i * 2 + 1] = l.y; node.points(p); }
+    }));
+  }
+  if (kind === "measurement") {
+    const arrow = node.findOne("Arrow");
+    if (!arrow) return [];
+    return [0, 1].map(i => ({
+      get: () => { const p = arrow.points(); return toContent(p[i * 2], p[i * 2 + 1]); },
+      set: pos => {
+        const p = arrow.points().slice(); const l = toLocal(pos);
+        p[i * 2] = l.x; p[i * 2 + 1] = l.y;
+        arrow.points(p);
+        syncMeasurementLabel(node); // live re-measure: the feet label tracks the endpoint
+      }
+    }));
+  }
+  if (kind === "callout") {
+    const arrow = node.findOne("Arrow");
+    const label = node.findOne("Label");
+    if (!arrow || !label) return [];
+    return [
+      { // arrowhead — re-aim the leader
+        get: () => { const p = arrow.points(); return toContent(p[2], p[3]); },
+        set: pos => { const p = arrow.points().slice(); const l = toLocal(pos); p[2] = l.x; p[3] = l.y; arrow.points(p); }
+      },
+      { // label box — the leader's base rides along, same as at creation
+        get: () => { const p = arrow.points(); return toContent(p[0], p[1]); },
+        set: pos => {
+          const p = arrow.points().slice(); const l = toLocal(pos);
+          p[0] = l.x; p[1] = l.y;
+          arrow.points(p);
+          label.position(l);
+        }
+      }
+    ];
+  }
+  return [];
+}
+
+const ANCHOR_RADIUS = 7; // on-screen px — counter-scaled against viewZoom in syncEditAnchorScale
+
+function buildEditAnchors(node) {
+  destroyEditAnchors();
+  if (!overlayLayer) return;
+  anchorSpecsFor(node).forEach(spec => {
+    const a = new Konva.Circle({
+      radius: ANCHOR_RADIUS, fill: "#fff", stroke: "#2b6cb0", strokeWidth: 2, draggable: true,
+      shadowColor: "#000", shadowOpacity: 0.3, shadowBlur: 3, shadowOffset: { x: 0, y: 1 }
+    });
+    a.position(spec.get());
+    a.setAttr("editSpec", spec);
+    a.on("dragstart", () => recordUndoPoint());
+    a.on("dragmove", () => {
+      let pos = a.position();
+      if (spec.snap) { pos = snapToGrid(pos); a.position(pos); }
+      spec.set(pos);
+      updateSelectionRect(); // tracks the reshaped bounds (and batchDraws the overlay)
+      drawLayer.batchDraw();
+    });
+    a.on("dragend", () => scheduleAutosave());
+    overlayLayer.add(a);
+    editAnchors.push(a);
+  });
+  syncEditAnchorScale();
+  overlayLayer.batchDraw();
+}
+
+function destroyEditAnchors() {
+  editAnchors.forEach(a => a.destroy());
+  editAnchors = [];
+}
+
+// Re-glue handles to their shape after the whole node moved (drag) — specs read live geometry.
+function refreshEditAnchorPositions() {
+  if (!editAnchors.length) return;
+  editAnchors.forEach(a => a.position(a.getAttr("editSpec").get()));
+  overlayLayer?.batchDraw();
+}
+
+// Handles hold a constant on-screen size: counter-scale them against the stage's viewZoom.
+function syncEditAnchorScale() {
+  const k = 1 / viewZoom;
+  editAnchors.forEach(a => a.scale({ x: k, y: k }));
+}
+
+// Re-open a callout's text (double-click with the Select tool). Same window.prompt as
+// creation; cancel or an empty string keeps the existing text.
+function editCalloutText(node) {
+  const textNode = node.findOne("Text");
+  if (!textNode) return;
+  const next = window.prompt("Callout text:", textNode.text());
+  if (next === null || !next.trim() || next.trim() === textNode.text()) return;
+  recordUndoPoint();
+  textNode.text(next.trim()); // the Konva.Label re-sizes its Tag around the new text itself
+  if (node === selectedNode) { updateSelectionRect(); refreshEditAnchorPositions(); }
+  drawLayer.batchDraw();
+  scheduleAutosave();
 }
 
 /* --- Undo / redo (snapshots BOTH the painted grid and the annotations) --- */
@@ -1013,18 +1145,28 @@ function buildMeasurementGroup(a, b) {
     stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2,
     pointerAtBeginning: true, pointerAtEnding: true, pointerLength: 7, pointerWidth: 7
   });
-  const feet = Math.hypot(b.x - a.x, b.y - a.y) * scaleFeetPerPixel;
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const label = new Konva.Text({
-    x: mid.x, y: mid.y, text: formatFeet(feet),
+    text: "",
     fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, fontStyle: "bold", fill: "#2b6cb0", padding: 2
   });
   label.setAttr("screenFixed", true);
   label.scale({ x: annotationTextScale(), y: annotationTextScale() });
+  group.add(arrow, label);
+  syncMeasurementLabel(group);
+  return group;
+}
+
+// (Re)derives a measurement's feet text from its arrow and recenters the label over it —
+// at build time and again whenever an endpoint handle reshapes the arrow.
+function syncMeasurementLabel(group) {
+  const arrow = group.findOne("Arrow");
+  const label = group.findOne("Text");
+  if (!arrow || !label) return;
+  const [x0, y0, x1, y1] = arrow.points();
+  label.text(formatFeet(Math.hypot(x1 - x0, y1 - y0) * scaleFeetPerPixel));
+  label.position({ x: (x0 + x1) / 2, y: (y0 + y1) / 2 });
   label.offsetX(label.width() / 2);
   label.offsetY(label.height() + 3); // gap above the arrow in label-local px, so it holds at any zoom
-  group.add(arrow, label);
-  return group;
 }
 
 /* --- Callout (leader line + text box, free-angle) ---
@@ -1400,7 +1542,11 @@ export function setPlotConfirmed(v) {
   plotConfirmedFlag = v;
   // Locking hides the tools/hints (via the .plot.is-locked class in refreshPlotDoneUI) and
   // freezes the canvas (pointer/keyboard guards read plotConfirmedFlag); reset the host cursor
-  // so a paint/bucket glyph doesn't linger over a plan you can no longer edit.
+  // so a paint/bucket glyph doesn't linger over a plan you can no longer edit. The lock must
+  // also reach the annotation nodes themselves — Konva node drags never hit the stage-level
+  // guards — so drop any live selection/handles and sync per-node interactivity both ways.
+  clearSelection();
+  if (drawLayer) drawLayer.getChildren().forEach(n => syncNodeInteractivity(n));
   if (plotHost) plotHost.style.cursor = v ? "default" : cursorForMode(activeMode);
   updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list, lock class
   scheduleAutosave();
