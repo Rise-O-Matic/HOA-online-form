@@ -1595,10 +1595,10 @@ function buildWarningCoverHTML() {
     <section class="print-page print-warncover">
       <div class="print-warncover__band" aria-hidden="true"></div>
       <div class="print-warncover__body">
-        <svg class="print-warncover__icon" viewBox="0 0 120 106" role="img" aria-label="Warning">
-          <path d="M60 6 L116 100 H4 Z" fill="#a4111f" stroke="#7d0d18" stroke-width="4" stroke-linejoin="round"/>
-          <rect x="54" y="40" width="12" height="34" rx="5" fill="#fff"/>
-          <circle cx="60" cy="87" r="6.5" fill="#fff"/>
+        <svg class="print-warncover__icon" viewBox="0 0 120 106" role="img" aria-label="Warning" fill="none" stroke="#a4111f" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M60 8 L114 100 H6 Z" stroke-width="6"/>
+          <line x1="60" y1="40" x2="60" y2="69" stroke-width="8"/>
+          <line x1="60" y1="84" x2="60" y2="84" stroke-width="9"/>
         </svg>
         <div class="print-warncover__eyebrow">Stop — do not submit yet</div>
         <h1 class="print-warncover__title">This application is incomplete</h1>
@@ -2046,16 +2046,17 @@ async function printPreview() {
       /* --- Sprint 21 warning "cover-cover" page (printed ONLY when something is missing;
          buildWarningCoverHTML returns "" for a complete application, so it simply vanishes) --- */
       .print-warncover { display: flex; flex-direction: column; min-height: 8.8in; }
-      .print-warncover__band { flex: none; height: 15px; background: repeating-linear-gradient(-45deg, #a4111f 0 15px, #2a2320 15px 30px); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      /* Caution hatch, NOT a solid stripe fill — thin maroon diagonals on white (far less ink). */
+      .print-warncover__band { flex: none; height: 16px; background: repeating-linear-gradient(-45deg, #a4111f 0 2.5px, transparent 2.5px 11px); border-top: 1px solid #e6c9c6; border-bottom: 1px solid #e6c9c6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-warncover__body { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px 9% 26px; }
-      .print-warncover__icon { width: 112px; height: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; filter: drop-shadow(0 3px 5px rgba(124,13,24,.22)); }
+      .print-warncover__icon { width: 118px; height: auto; }
       .print-warncover__eyebrow { margin-top: 22px; font-size: 11px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: #a4111f; }
       .print-warncover__title { font-family: Georgia, serif; font-size: 30px; font-weight: 700; color: #1d1a17; margin: 5px 0 0; line-height: 1.04; }
       .print-warncover__lead { font-size: 12.5px; line-height: 1.5; max-width: 31em; color: #3a352f; margin: 13px 0 22px; }
       .print-warncover__lead strong { color: #7d0d18; }
       .print-warncover__card { width: 100%; max-width: 33em; text-align: left; border: 1.5px solid #e6c9c6; border-radius: 6px; overflow: hidden; }
-      .print-warncover__cardhead { display: flex; justify-content: space-between; align-items: baseline; background: #a4111f; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 6px 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-warncover__cardhead span { font-size: 10px; font-weight: 600; letter-spacing: .04em; opacity: .88; text-transform: none; }
+      .print-warncover__cardhead { display: flex; justify-content: space-between; align-items: baseline; color: #a4111f; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 7px 13px 6px; border-bottom: 1.5px solid #e6c9c6; }
+      .print-warncover__cardhead span { font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #8a8580; text-transform: none; }
       .print-warncover__list { list-style: none; margin: 0; padding: 2px 0; }
       .print-warncover__list li { display: flex; gap: 11px; align-items: baseline; padding: 7px 13px; border-top: 1px solid #f2e5e3; }
       .print-warncover__list li:first-child { border-top: none; }
@@ -2063,7 +2064,7 @@ async function printPreview() {
       .print-warncover__what { font-size: 11.5px; color: #1d1a17; line-height: 1.35; }
       .print-warncover__what strong { display: block; }
       .print-warncover__what span { display: block; color: #6b645c; font-size: 10.5px; }
-      .print-warncover__attach { width: 100%; max-width: 33em; text-align: left; margin-top: 18px; font-size: 11.5px; line-height: 1.5; color: #3a352f; background: #faf3f2; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 11px 15px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-warncover__attach { width: 100%; max-width: 33em; text-align: left; margin-top: 18px; font-size: 12px; line-height: 1.5; color: #3a352f; border: 1px solid #e6c9c6; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 11px 15px; }
       .print-warncover__attach strong { color: #7d0d18; }
       .print-warncover__foot { flex: none; text-align: center; font-size: 9.5px; color: #8a8580; padding: 0 9% 18px; }
       /* --- cover (page 1): concise submission instructions, two-column --- */
@@ -2073,13 +2074,14 @@ async function printPreview() {
       .print-cover-page .print-neighbors { margin-top: auto; }
       .print-cover { display: grid; grid-template-columns: 1fr 1.95in; gap: 22px; align-items: start; }
       .print-cover__main { min-width: 0; }
+      .print-cover__main h4 { font-size: 13px; }
       .print-cover__main h4:first-child { margin-top: 2px; }
-      .print-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 11px; }
-      .print-steps li { margin-bottom: 6px; }
-      .print-email { display: inline-block; margin-top: 3px; font-size: 13px; font-weight: 700; }
-      .print-include { margin: 4px 0 8px; padding-left: 17px; font-size: 10.5px; }
-      .print-include li { margin-bottom: 3px; }
-      .print-info { font-size: 10.5px; margin: 3px 0 6px; }
+      .print-steps { margin: 5px 0 9px; padding-left: 18px; font-size: 12.5px; }
+      .print-steps li { margin-bottom: 7px; }
+      .print-email { display: inline-block; margin-top: 3px; font-size: 14px; font-weight: 700; }
+      .print-include { margin: 5px 0 9px; padding-left: 17px; font-size: 12px; }
+      .print-include li { margin-bottom: 4px; }
+      .print-info { font-size: 12px; margin: 4px 0 7px; }
       /* right rail: the 2026 review dates in ONE narrow table + a contact card */
       .print-rail { border: 1px solid #e2ddd6; border-radius: 5px; padding: 9px 11px 10px; background: #faf8f4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-rail__title { font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: #7d0d18; border-bottom: 2px solid #a4111f; padding-bottom: 4px; margin-bottom: 6px; }
@@ -2251,7 +2253,7 @@ function neighborChangeSummary(d) {
 }
 function buildNeighborStripHTML(d) {
   let rows = "";
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 6; i++) {
     rows += `<tr>
       <td class="nf-num">${i + 1}</td>
       <td></td>

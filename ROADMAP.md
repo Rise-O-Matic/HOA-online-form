@@ -253,10 +253,10 @@ Verified in-browser (fresh port 8203): zero console errors on load and through t
 
 Done with a user modification: the incompleteness warning that used to sit inline on the cover moves to its **own leading "cover-cover" page** (a hazard-striped stop page with a warning triangle, the list of what's missing, and an "attach these to your submission email" callout) that **prints only while something is incomplete** and vanishes for a completed application.
 
-- [x] **Incompleteness warning page** (user's change) — `buildWarningCoverHTML()` prepends a conditional stop-page before the cover: hazard bands, an SVG warning triangle, a `stepStatus()`-derived "Still to finish" card, and the attach-to-email instruction. Returns `""` (no page at all) when every step is complete. Replaced the old inline `.print-warn` note buried in the instructions.
+- [x] **Incompleteness warning page** (user's change) — `buildWarningCoverHTML()` prepends a conditional stop-page before the cover: a caution-hatch band, an outlined SVG warning triangle, a `stepStatus()`-derived "Still to finish" card, and the attach-to-email instruction — **line-art, no solid fills** (per a follow-up user note). Returns `""` (no page at all) when every step is complete. Replaced the old inline `.print-warn` note buried in the instructions.
 - [x] **Two-column cover** — concise steps + include-list + fees on the left; the 2026 review dates in a **right rail** via `printDatesHTML()` (now **one** narrow table, abbreviated months + a "† tentative" footnote, not two side-by-side columns) plus a Questions? contact card.
 - [x] **Trim the copy** — steps, include-list, and fees tightened to make vertical room for the folded signature strip.
-- [x] **Neighbor signatures folded onto the cover** (user decision) — `buildNeighborStripHTML(d)` (change summary via `neighborChangeSummary(d)` + 4 blank rows) pins to the **bottom** of the cover (`.print-cover-page` flex column + `margin-top:auto`); the standalone last-page `buildNeighborFormHTML` was retired.
+- [x] **Neighbor signatures folded onto the cover** (user decision) — `buildNeighborStripHTML(d)` (change summary via `neighborChangeSummary(d)` + 6 blank rows) pins to the **bottom** of the cover (`.print-cover-page` flex column + `margin-top:auto`); the standalone last-page `buildNeighborFormHTML` was retired.
 
 ## Sprint 22 — Adobe Sign fields on the saved PDF (item 7)
 
