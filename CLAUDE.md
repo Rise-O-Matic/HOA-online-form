@@ -10,7 +10,7 @@ Plain HTML/CSS/JS — **no build step, no npm dependencies, no linter.** The beh
 
 ## Roadmap & working agreement
 
-**`ROADMAP.md` is the plan of record** (Sprints 0–16: 0–13 complete, 14–16 open — originally distilled from the 2026-07-02 project critique and the 2026-07-03 Draw-step review, extended 2026-07-04 with Sprints 12–16 from the user's issue dump). The agreed cadence:
+**`ROADMAP.md` is the plan of record** (Sprints 0–22: 0–14 + the print-first rework + 17–22 complete, **15 and 16 shelved 2026-07-05** — 15 is the "stay a print-first mockup vs. adopt Worker+R2 submission" decision, kept as the escalation path; 16 is advisory cross-check/per-category-enforcement niceties. Sprint 14 (callout label/leader repositioning) landed ad hoc inside Sprint 13's edit-anchor work. Originally distilled from the 2026-07-02 project critique and the 2026-07-03 Draw-step review, extended 2026-07-04 with Sprints 12–16 from the user's issue dump and 2026-07-05 with the print-packet overhaul, Sprints 17–22). The agreed cadence:
 
 1. Work **one sprint at a time**, top to bottom — don't cherry-pick across sprints without the user's say-so.
 2. At the end of each sprint, **before starting the next**: bring the documentation back in line with reality (this file's Architecture/Gotchas sections, `ROADMAP.md` checkboxes, `ISSUES.md` log), then **commit** so the next session — which may start with cleared context — has a clean, truthful anchor.

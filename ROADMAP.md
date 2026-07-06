@@ -165,15 +165,17 @@ User decision (after the mailto handoff proved silently unreliable — see ISSUE
 - [x] **Adjacent Owners section removed** — roster UI, `neighbors` in `collect()`/restore, preview/print neighbor blocks, `neighborFormFiles()`, `req_neighbors`, and the neighbor packet row/progress slot all deleted; sections renumbered (05 Acknowledgments, 06 Review & Submit); old drafts' `neighbors`/`neighborForm` keys restore harmlessly.
 - [x] **Email machinery removed** — `EMAIL_TO`, `openMailto()`, `startEmailFlow()`/`finishEmail()`, `printNeighborForm()`; the advisory review gate stays, serving the print path ("Save the packet anyway").
 
-## Sprint 14 — Callout anatomy: independent label & leader repositioning (item 6)
+## Sprint 14 — Callout anatomy: independent label & leader repositioning (item 6) ✅ 2026-07-04 (ad hoc, folded into Sprint 13's edit-anchor work)
 
 A callout is one Konva group (Label + free-angle Arrow leader); Select drags it as a unit, so you can't move the text out of the way while keeping the arrow pinned to the thing it points at.
 
-- [ ] **Select-mode sub-part dragging** — dragging the **label** moves only the label (the leader's tail follows the label edge; the anchor/tip stays pinned); a small **tip handle**, shown while the callout is selected, drags the anchor independently.
-- [ ] **Persistence + outputs** — label offset and anchor point live in group attrs so `serializePlot()`/`restorePlot()`/undo/`renderPlotImage()` reproduce the geometry; the tail-recompute must run on rehydrate (serialized JSON carries no listeners — same `attachShapeInteractions` gotcha).
-- [ ] *(Stretch, from the Sprint 7 deferral)* — resize-on-select for stamps, if the selection-handle plumbing built here makes it cheap.
+- [x] **Select-mode sub-part dragging** — a selected callout grows two `buildEditAnchors`/`anchorSpecsFor` handles (plot-editor.js): an **arrowhead handle** re-aims the leader (tip) and a **label-box handle** moves the text with the leader base riding along; both are box-clamped so nothing hangs off the canvas.
+- [x] **Persistence + outputs** — the handles mutate the live Konva `Arrow` points / `Label` position, so `serializePlot()`/`restorePlot()`/undo/`renderPlotImage()` reproduce the geometry for free through the normal `toObject`/`Konva.Node.create` + `attachShapeInteractions` rehydrate path (no separate offset attrs needed).
+- [ ] *(Stretch, from the Sprint 7 deferral — not pursued)* — resize-on-select for stamps.
 
-## Sprint 15 — Submission & data lifecycle (decision sprint; items 2–4)
+## Sprint 15 — Submission & data lifecycle (decision sprint; items 2–4) 🗄️ SHELVED 2026-07-05
+
+**Shelved per user (2026-07-05).** The app stays a zero-transmission print-first mockup; the Worker+R2 research below is kept as the escalation path if the HOA ever wants in-app submission. Un-shelve only on an explicit HOA decision to transmit packets.
 
 The three 2026-07-04 architecture questions, researched 2026-07-04 (web pass over current free tiers; MailChannels/Resend/Cloudflare/Cloudinary docs). **Needs a user/HOA decision before any implementation** — this sprint's deliverable is the decision, not code. Absorbs the old "Real submission backend" + "localStorage PII expiry" backlog items.
 
@@ -187,7 +189,9 @@ The three 2026-07-04 architecture questions, researched 2026-07-04 (web pass ove
 - [ ] **Post-submission journey (item 4)** — keep "offer, don't auto-wipe" for the local draft (we still can't observe delivery, and users revise); if Worker+R2 lands, the draft-cleanup offer pairs with a **receipt link** (same secret URL the committee gets) and a stated expiry, which is also the honest answer to "how do I get my submission back?". PII surface: no third-party form vendor, no Cloudinary; one bucket the HOA controls, auto-expiring.
 - [ ] Who owns the Cloudflare account/domain — the HOA, the property manager (FSResidential), or the developer?
 
-## Sprint 16 — Cross-checks & per-category enforcement (backlog promotion, item 10)
+## Sprint 16 — Cross-checks & per-category enforcement (backlog promotion, item 10) 🗄️ SHELVED 2026-07-05
+
+**Shelved per user (2026-07-05).** Both are advisory-quality niceties, not blockers; promote back off the shelf if users stumble on incomplete submissions.
 
 - [ ] **Improvements ↔ plot cross-check** (Sprint 9 v2 nicety, sharper since categories) — compare the item list against `plotLegend()` and nudge on mismatches ("you painted Concrete on the plan but no improvement item mentions it"); only structure/hardscape/pool categories are expected on the plan.
 - [ ] **Per-category required-field enforcement** (Sprint 11 deferral) — e.g. paint items really do need the color code; plants really do need type & quantity. Today only the name is `[required]`.
