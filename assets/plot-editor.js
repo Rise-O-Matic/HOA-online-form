@@ -11,8 +11,9 @@
    map wizard.
    ========================================================= */
 import {
-  CELL_SIZE, FEET_PER_CELL, LINE_WIDTH_FEET,
-  computeBBox, fitSimilarity, buildParcelGrid, computeFloodFill, pointInPolygon
+  CELL_SIZE, FEET_PER_CELL, LINE_WIDTH_FEET, FOOT_IN_METERS,
+  computeBBox, fitSimilarity, buildParcelGrid, computeFloodFill, pointInPolygon,
+  interpolateAerialNudge, applyPolygonOffsets
 } from "./geometry.js";
 import { $, $$ } from "./utils.js";
 // Function-only imports from the entry module (a deliberate ESM cycle: app.js
@@ -221,7 +222,8 @@ const ICON = {
   select: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5.5 15 2-6.4 6.4-2z"/><path d="m13.5 13.5 5 5"/></svg>',
   pan: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M33.75 18.3158L33.75 12.375C33.75 10.511 35.261 9 37.125 9V9C38.989 9 40.5 10.511 40.5 12.375L40.5 35C40.5 40.5228 36.0229 45 30.5 45L22.8952 45C21.1851 45 19.4876 44.7076 17.8761 44.1354L17.1685 43.8841C12.5233 42.2347 8.98492 38.4083 7.70341 33.6484L4.7249 22.5853C4.57796 22.0396 4.58819 21.4634 4.75441 20.9232L4.86976 20.5483C5.71594 17.7982 9.57317 17.7012 10.5565 20.4053L13.5 28.5L13.5 9.375C13.5 7.51104 15.011 6 16.875 6V6C18.739 6 20.25 7.51104 20.25 9.375L20.25 14.2105"/><path d="M20.25 21L20.25 5.375C20.25 3.51104 21.761 2 23.625 2V2C25.489 2 27 3.51104 27 5.375V21"/><path d="M27 20.5V8.375C27 6.51104 28.511 5 30.375 5V5C32.239 5 33.75 6.51104 33.75 8.375V22.5"/></svg>',
   line: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.7" fill="currentColor" stroke="none"/></svg>',
-  stamp: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21h14"/><path d="M6.5 18h11c.6 0 1-.4 1-1v-.5a2.5 2.5 0 0 0-2.5-2.5h-2c-.6 0-1-.5-1-1.1 0-2 1.6-2.6 1.6-4.9a2.6 2.6 0 1 0-5.2 0c0 2.3 1.6 2.9 1.6 4.9 0 .6-.4 1.1-1 1.1H8A2.5 2.5 0 0 0 5.5 16.5v.5c0 .6.4 1 1 1z"/></svg>'
+  stamp: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21h14"/><path d="M6.5 18h11c.6 0 1-.4 1-1v-.5a2.5 2.5 0 0 0-2.5-2.5h-2c-.6 0-1-.5-1-1.1 0-2 1.6-2.6 1.6-4.9a2.6 2.6 0 1 0-5.2 0c0 2.3 1.6 2.9 1.6 4.9 0 .6-.4 1.1-1 1.1H8A2.5 2.5 0 0 0 5.5 16.5v.5c0 .6.4 1 1 1z"/></svg>',
+  align: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
 };
 
 // Each tool's one-line hint is shown above the canvas while that tool is selected
@@ -247,6 +249,8 @@ const TOOL_MODES = [
     hint: "Drag between two points to add a dimension arrow labeled with the distance in feet." },
   { id: "select",   label: "Select",   key: "v", icon: ICON.select,
     hint: "Drag a shape to move it. Round handles reshape an outline, measurement, or callout — double-click a callout to edit its text. <strong>Backspace</strong> or the red &times; deletes the selected shape." },
+  { id: "align",    label: "Align Corners", key: "a", icon: ICON.align,
+    hint: "Drag a corner to match what you actually see in the aerial photo. This only corrects the outline trace and where Stamps may be placed — it does not move or re-scale the photo itself." },
   { id: "pan",      label: "Pan",      key: "p", icon: ICON.pan,
     hint: "Drag to move around your plan. From any tool: hold <strong>Space</strong> or middle-mouse to drag-pan, mouse wheel zooms — on a touch screen, drag with two fingers to pan and pinch to zoom." }
 ];
@@ -324,14 +328,89 @@ const SCREEN_AERIAL_OPACITY = 0.33; // faint tracing aid on the live stage (mult
 const PRINT_AERIAL_OPACITY = 0.72;  // stronger on paper — it's the actual satellite base map of the lot,
                                     // not a tracing aid, and there's no screen backlight/multiply to help it
 const SAFE_CANVAS_PX = 3200;  // cap on the backing canvas's longest side (content × zoom) to bound memory
-// Baked aerial alignment correction. The county's 2020 orthophoto sits a few feet off the parcel
-// vectors — verified NOT a datum issue (a NAD83↔WGS84 datumTransformation on the query moves the
-// parcels 0.00 ft), so it's the orthophoto's own rectification accuracy and can't be reprojected
-// away. Instead we shift the aerial backdrop by a fixed GROUND vector (feet, +E/+N) that
-// rebuildBgLayer() rotates by the parcel bearing into stage space, so it's correct at any
-// orientation. Observed (tuned by eye over two passes): the aerial sat ≈ +1 ft E, +3.6 ft N of
-// the outline, so we push it back the other way. This is a by-eye constant — tune it here.
-const AERIAL_NUDGE_FT = { east: -1.0, north: -3.6 };
+// Ground-truth aerial alignment calibration. The county's 2020 orthophoto sits a few feet off
+// the parcel vectors at any given lot — verified NOT a datum issue (a NAD83↔WGS84
+// datumTransformation on the query moves the parcels 0.00 ft) and NOT a projection-choice bug in
+// this app's own math either (empirically checked: fitting the aerial's true-Web-Mercator vertex
+// projection against this grid's local-tangent-plane one, over real parcel rings up to 250+ ft
+// across at several bearings, leaves a residual of ~1e-4 ft — fitSimilarity's scale term already
+// absorbs the whole Mercator-vs-equirectangular gap as a pure uniform scale). So the drift is
+// real ortho-rectification error in the source imagery itself, and — unlike a coordinate bug —
+// that error varies across the neighborhood (mosaic seams, camera-model residuals), which is why
+// a single flat constant looked right on one lot and visibly off on others. Fix: treat it as a
+// standard control-point/rubber-sheeting problem. Each entry is a hand-calibrated ground vector
+// (feet, +E/+N) at a real lng/lat, gathered by eye with the dev-only calibration overlay below
+// (add ?calibrate-aerial to the URL); interpolateAerialNudge() (geometry.js) inverse-distance-
+// weights them for whatever parcel is on screen. rebuildBgLayer()/renderPlotImage() rotate the
+// result by the parcel's own bearing into stage space, so it's correct at any orientation.
+// Seeded with 11506 Aaron Ave (the user's trusted reference, carrying forward the old flat
+// constant's exact value), a first round gathered 2026-07-05 with the calibration overlay,
+// spot-checked against tools/find-calibration-addresses.mjs's Fairway-Canyon-bbox evidence (2 of
+// the 5 raw points gathered that round — Brutus Way, Crenshaw St — landed outside that bbox in a
+// different Beaumont subdivision and were deliberately left out; see ISSUES.md), and a second
+// round from that tool's own recommended addresses (compass extremes + interior spread). Note
+// 11010 Coody Ct's correction is notably larger than every other point (~8 ft vs ~1–4 ft) — kept
+// as reported (spatially-varying ortho error is exactly what this scheme exists to capture, and
+// the user visited it deliberately as a recommended point), but worth a recheck if it ever looks
+// wrong on screen, since some 2020-imagery lots are still bare dirt and harder to align by eye.
+const AERIAL_CONTROL_POINTS = [
+  { lng: -117.045522, lat: 33.953612, east: -1.0, north: -3.6 },  // 11506 Aaron Ave, APN 413882015
+  { lng: -117.051413, lat: 33.956888, east: -2.5, north: -2.9 },  // 34928 Roberts Pl, APN 413892010
+  { lng: -117.048267, lat: 33.955035, east: -2.0, north: -3.3 },  // 11455 Aaron Ave, APN 413881020
+  { lng: -117.042862, lat: 33.951759, east: -1.3, north: -3.2 },  // 35339 Stewart St, APN 413871014
+  { lng: -117.054035, lat: 33.963262, east: -1.72, north: -2.74 }, // 11284 Demaret Dr, APN 413671005
+  { lng: -117.039374, lat: 33.961756, east: -7.95, north: -7.28 }, // 11010 Coody Ct, APN 413520013 (outlier, see above)
+  { lng: -117.046327, lat: 33.956176, east: -4.81, north: -3.04 }, // 11429 Lyle Ln, APN 413820018
+  { lng: -117.045897, lat: 33.960531, east: -0.74, north: -3.23 }, // 35216 Hogan Dr, APN 413500003
+  { lng: -117.043714, lat: 33.959970, east: -1.72, north: -3.27 }, // 35315 Hogan Dr, APN 413501005
+  { lng: -117.043656, lat: 33.962221, east: -1.56, north: -5.95 }, // 11014 Watson Way, APN 413540022
+  { lng: -117.044090, lat: 33.960527, east: -2.15, north: -2.46 }, // 35290 Hogan Dr, APN 413500011
+  // Fourth round (2026-07-06), gathered with the rapid Ctrl+arrow walk — all pre-vetted by
+  // construction (loadCalibCandidates already filters to this same bbox + Beaumont city):
+  { lng: -117.040557, lat: 33.955071, east: -3.75, north: -2.01 }, // 35492 Smith Ave
+  { lng: -117.044115, lat: 33.954837, east: -2.21, north: -3.73 }, // 35262 Goalby Dr
+  { lng: -117.042128, lat: 33.955138, east: -2.2,  north: -3.01 }, // 35338 Thorpe Tr
+  { lng: -117.035818, lat: 33.955275, east: 0.83,  north: -4.15 }, // 11448 Trevor Way
+  { lng: -117.035046, lat: 33.955887, east: -0.41, north: -2.16 }, // 35948 Michelle Ln
+  { lng: -117.043183, lat: 33.955873, east: -1.06, north: -3.45 }, // 35331 Smith Ave
+  { lng: -117.042289, lat: 33.956109, east: -4.15, north: -2.34 }, // 35368 Smith Ave (avg of 2 readings, see fifth-round note)
+  { lng: -117.03596,  lat: 33.956269, east: 0.03,  north: -2.09 }, // 35930 Michelle Ln
+  { lng: -117.039185, lat: 33.956482, east: -0.77, north: -2.91 }, // 35520 Stockton St
+  { lng: -117.045396, lat: 33.956387, east: -2.09, north: -3.16 }, // 35209 Smith Ave
+  { lng: -117.051558, lat: 33.95708,  east: -1.4,  north: -2.91 }, // 34920 Roberts Pl
+  { lng: -117.048384, lat: 33.957038, east: -2.79, north: -3.94 }, // 11380 Aaron Ave
+  { lng: -117.044562, lat: 33.956752, east: -4.62, north: -2.12 }, // 35236 Smith Ave
+  { lng: -117.034943, lat: 33.957098, east: 0.37,  north: 1.05 },  // 35942 Dylan Ct (avg of 2 readings, see fifth-round note)
+  { lng: -117.038664, lat: 33.957388, east: -1.29, north: -4.06 }, // 35582 Byron Tr
+  // Fifth round (2026-07-06), also via the rapid Ctrl+arrow walk. Two stops (35368 Smith Ave,
+  // 35942 Dylan Ct) turned out to already be in the fourth round — same lng/lat exactly, different
+  // manual reading — so those two entries above were averaged in place rather than duplicated:
+  // interpolateAerialNudge()'s exact-match early-return would otherwise silently favor whichever
+  // duplicate happens to iterate first for that one house, while every *other* house would see it
+  // double-weighted (same distance from two entries at the same point). One entry per location.
+  { lng: -117.043021, lat: 33.952755, east: -2.52, north: -3.18 }, // 35325 Stewart St
+  { lng: -117.034949, lat: 33.954994, east: 0.22,  north: -3.94 }, // 35979 Michelle Ln
+  { lng: -117.046003, lat: 33.955655, east: -3.95, north: -3.81 }, // 11445 Lyle Ln
+  { lng: -117.043049, lat: 33.957794, east: -0.66, north: -3.05 }, // 11445 Locke Ln
+  { lng: -117.044837, lat: 33.958517, east: -0.38, north: -3.81 }, // 35261 Stockton St
+  { lng: -117.035564, lat: 33.958978, east: 1.18,  north: -2.74 }, // 35972 Anderson St
+  { lng: -117.037485, lat: 33.958958, east: -0.46, north: -3.96 }, // 35761 Trevino Tr
+  { lng: -117.038042, lat: 33.959496, east: -1.04, north: -2.32 }, // 35718 Trevino Tr
+  // Sixth round (2026-07-06), also via the rapid Ctrl+arrow walk. 11286 Coody Ct's correction is
+  // another outlier (~9 ft, like 11010 Coody Ct above) — two different houses on the same street
+  // both showing a much larger offset than their neighbors suggests this block's 2020 orthophoto
+  // has more localized error, not a bad reading; kept as reported.
+  { lng: -117.035585, lat: 33.959451, east: 4.36,  north: -3.65 }, // 35934 Anderson St
+  { lng: -117.03709,  lat: 33.959918, east: 4.25,  north: -3.44 }, // 11231 Casper Cove
+  { lng: -117.044336, lat: 33.960004, east: -1.62, north: -4.02 }, // 35287 Hogan Dr
+  { lng: -117.053618, lat: 33.959813, east: -2.1,  north: -3.92 }, // 34851 Miller Pl
+  { lng: -117.051933, lat: 33.960064, east: -1.43, north: -3.16 }, // 34918 Miller Pl
+  { lng: -117.046892, lat: 33.960095, east: -1.56, north: -3.87 }, // 35161 Hogan Dr
+  { lng: -117.043877, lat: 33.960069, east: -1.78, north: -4.3  }, // 35303 Hogan Dr
+  { lng: -117.039687, lat: 33.960235, east: -8.24, north: -9.42 }, // 11286 Coody Ct
+  { lng: -117.037992, lat: 33.960092, east: 4.08,  north: -3.33 }, // 11236 Rosburg Rd
+  { lng: -117.035839, lat: 33.960276, east: 6.04,  north: -8.27 }  // 35872 Anderson St
+];
 let gridCols = 80;            // grid width in tiles (= feet); recomputed per parcel
 let gridRows = 60;            // grid height in tiles (= feet)
 let parcelPolygonPx = null;   // polygon vertices in pixel coords, traced as a Konva.Line overlay
@@ -362,12 +441,23 @@ let gridLineDraft = null, gridLineGhost = null; // Line tool: grid-snapped vecto
 let rectDraft = null, rectGhost = null; // Rectangle tool: drag-to-fill a block of cells
 let brushGhost = null;                  // Marker/Erase footprint hover preview (thickness > 1 only)
 let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in rebuildGridForParcel
+let lastPlotRing = null; // current parcel's lng/lat ring — feeds the aerial nudge lookup and the calibration overlay's centroid readout
+let calibNudge = { east: 0, north: 0 }; // manual dial from the dev-only calibration overlay (?calibrate-aerial), on top of the interpolated baseline; always {0,0} outside that mode
+// Sparse {dx,dy}[] index-matched to parcelPolygonPx — the Align Corners tool's manual, per-vertex
+// visual correction to the traced boundary, for when the county polygon's own vertex position is
+// locally wrong (fence/pavement doesn't match the platted line) and a uniform aerial-photo nudge
+// can't fix it. Reset only where calibNudge is reset (rebuildGridForParcel's full-rebuild branch)
+// — a correction from a different parcel/bearing must never leak forward. Deliberately NEVER read
+// by fitSimilarity/buildAerialNode's fit — that would re-warp the WHOLE photo's rotation/scale/
+// translation from one corner's nudge. Persisted as plot.boundaryAdjust, captured in undo/redo.
+let boundaryAdjust = [];
 
 let dragOrigin = null, ghostNode = null;         // measure drag
 let calloutDraft = null, calloutGhost = null;    // callout
 let selectedNode = null, selectionRect = null;   // Select/move tool
 let selectionDeleteBtn = null;                   // the "×" delete button on the selection box (overlayLayer)
 let editAnchors = [];                            // reshape handles on the selected shape (overlayLayer)
+let boundaryHandles = [];                        // Align Corners tool's draggable handles, one per distinct parcel corner (overlayLayer)
 let activeStamp = "canopy_tree";                 // selected symbol in the Stamp picker
 let stampArmed = null, stampGhost = null;        // press position awaiting release + cursor preview
 
@@ -597,11 +687,13 @@ function onTouchPointerEnd(e) {
 }
 
 // Clip path (content-pixel space) tracing the parcel footprint, used as the clipFunc for the
-// painted-material group so paint is occluded outside the dashed red outline. Reads the live
-// parcelPolygonPx each draw, so it tracks parcel/orientation changes automatically. Before a
+// painted-material group so paint is occluded outside the dashed red outline. Reads the
+// Align-Corners-adjusted boundary each draw (see adjustedParcelPolygon), so a manual corner
+// correction clips paint at the corrected line too — reused verbatim as the print clip group's
+// clipFunc (renderPlotImage), so this one fix covers both the live canvas and print. Before a
 // parcel resolves, it falls back to the full content rect (nothing hidden).
 function clipToParcel(ctx) {
-  const poly = parcelPolygonPx;
+  const poly = adjustedParcelPolygon();
   if (!poly || poly.length < 3) {
     ctx.rect(0, 0, gridCols * CELL_SIZE, gridRows * CELL_SIZE);
     return;
@@ -609,6 +701,16 @@ function clipToParcel(ctx) {
   ctx.beginPath();
   poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.closePath();
+}
+
+// The single place parcelPolygonPx and boundaryAdjust get combined. Everything that traces or
+// hit-tests the boundary as the user now sees/corrects it (the drawn outline, the paint clip,
+// Stamp containment) reads THIS — never parcelPolygonPx directly. fitSimilarity's call in
+// buildAerialNode and any parcel-bbox/centering math deliberately keep reading the pristine
+// parcelPolygonPx (see boundaryAdjust's declaration comment) — a manual corner nudge must never
+// re-warp the aerial photo or perturb the "Fit" view.
+function adjustedParcelPolygon() {
+  return applyPolygonOffsets(parcelPolygonPx, boundaryAdjust);
 }
 
 /* --- Grid canvases (graph paper + painted cells) --- */
@@ -909,17 +1011,44 @@ function buildAerialNode(img, opacity) {
       opacity, listening: false
     });
   }
-  // Apply the baked ortho correction (see AERIAL_NUDGE_FT). It's a ground vector in feet;
-  // rotate it by the parcel bearing and flip Y to land in stage pixels, then translate the
-  // whole aerial by it. At bearing 0 this is just (+E → +x, +N → −y). A pure translation of
-  // the node origin is unaffected by the node's own rotation, so this composes cleanly.
-  if (AERIAL_NUDGE_FT.east || AERIAL_NUDGE_FT.north) {
+  // Apply the ground-truth calibration nudge (see AERIAL_CONTROL_POINTS above), interpolated for
+  // this parcel's own centroid, plus whatever the dev calibration overlay has dialed in on top
+  // (calibNudge, always {0,0} outside ?calibrate-aerial). It's a ground vector in feet; rotate it
+  // by the parcel bearing and flip Y to land in stage pixels, then translate the whole aerial by
+  // it. At bearing 0 this is just (+E → +x, +N → −y). A pure translation of the node origin is
+  // unaffected by the node's own rotation, so this composes cleanly with either branch above.
+  const centroid = currentParcelCentroid();
+  const base = centroid ? interpolateAerialNudge(centroid.lng, centroid.lat, AERIAL_CONTROL_POINTS) : { east: 0, north: 0 };
+  const e = base.east + calibNudge.east, nth = base.north + calibNudge.north;
+  if (e || nth) {
     const b = (lastPlotBearing || 0) * Math.PI / 180;
-    const e = AERIAL_NUDGE_FT.east, nth = AERIAL_NUDGE_FT.north;
     node.x(node.x() + (e * Math.cos(b) - nth * Math.sin(b)) * CELL_SIZE);
     node.y(node.y() - (e * Math.sin(b) + nth * Math.cos(b)) * CELL_SIZE);
   }
   return node;
+}
+
+// Current parcel's ring centroid in lng/lat — the point interpolateAerialNudge() calibrates
+// against. null before any parcel has been selected (lastPlotRing unset).
+function currentParcelCentroid() {
+  if (!lastPlotRing || !lastPlotRing.length) return null;
+  const lng = lastPlotRing.reduce((s, p) => s + p[0], 0) / lastPlotRing.length;
+  const lat = lastPlotRing.reduce((s, p) => s + p[1], 0) / lastPlotRing.length;
+  return { lng, lat };
+}
+
+// Single source of truth for how the boundary Line is built — shared by the live stage
+// (rebuildBgLayer), the throwaway print/preview stage (renderPlotImage), and the cheap
+// incremental redraw (redrawParcelOutline). Always reads the Align-Corners-adjusted polygon
+// (adjustedParcelPolygon), never the pristine one — this is the user-visible trace, distinct
+// from what fitSimilarity registers the aerial photo against.
+function buildParcelOutlineNode() {
+  const poly = adjustedParcelPolygon();
+  if (!poly.length) return null;
+  return new Konva.Line({
+    points: poly.flatMap(p => [p.x, p.y]),
+    closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3], listening: false
+  });
 }
 
 function rebuildBgLayer() {
@@ -936,16 +1065,288 @@ function rebuildBgLayer() {
       bgLayer.add(node);
       node.moveToBottom();
       bgLayer.batchDraw();
+      refreshCalibPanel(); // no-op unless ?calibrate-aerial is on
     };
     img.src = plotBgDataUrl;
   }
-  if (parcelPolygonPx && parcelPolygonPx.length) {
-    bgLayer.add(new Konva.Line({
-      points: parcelPolygonPx.flatMap(p => [p.x, p.y]),
-      closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3], listening: false
-    }));
-  }
+  const outline = buildParcelOutlineNode();
+  if (outline) bgLayer.add(outline);
   bgLayer.batchDraw();
+}
+
+// Re-render just the boundary Line from the current parcelPolygonPx + boundaryAdjust — the
+// drag-tick-safe counterpart to reapplyAerialNudge() below (that one only touches the Image;
+// this one only touches the Line). rebuildBgLayer() itself is too expensive to call on every
+// dragmove (it re-decodes the aerial <img> via a fresh Image()/onload).
+function redrawParcelOutline() {
+  if (!stageReady || !bgLayer) return;
+  bgLayer.find(n => n.getClassName() === "Line").forEach(n => n.destroy());
+  const outline = buildParcelOutlineNode();
+  if (outline) bgLayer.add(outline); // default add() appends on top — the untouched aerial Image stays at the bottom
+  bgLayer.batchDraw();
+}
+
+/* ------------------------------------------------------
+   Dev-only aerial calibration overlay — add ?calibrate-aerial to the URL. Not part of the
+   normal app UI (no shipped markup; the panel/listener/candidate-list fetch are created only
+   when the flag is on). Lets a human gather AERIAL_CONTROL_POINTS by eye: nudge the aerial
+   backdrop with the arrow keys or the panel's buttons until it lines up with the drawn parcel
+   outline (Shift+arrow = 1 ft steps, else 0.1 ft), then Ctrl/Cmd+Right/Left rapidly walks to the
+   next/previous house in a pre-built list — auto-committing the current house's point first if
+   it was nudged, so a whole session's points accumulate in the panel's running log instead of
+   needing a manual "Copy point" per stop. See CLAUDE.md's aerial-calibration gotcha for the
+   workflow, and tools/find-calibration-addresses.mjs for the one-off, non-interactive version
+   of the same idea (compass extremes + a spread sample) this reuses the boundary logic from.
+   ------------------------------------------------------ */
+const CALIBRATE_AERIAL = new URLSearchParams(location.search).has("calibrate-aerial");
+const CALIB_STEP_FT = 0.1, CALIB_STEP_FT_BIG = 1;
+// Same evidence-derived Fairway Canyon proxy as tools/find-calibration-addresses.mjs (duplicated,
+// not shared — dev tools and app code are independent; re-sync both if parcels.json changes).
+const CALIB_BBOX = { minLng: -117.054247, maxLng: -117.030243, minLat: 33.949346, maxLat: 33.963270 };
+const CALIB_TARGET_STOPS = 150; // decimated walk size — enough spatial density without hundreds of stops
+const CALIB_BAND_FT = 150;      // serpentine row height: keeps consecutive stops geographically close
+let calibPanelEls = null;
+let calibCandidates = null;      // [{apn, addr, lng, lat, ring}], built once, lazily, on first nav
+let calibCandidatesPromise = null;
+let calibIndex = -1;             // index into calibCandidates of the house currently on screen
+const calibLog = new Map();      // apn -> {lng, lat, east, north, addr} — committed this session
+
+// Re-render just the aerial node from the already-decoded, cached image (plotBgImg) — used for
+// every calibration nudge so interactive dialing doesn't re-fetch/re-decode the backdrop.
+function reapplyAerialNudge() {
+  if (!stageReady || !plotBgImg) return;
+  bgLayer.find(n => n.getClassName() === "Image").forEach(n => n.destroy());
+  const node = buildAerialNode(plotBgImg, SCREEN_AERIAL_OPACITY);
+  if (node) { bgLayer.add(node); node.moveToBottom(); }
+  bgLayer.batchDraw();
+}
+
+function nudgeCalib(dEast, dNorth) {
+  calibNudge = { east: calibNudge.east + dEast, north: calibNudge.north + dNorth };
+  reapplyAerialNudge();
+  refreshCalibPanel();
+}
+
+// Lazily fetches assets/parcels.json (same independent-lazy-fetch pattern as demo-mode.js) and
+// builds the walk order: addressed, single-polygon, Beaumont, inside CALIB_BBOX, sorted into a
+// serpentine (row-by-row, alternating direction) sweep so consecutive stops are geographically
+// adjacent — surfacing localized variation is the whole point — then decimated to a manageable,
+// evenly-spread walk. Cached: only fetches/sorts once per page load.
+async function loadCalibCandidates() {
+  if (calibCandidates) return calibCandidates;
+  if (calibCandidatesPromise) return calibCandidatesPromise;
+  calibCandidatesPromise = (async () => {
+    const res = await fetch("assets/parcels.json");
+    const data = await res.json();
+    const rows = data.parcels
+      .filter(p => p.t && p.g.length === 1 && (p.c || "").startsWith("BEAUM"))
+      .map(p => {
+        const ring = p.g[0];
+        const lng = ring.reduce((s, v) => s + v[0], 0) / ring.length;
+        const lat = ring.reduce((s, v) => s + v[1], 0) / ring.length;
+        return { apn: p.a, addr: p.t, lng, lat, ring: p.g };
+      })
+      .filter(p => p.lng >= CALIB_BBOX.minLng && p.lng <= CALIB_BBOX.maxLng &&
+                   p.lat >= CALIB_BBOX.minLat && p.lat <= CALIB_BBOX.maxLat);
+    const bandDeg = (CALIB_BAND_FT * FOOT_IN_METERS) / 111320;
+    const banded = new Map();
+    for (const r of rows) {
+      const band = Math.floor((r.lat - CALIB_BBOX.minLat) / bandDeg);
+      if (!banded.has(band)) banded.set(band, []);
+      banded.get(band).push(r);
+    }
+    const ordered = [];
+    [...banded.keys()].sort((a, b) => a - b).forEach((band, i) => {
+      const list = banded.get(band);
+      list.sort((a, b) => (i % 2 === 0 ? a.lng - b.lng : b.lng - a.lng)); // alternate direction per row
+      ordered.push(...list);
+    });
+    const stride = Math.max(1, Math.round(ordered.length / CALIB_TARGET_STOPS));
+    calibCandidates = ordered.filter((_, i) => i % stride === 0);
+    return calibCandidates;
+  })();
+  return calibCandidatesPromise;
+}
+
+// Jumps the Draw step straight to a given walk index — the same restoreParcelFromDraft +
+// showStep(4) pair demo-mode.js already uses to skip the click-through wizard, reached via a
+// DYNAMIC import so this dev-only code adds no static plot-editor.js -> map-wizard.js edge to
+// the module graph (map-wizard.js already imports FROM plot-editor.js; a static import back
+// would form a new cross-module cycle affecting every page load, not just calibration mode — a
+// dynamic import only resolves the (already-loaded, singleton) module when this code path
+// actually runs). Always north-up (bearing 0) for a consistent, simple walk.
+async function jumpToCalibrationHouse(index) {
+  const list = await loadCalibCandidates();
+  if (!list.length) return;
+  calibIndex = ((index % list.length) + list.length) % list.length;
+  const entry = list[calibIndex];
+  const mw = await import("./map-wizard.js");
+  const feature = { type: "Feature", geometry: { type: "Polygon", coordinates: entry.ring }, properties: { APN: entry.apn } };
+  mw.setPlanMode("build");
+  mw.restoreParcelFromDraft(feature, entry.apn, 0);
+  mw.showStep(4);
+  calibNudge = { east: 0, north: 0 };
+  refreshCalibPanel();
+}
+
+// Records the CURRENT house's total point (interpolated baseline + manual dial) into the
+// session log, keyed by APN so revisiting/re-nudging a house updates rather than duplicates.
+// No-ops if nothing was actually nudged (an already-aligned house, or a bare-dirt lot with
+// nothing to calibrate against) — advancing past those is a deliberate skip, not an omission.
+function commitCurrentCalibPoint() {
+  if (!calibNudge.east && !calibNudge.north) return;
+  const centroid = currentParcelCentroid();
+  if (!centroid || calibIndex < 0 || !calibCandidates) return;
+  const entry = calibCandidates[calibIndex];
+  const base = interpolateAerialNudge(centroid.lng, centroid.lat, AERIAL_CONTROL_POINTS);
+  calibLog.set(entry.apn, {
+    lng: +centroid.lng.toFixed(6), lat: +centroid.lat.toFixed(6),
+    east: +(base.east + calibNudge.east).toFixed(2), north: +(base.north + calibNudge.north).toFixed(2),
+    addr: entry.addr
+  });
+}
+
+async function advanceCalibHouse(delta) {
+  commitCurrentCalibPoint();
+  await jumpToCalibrationHouse(calibIndex < 0 ? 0 : calibIndex + delta);
+}
+
+// "Update" / refresh: re-fetches and redraws the CURRENT house (fresh aerial fetch, nudge reset
+// to the interpolated baseline) without changing position in the walk — for when something looks
+// stuck, or to re-check a house after adding more control points elsewhere. Commits first so a
+// refresh can't silently discard an in-progress nudge.
+async function refreshCalibHouse() {
+  if (calibIndex < 0) return;
+  commitCurrentCalibPoint();
+  await jumpToCalibrationHouse(calibIndex);
+}
+
+function calibLogText() {
+  return [...calibLog.values()]
+    .map(p => `{ lng: ${p.lng}, lat: ${p.lat}, east: ${p.east}, north: ${p.north} }, // ${p.addr}`)
+    .join("\n");
+}
+
+function refreshCalibPanel() {
+  if (!calibPanelEls) return;
+  const centroid = currentParcelCentroid();
+  if (calibCandidates && calibIndex >= 0) {
+    const entry = calibCandidates[calibIndex];
+    calibPanelEls.walk.textContent = `House ${calibIndex + 1}/${calibCandidates.length}: ${entry.addr}`;
+  } else {
+    calibPanelEls.walk.textContent = calibCandidatesPromise ? "Loading house list…" : "Press Shift+→ to start the walk";
+  }
+  calibPanelEls.log.value = calibLogText();
+  calibPanelEls.logCount.textContent = String(calibLog.size);
+  if (!centroid) {
+    calibPanelEls.status.textContent = "No parcel selected yet — reach the Draw step first.";
+    calibPanelEls.stats.hidden = true;
+    return;
+  }
+  calibPanelEls.status.textContent = "";
+  calibPanelEls.stats.hidden = false;
+  const base = interpolateAerialNudge(centroid.lng, centroid.lat, AERIAL_CONTROL_POINTS);
+  const totalE = base.east + calibNudge.east, totalN = base.north + calibNudge.north;
+  calibPanelEls.centroid.textContent = `${centroid.lng.toFixed(6)}, ${centroid.lat.toFixed(6)}`;
+  calibPanelEls.base.textContent = `${base.east.toFixed(2)} ft E, ${base.north.toFixed(2)} ft N`;
+  calibPanelEls.dial.textContent = `${calibNudge.east.toFixed(2)} ft E, ${calibNudge.north.toFixed(2)} ft N`;
+  calibPanelEls.total.textContent = `${totalE.toFixed(2)} ft E, ${totalN.toFixed(2)} ft N`;
+  calibPanelEls.point.value =
+    `{ lng: ${centroid.lng.toFixed(6)}, lat: ${centroid.lat.toFixed(6)}, east: ${totalE.toFixed(2)}, north: ${totalN.toFixed(2)} }`;
+}
+
+function buildCalibrationPanel() {
+  const panel = document.createElement("div");
+  panel.style.cssText = "position:fixed;bottom:12px;right:12px;z-index:99999;background:#1d1a17;" +
+    "color:#f4ede1;font:12px/1.6 'Libre Franklin',sans-serif;padding:10px 12px;border-radius:8px;" +
+    "box-shadow:0 4px 16px rgba(0,0,0,.4);width:290px;max-height:90vh;overflow:auto;";
+  panel.innerHTML =
+    '<div style="font-weight:700;margin-bottom:4px;">Aerial calibration (dev only)</div>' +
+    '<div style="opacity:.8;margin-bottom:6px;">Arrows nudge (Shift = 1 ft). Ctrl+←/→ walks houses.</div>' +
+    '<div data-f="walk" style="margin-bottom:4px;font-weight:700;"></div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+      '<button type="button" data-action="prev" style="flex:1;">← Prev house</button>' +
+      '<button type="button" data-action="refresh" style="flex:1;">Update</button>' +
+      '<button type="button" data-action="next" style="flex:1;">Next house →</button>' +
+    '</div>' +
+    '<div data-f="status" style="opacity:.8;"></div>' +
+    '<div data-f="stats">' +
+      '<div>Parcel centroid: <span data-f="centroid">—</span></div>' +
+      '<div>Interpolated base: <span data-f="base">—</span></div>' +
+      '<div>Manual dial: <span data-f="dial">—</span></div>' +
+      '<div style="font-weight:700;">Total: <span data-f="total">—</span></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:8px 0;text-align:center;">' +
+        '<span></span><button type="button" data-nudge="0,1">N ▲</button><span></span>' +
+        '<button type="button" data-nudge="-1,0">W ◀</button><span></span><button type="button" data-nudge="1,0">E ▶</button>' +
+        '<span></span><button type="button" data-nudge="0,-1">S ▼</button><span></span>' +
+      '</div>' +
+      '<textarea data-f="point" readonly rows="2" style="width:100%;font:11px monospace;resize:none;margin-bottom:6px;box-sizing:border-box;"></textarea>' +
+      '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+        '<button type="button" data-action="copy" style="flex:1;">Copy point</button>' +
+        '<button type="button" data-action="reset" style="flex:1;">Reset</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-weight:700;margin-bottom:4px;">Session log (<span data-f="logCount">0</span>)</div>' +
+    '<textarea data-f="log" readonly rows="6" style="width:100%;font:10px monospace;resize:vertical;margin-bottom:6px;box-sizing:border-box;"></textarea>' +
+    '<button type="button" data-action="copyLog" style="width:100%;">Copy all logged points</button>';
+  document.body.appendChild(panel);
+  const els = {
+    walk: panel.querySelector('[data-f="walk"]'),
+    status: panel.querySelector('[data-f="status"]'),
+    stats: panel.querySelector('[data-f="stats"]'),
+    centroid: panel.querySelector('[data-f="centroid"]'),
+    base: panel.querySelector('[data-f="base"]'),
+    dial: panel.querySelector('[data-f="dial"]'),
+    total: panel.querySelector('[data-f="total"]'),
+    point: panel.querySelector('[data-f="point"]'),
+    log: panel.querySelector('[data-f="log"]'),
+    logCount: panel.querySelector('[data-f="logCount"]')
+  };
+  panel.querySelectorAll("[data-nudge]").forEach(btn => {
+    const [dE, dN] = btn.dataset.nudge.split(",").map(Number);
+    btn.addEventListener("click", (e) => nudgeCalib(dE * (e.shiftKey ? CALIB_STEP_FT_BIG : CALIB_STEP_FT), dN * (e.shiftKey ? CALIB_STEP_FT_BIG : CALIB_STEP_FT)));
+  });
+  panel.querySelector('[data-action="copy"]').addEventListener("click", () => {
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(els.point.value).catch(() => {});
+    els.point.select();
+  });
+  panel.querySelector('[data-action="reset"]').addEventListener("click", () => {
+    calibNudge = { east: 0, north: 0 };
+    reapplyAerialNudge();
+    refreshCalibPanel();
+  });
+  panel.querySelector('[data-action="prev"]').addEventListener("click", () => advanceCalibHouse(-1));
+  panel.querySelector('[data-action="next"]').addEventListener("click", () => advanceCalibHouse(1));
+  panel.querySelector('[data-action="refresh"]').addEventListener("click", () => refreshCalibHouse());
+  panel.querySelector('[data-action="copyLog"]').addEventListener("click", () => {
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(els.log.value).catch(() => {});
+    els.log.select();
+  });
+  calibPanelEls = els;
+  refreshCalibPanel();
+  loadCalibCandidates(); // kick off the fetch/sort in the background so the first Shift+→ is instant
+}
+
+function initAerialCalibration() {
+  if (!CALIBRATE_AERIAL) return;
+  buildCalibrationPanel();
+  // Same "rendered + not typing" guard as the keyboard-undo handler; deliberately no hover
+  // requirement (a human dialing this in may have focus on the panel's own buttons).
+  window.addEventListener("keydown", (e) => {
+    if (isTypingTarget(e.target)) return;
+    if (!plotHost || plotHost.offsetParent === null) return;
+    if ((e.ctrlKey || e.metaKey) && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      e.preventDefault();
+      advanceCalibHouse(e.key === "ArrowRight" ? 1 : -1);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) return; // leave other Ctrl/Cmd+arrow combos alone (browser/OS shortcuts)
+    const step = e.shiftKey ? CALIB_STEP_FT_BIG : CALIB_STEP_FT;
+    if (e.key === "ArrowUp") { e.preventDefault(); nudgeCalib(0, step); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); nudgeCalib(0, -step); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); nudgeCalib(-step, 0); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); nudgeCalib(step, 0); }
+  });
 }
 
 /* --- Toolbars --- */
@@ -1151,6 +1552,9 @@ function setActiveMode(mode) {
   const stampControl = $("#stamp-control");
   if (stampControl) stampControl.hidden = mode !== "stamp";
   if (mode !== "stamp") { stampArmed = null; removeStampGhost(); }
+  const alignControl = $("#align-control");
+  if (alignControl) alignControl.hidden = mode !== "align";
+  if (mode === "align") buildBoundaryHandles(); else destroyBoundaryHandles();
   // Outside Erase/Select, annotations go inert so a paint stroke passes straight through
   // to the grid underneath (the mode/lock logic lives in syncNodeInteractivity).
   syncAllNodeInteractivity();
@@ -1440,11 +1844,93 @@ function refreshEditAnchorPositions() {
 }
 
 // Handles hold a constant on-screen size: counter-scale them against the stage's viewZoom.
-// (The selection ×-button rides along — same overlay, same constant-screen-size treatment.)
+// (The selection ×-button and the Align Corners boundary handles ride along — same overlay,
+// same constant-screen-size treatment.)
 function syncEditAnchorScale() {
   const k = 1 / viewZoom;
   editAnchors.forEach(a => a.scale({ x: k, y: k }));
   if (selectionDeleteBtn) selectionDeleteBtn.scale({ x: k, y: k });
+  boundaryHandles.forEach(h => h.scale({ x: k, y: k }));
+}
+
+/* --- Align Corners: draggable handles on the parcel boundary's own vertices --- */
+// Unlike buildEditAnchors/anchorSpecsFor (which reshape a selected drawLayer annotation via its
+// `kind`), the parcel boundary is a plain Konva.Line on bgLayer — not a drawLayer annotation —
+// so these are a small bespoke set of handles rather than another anchorSpecsFor branch.
+//
+// County rings repeat the first vertex as the last (see geometry.js's buildParcelGrid / the
+// pointInPolygon test fixture comment), so a closed N-vertex parcelPolygonPx has N-1 REAL
+// corners — build one handle per distinct corner, and keep the duplicate closing vertex's
+// offset mirrored to vertex 0's, or the closed ring shows a visible seam after a drag.
+function distinctCornerCount() {
+  const n = parcelPolygonPx ? parcelPolygonPx.length : 0;
+  if (n < 3) return 0;
+  const a = parcelPolygonPx[0], b = parcelPolygonPx[n - 1];
+  return (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) ? n - 1 : n;
+}
+
+function cornerPos(i) {
+  const p = parcelPolygonPx[i], o = boundaryAdjust[i];
+  return o ? { x: p.x + (o.dx || 0), y: p.y + (o.dy || 0) } : { x: p.x, y: p.y };
+}
+
+function setCornerOffset(i, dx, dy) {
+  boundaryAdjust[i] = { dx, dy };
+  const n = parcelPolygonPx.length;
+  if (i === 0 && distinctCornerCount() === n - 1) boundaryAdjust[n - 1] = { dx, dy }; // keep the closing vertex glued to corner 0
+}
+
+// One draggable Konva.Circle per distinct corner, on overlayLayer (so it never leaks into
+// persistence/print — only the boundaryAdjust data it writes does). Red stroke matches the
+// dashed boundary line, keeping these visually distinct from the blue Select-tool reshape
+// anchors (the two can never be on screen together — entering any non-Select tool already
+// clears the current selection). Deliberately no grid-snap: sub-foot precision is the point.
+function buildBoundaryHandles() {
+  destroyBoundaryHandles();
+  const count = distinctCornerCount();
+  if (!overlayLayer || !count) return;
+  for (let i = 0; i < count; i++) {
+    const h = new Konva.Circle({
+      radius: ANCHOR_RADIUS, fill: "#fff", stroke: "#a4111f", strokeWidth: 2, draggable: true,
+      shadowColor: "#000", shadowOpacity: 0.3, shadowBlur: 3, shadowOffset: { x: 0, y: 1 }
+    });
+    h.position(cornerPos(i));
+    h.dragBoundFunc(pos => ({
+      x: Math.max(0, Math.min(pos.x, gridCols * CELL_SIZE * viewZoom)),
+      y: Math.max(0, Math.min(pos.y, gridRows * CELL_SIZE * viewZoom))
+    }));
+    h.on("dragstart", () => recordUndoPoint());
+    h.on("dragmove", () => {
+      const pos = h.position();
+      setCornerOffset(i, pos.x - parcelPolygonPx[i].x, pos.y - parcelPolygonPx[i].y);
+      redrawParcelOutline();
+    });
+    h.on("dragend", () => scheduleAutosave());
+    overlayLayer.add(h);
+    boundaryHandles.push(h);
+  }
+  syncEditAnchorScale();
+  overlayLayer.batchDraw();
+}
+
+function destroyBoundaryHandles() {
+  boundaryHandles.forEach(h => h.destroy());
+  boundaryHandles = [];
+}
+
+function refreshBoundaryHandlePositions() {
+  boundaryHandles.forEach((h, i) => h.position(cornerPos(i)));
+  overlayLayer?.batchDraw();
+}
+
+// "Reset corners" — clears every manual correction back to the pristine county boundary.
+function resetBoundaryCorners() {
+  if (!boundaryAdjust.some(o => o && (o.dx || o.dy))) return; // no-op if nothing was ever nudged
+  recordUndoPoint();
+  boundaryAdjust = [];
+  redrawParcelOutline();
+  refreshBoundaryHandlePositions();
+  scheduleAutosave();
 }
 
 // Re-open a callout's text (double-click with the Select tool). Same window.prompt as
@@ -1465,7 +1951,8 @@ function editCalloutText(node) {
 function snapshotState() {
   return JSON.stringify({
     cells: cellState ? [...cellState] : [],
-    ann: (drawLayer ? drawLayer.toObject().children : []) || []
+    ann: (drawLayer ? drawLayer.toObject().children : []) || [],
+    boundaryAdjust: boundaryAdjust
   });
 }
 
@@ -1492,6 +1979,9 @@ function applyHistorySnapshot(json) {
   hydrateShapesInto(drawLayer, s.ann);
   drawLayer.batchDraw();
   gridLayer.batchDraw();
+  boundaryAdjust = Array.isArray(s.boundaryAdjust) ? s.boundaryAdjust : [];
+  redrawParcelOutline();
+  refreshBoundaryHandlePositions();
   restoringHistory = false;
 }
 
@@ -1680,7 +2170,7 @@ function rehydrateStampImages(node) {
 // with Select — e.g. to stage a symbol aside). No parcel resolved yet = no restriction.
 function insideParcel(pos) {
   if (!parcelPolygonPx || parcelPolygonPx.length < 3) return true;
-  return pointInPolygon(pos.x, pos.y, parcelPolygonPx);
+  return pointInPolygon(pos.x, pos.y, adjustedParcelPolygon());
 }
 
 // Translucent cursor preview so the symbol's true footprint is visible before you commit —
@@ -1982,8 +2472,10 @@ export function setPlotConfirmed(v) {
   // also reach the annotation nodes themselves — Konva node drags never hit the stage-level
   // guards — so drop any live selection/handles and sync per-node interactivity both ways.
   clearSelection();
+  destroyBoundaryHandles(); // Align Corners handles are Konva nodes too — the lock must reach them directly
   removeBrushGhost();
   syncAllNodeInteractivity();
+  if (!v && activeMode === "align") buildBoundaryHandles(); // restore handles if Align Corners was active before lock
   if (plotHost) plotHost.style.cursor = v ? "default" : cursorForMode(activeMode);
   updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list, lock class
   scheduleAutosave();
@@ -2010,6 +2502,7 @@ export function plotUsed() {
 
 export function rebuildGridForParcel(feature, bearing, apn) {
   const ring = feature.geometry.coordinates[0];
+  lastPlotRing = ring;
   const parcelChanged = apn !== lastPlotAPN || bearing !== lastPlotBearing;
   // Re-entering the Draw step with the same parcel/orientation must NOT wipe the drawing —
   // just make the stage match the (now-visible) host and recenter.
@@ -2021,6 +2514,8 @@ export function rebuildGridForParcel(feature, bearing, apn) {
   if (plotUsed() && parcelChanged) {
     if (!confirm("Changing the parcel or orientation will clear your drawn site plan. Continue?")) return;
   }
+  calibNudge = { east: 0, north: 0 }; // a manual dial from one parcel shouldn't carry over to the next
+  boundaryAdjust = []; // nor should an Align Corners correction from a different parcel/bearing
   gridCols = result.cols;
   gridRows = result.rows;
   parcelPolygonPx = result.polygonPx;
@@ -2072,11 +2567,9 @@ export function renderPlotImage() {
     clip.add(new Konva.Image({ image: paintCanvas, x: 0, y: 0 }));
     layer.add(clip);
   }
-  if (parcelPolygonPx && parcelPolygonPx.length) {
-    layer.add(new Konva.Line({
-      points: parcelPolygonPx.flatMap(p => [p.x, p.y]),
-      closed: true, stroke: "#a4111f", strokeWidth: 2, dash: [6, 3]
-    }));
+  {
+    const printOutline = buildParcelOutlineNode();
+    if (printOutline) layer.add(printOutline);
   }
   const shapes = drawLayer ? (JSON.parse(drawLayer.toJSON()).children || []) : [];
   shapes.forEach(obj => {
@@ -2102,8 +2595,10 @@ buildToolbar();
 buildStampPicker();
 buildTexturePicker();
 initPlotStage();
+initAerialCalibration();
 setActiveMode("rect");
 $("#plot-clear").addEventListener("click", clearPlot);
+$("#align-reset")?.addEventListener("click", resetBoundaryCorners);
 $("#custom-mat-add")?.addEventListener("click", addCustomMaterial);
 $("#custom-mat-cancel")?.addEventListener("click", () => { const pop = $("#palette-pop"); if (pop) pop.hidden = true; });
 // The popover sits inside the big <form>: Enter in the name field must add the material,
@@ -2151,7 +2646,8 @@ export function serializePlot() {
     cells: cellState ? [...cellState] : [],
     annotations: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || [],
     confirmed: plotConfirmedFlag,
-    customMaterials: customMaterials.map(m => ({ ...m }))
+    customMaterials: customMaterials.map(m => ({ ...m })),
+    boundaryAdjust: boundaryAdjust.map(o => o ? { ...o } : o) // sparse; holes serialize as null through JSON
   };
 }
 
@@ -2166,6 +2662,9 @@ export function restorePlot(plot) {
     hydrateShapesInto(drawLayer, plot.annotations);
     drawLayer.batchDraw();
   }
+  boundaryAdjust = Array.isArray(plot.boundaryAdjust) ? plot.boundaryAdjust : []; // additive — older drafts have none
+  redrawParcelOutline();            // repaint the boundary with the restored correction
+  refreshBoundaryHandlePositions(); // no-op unless Align Corners is the active tool
   undoStack = []; redoStack = [];
   updateUndoRedoButtons();
   setPlotConfirmed(!!plot.confirmed); // restoreDraft's rebuildGridForParcel just cleared it

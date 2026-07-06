@@ -13,9 +13,10 @@ import {
   CELL_SIZE, FOOT_IN_METERS, GRID_MIN_PAD, MAX_GRID_DIM, FILL_SUBSAMPLE,
   geoToLocalMeters, rotatePoints, computeBBox, fitSimilarity,
   buildParcelGrid, computeAutoAlignBearing, computeSnapAngles, snapBearing,
+  computeEdgeSquareFlags,
   closestPointOnSegment,
   segmentsIntersect, connectorBlocked, pointOnSegment, pointOnAnyWall,
-  pointInPolygon, computeFloodFill
+  pointInPolygon, computeFloodFill, interpolateAerialNudge, applyPolygonOffsets
 } from "../assets/geometry.js";
 
 const approx = (actual, expected, eps = 1e-6, msg) =>
@@ -213,6 +214,47 @@ test("snapBearing returns null beyond tolerance or with no candidates", () => {
   assert.equal(snapBearing(10, null, 4), null);
 });
 
+/* ---------- computeEdgeSquareFlags ---------- */
+
+test("computeEdgeSquareFlags: axis-aligned rectangle is square at 0/90 and not at 45", () => {
+  const ring = rectRing(-117, 33.93, 10, 40);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 0, 4), [true, true, true, true]);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 90, 4), [true, true, true, true]);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 45, 4), [false, false, false, false]);
+});
+
+test("computeEdgeSquareFlags: within tolerance of a candidate still reads square", () => {
+  const ring = rectRing(-117, 33.93, 10, 40);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 3.5, 4), [true, true, true, true]);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 4.5, 4), [false, false, false, false]);
+});
+
+test("computeEdgeSquareFlags: rotated rectangle squares at its own 60° candidate", () => {
+  const c = Math.cos(Math.PI / 6), s = Math.sin(Math.PI / 6);
+  const corners = [[-5, -20], [5, -20], [5, 20], [-5, 20]]
+    .map(([x, y]) => [x * c - y * s, x * s + y * c]);
+  const ring = ringFromMeters(-117, 33.93, corners);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 60, 4), [true, true, true, true]);
+  assert.deepEqual(computeEdgeSquareFlags(ring, 0, 4), [false, false, false, false]);
+});
+
+test("computeEdgeSquareFlags: a short clipped-corner edge never reads square, even at its own angle", () => {
+  const clipped = ringFromMeters(-117, 33.93,
+    [[-20, -7.5], [20, -7.5], [20, 5.5], [18, 7.5], [-20, 7.5]]);
+  // e2 (the ~2.8m 45°-clipped corner) is index 2; at bearing 45 it would otherwise square.
+  const dflt = computeEdgeSquareFlags(clipped, 45, 4);
+  assert.equal(dflt[2], false);
+  assert.ok(dflt.every(v => v === false)); // none of the long edges are near 45 either
+  // minFrac 0 keeps every edge in play, so the same short edge now reads square at 45°.
+  const all = computeEdgeSquareFlags(clipped, 45, 4, 0);
+  assert.equal(all[2], true);
+});
+
+test("computeEdgeSquareFlags: degenerate ring returns no flags", () => {
+  assert.deepEqual(computeEdgeSquareFlags(null, 0, 4), []);
+  assert.deepEqual(computeEdgeSquareFlags([[-117, 33.93]], 0, 4), []);
+});
+
 /* ---------- closestPointOnSegment ---------- */
 
 test("closestPointOnSegment finds the foot of the perpendicular (to the origin)", () => {
@@ -293,6 +335,37 @@ test("pointInPolygon: concave ring (L-shape) and degenerate input", () => {
   assert.equal(pointInPolygon(8, 8, L), false);   // the notch
   assert.equal(pointInPolygon(5, 5, []), false);                // no ring
   assert.equal(pointInPolygon(5, 5, [{ x: 0, y: 0 }, { x: 10, y: 0 }]), false); // not a polygon
+});
+
+/* ---------- applyPolygonOffsets ---------- */
+
+test("applyPolygonOffsets: no offsets returns an equal-valued copy, not the same references", () => {
+  const poly = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const result = applyPolygonOffsets(poly, []);
+  assert.notEqual(result, poly);
+  assert.notEqual(result[0], poly[0]);
+  assert.deepEqual(result, poly);
+});
+
+test("applyPolygonOffsets: applies a dx/dy to only the indices given, others pass through unchanged", () => {
+  const poly = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const result = applyPolygonOffsets(poly, [undefined, { dx: 2, dy: -1 }]);
+  assert.deepEqual(result[0], { x: 0, y: 0 });
+  assert.deepEqual(result[1], { x: 12, y: -1 });
+  assert.deepEqual(result[2], { x: 10, y: 10 });
+  assert.deepEqual(result[3], { x: 0, y: 10 });
+});
+
+test("applyPolygonOffsets: sparse/undefined offsets entries default to zero", () => {
+  const poly = [{ x: 1, y: 1 }, { x: 2, y: 2 }];
+  const result = applyPolygonOffsets(poly, [null, { dx: 5 }]); // dy omitted -> 0
+  assert.deepEqual(result[0], { x: 1, y: 1 });
+  assert.deepEqual(result[1], { x: 7, y: 2 });
+});
+
+test("applyPolygonOffsets: empty polygon returns []", () => {
+  assert.deepEqual(applyPolygonOffsets([], [{ dx: 1, dy: 1 }]), []);
+  assert.deepEqual(applyPolygonOffsets(null, []), []);
 });
 
 /* ---------- computeFloodFill ---------- */
@@ -384,4 +457,50 @@ test("flood fill: the seed picks the clicked side of a wall through the tile", (
 
 test("flood fill: subsample resolution matches the documented constant", () => {
   assert.equal(FILL_SUBSAMPLE, 4); // >50% rule comments assume 16 subcells/tile
+});
+
+/* ---------- interpolateAerialNudge ---------- */
+
+test("interpolateAerialNudge: no points -> no correction", () => {
+  const r = interpolateAerialNudge(-117, 33, []);
+  assert.equal(r.east, 0); assert.equal(r.north, 0);
+});
+
+test("interpolateAerialNudge: one point -> that value everywhere (flat-constant behavior)", () => {
+  const pts = [{ lng: -117.05, lat: 33.95, east: -1.0, north: -3.6 }];
+  approx(interpolateAerialNudge(-117.05, 33.95, pts).east, -1.0);
+  approx(interpolateAerialNudge(-116.9, 33.8, pts).north, -3.6); // far away — still the same
+});
+
+test("interpolateAerialNudge: exact match at a control point returns its exact value", () => {
+  const pts = [
+    { lng: -117.05, lat: 33.95, east: -1.0, north: -3.6 },
+    { lng: -117.02, lat: 33.90, east: 2.0, north: 0.5 }
+  ];
+  approx(interpolateAerialNudge(-117.05, 33.95, pts).east, -1.0);
+  approx(interpolateAerialNudge(-117.05, 33.95, pts).north, -3.6);
+  approx(interpolateAerialNudge(-117.02, 33.90, pts).east, 2.0);
+});
+
+test("interpolateAerialNudge: equidistant points average evenly", () => {
+  const lat0 = 33.95, cosLat = Math.cos(lat0 * Math.PI / 180);
+  const dLng = 100 / (cosLat * 111320); // ~100m east/west of the query point
+  const pts = [
+    { lng: -117 - dLng, lat: lat0, east: 0, north: 0 },
+    { lng: -117 + dLng, lat: lat0, east: 10, north: 20 }
+  ];
+  const r = interpolateAerialNudge(-117, lat0, pts);
+  approx(r.east, 5, 1e-6);
+  approx(r.north, 10, 1e-6);
+});
+
+test("interpolateAerialNudge: closer point dominates the blend", () => {
+  const lat0 = 33.95, cosLat = Math.cos(lat0 * Math.PI / 180);
+  const nearDLng = 10 / (cosLat * 111320), farDLng = 1000 / (cosLat * 111320);
+  const pts = [
+    { lng: -117 + nearDLng, lat: lat0, east: 1, north: 0 },
+    { lng: -117 - farDLng, lat: lat0, east: -1, north: 0 }
+  ];
+  const r = interpolateAerialNudge(-117, lat0, pts);
+  assert.ok(r.east > 0.9, `expected the near point (10x closer) to dominate, got ${r.east}`);
 });

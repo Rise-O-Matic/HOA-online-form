@@ -8,7 +8,7 @@
    ========================================================= */
 import {
   closestPointOnSegment, geoToLocalMeters, rotatePoints, computeBBox,
-  computeSnapAngles, snapBearing,
+  computeSnapAngles, snapBearing, computeEdgeSquareFlags,
   FOOT_IN_METERS, GRID_MARGIN, GRID_MIN_PAD, MAX_GRID_DIM
 } from "./geometry.js";
 import { $, $$, esc } from "./utils.js";
@@ -319,6 +319,31 @@ function initMap() {
       minzoom: 17
     });
 
+    // Orient-step outline: the same dashed-red trace as the Draw step's Konva parcel
+    // outline, but per-edge — an edge switches from dashed red to a thick white solid
+    // the moment it reads square to the screen grid at the current bearing (see
+    // updateOrientOutline below).
+    // MapLibre's line-dasharray isn't data-driven, so this needs two filtered layers over
+    // per-edge LineString features rather than one styled layer like parcel-highlight-line
+    // (which stays hidden in step 3 — see setParcelLayersVisible).
+    mapInstance.addSource("orient-outline", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    mapInstance.addLayer({
+      id: "orient-outline-dashed",
+      type: "line",
+      source: "orient-outline",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#a4111f", "line-width": 2, "line-dasharray": [2, 1] },
+      filter: ["!=", "square", true]
+    });
+    mapInstance.addLayer({
+      id: "orient-outline-solid",
+      type: "line",
+      source: "orient-outline",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#fff", "line-width": 4 },
+      filter: ["==", "square", true]
+    });
+
     // Click on a parcel to select it
     mapInstance.on("click", "parcel-fills", (e) => {
       if (!e.features || !e.features.length) return;
@@ -357,6 +382,7 @@ function initMap() {
           return;
         }
         selectedParcelGeoJSON = feature;
+        updateOrientOutline();
         hideGisFallback(); // a retry after a failed attempt succeeded — clear the outage notice
         // Auto-align disabled — orientation is now a manual drag-to-rotate. The nearest-street
         // lookup that fed the front-yard-down flip is commented out (kept for easy revival).
@@ -394,6 +420,10 @@ function initMap() {
       mapInstance.getSource("parcels").setData(pendingParcels);
       pendingParcels = null;
     }
+
+    // Covers the race where a parcel was already selected (e.g. restoreParcelFromDraft ran)
+    // before this "load" handler — and its addSource/addLayer calls above — had fired.
+    updateOrientOutline();
 
     applyDefaultViewIfFirstVisit(currentStep);
   });
@@ -650,6 +680,38 @@ function setParcelLayersVisible(visible) {
   });
 }
 
+// The Orient step's dashed/solid outline (see the orient-outline-* layers added on map
+// "load"). Shown only in step 3 — parcel-fills/-lines are hidden there so this is the
+// only boundary trace on screen.
+const ORIENT_OUTLINE_LAYER_IDS = ["orient-outline-dashed", "orient-outline-solid"];
+function setOrientOutlineVisible(visible) {
+  if (!mapInstance) return;
+  ORIENT_OUTLINE_LAYER_IDS.forEach(id => {
+    if (mapInstance.getLayer(id)) mapInstance.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+  });
+}
+
+// Rebuilds the outline's per-edge features from the selected parcel and the current
+// parcelBearing — called on every rotation change (via syncRotationReadout, the single
+// funnel setRotation always runs through) and whenever the selected parcel changes, so the
+// source is always current by the time step 3 reveals it.
+function updateOrientOutline() {
+  const src = mapInstance && mapInstance.getSource("orient-outline");
+  if (!src) return;
+  const ring = selectedParcelGeoJSON && selectedParcelGeoJSON.geometry && selectedParcelGeoJSON.geometry.coordinates[0];
+  if (!ring) { src.setData({ type: "FeatureCollection", features: [] }); return; }
+  const square = computeEdgeSquareFlags(ring, parcelBearing, SNAP_TOLERANCE_DEG);
+  const features = [];
+  for (let i = 0; i < ring.length - 1; i++) {
+    features.push({
+      type: "Feature",
+      properties: { square: !!square[i] },
+      geometry: { type: "LineString", coordinates: [ring[i], ring[i + 1]] }
+    });
+  }
+  src.setData({ type: "FeatureCollection", features });
+}
+
 /* --- Draw-step aerial backdrop --- */
 // Fetched straight from the county ImageServer with a ground bbox computed from the same
 // math that sizes the plot grid (buildParcelGrid's square: longest bearing-rotated parcel
@@ -748,7 +810,10 @@ async function fetchAerialBackdrop() {
   }
 }
 
-function showStep(n) {
+// Exported so demo-mode.js can jump straight to the Draw step after synthesizing a
+// parcel selection (restoreParcelFromDraft) — the same tail rebuildGridForParcel() call
+// this function already makes for a real wizard walk-through.
+export function showStep(n) {
   // Entering Draw: (re)fetch the aerial backdrop for the grid area. This is a direct
   // county exportImage request sized to the plot grid itself — NOT a screenshot of the
   // Orient viewport, whose ground coverage depends on the step-3 camera and (since the
@@ -830,6 +895,7 @@ function showStep(n) {
     mapInstance.doubleClickZoom.enable();
     mapInstance.boxZoom.enable();
     setParcelLayersVisible(true);
+    setOrientOutlineVisible(false);
     // Undo the Orient-step overrides: give touch back to MapLibre's own pan/pinch handlers
     // and drop the keyboard-rotation focus stop (selection is pointer-driven here).
     mapInstance.getCanvas().style.touchAction = "";
@@ -856,6 +922,8 @@ function showStep(n) {
     mapInstance.doubleClickZoom.disable();
     mapInstance.boxZoom.disable();
     setParcelLayersVisible(false);
+    setOrientOutlineVisible(true);
+    updateOrientOutline(); // catches selection/bearing changes made since the last time step 3 was shown
     // Touch drag-to-rotate: with MapLibre's handlers off, its stylesheet may still leave
     // touch-action allowing native pan/zoom on the canvas, which would swallow the drag
     // (pointercancel) before our rotate handler sees it. Force it off for this step.
@@ -1032,6 +1100,10 @@ function syncRotationReadout(deg) {
   // Green readout while a property line sits square to the grid — confirmation that a
   // snap (or a careful hand-alignment) actually landed. 0.05° ≈ exact at readout precision.
   rotateFineWrap?.classList.toggle("is-aligned", snapBearing(norm, parcelSnapAngles(), 0.05) != null);
+  // Keep the Orient outline's per-edge dashed/solid state tracking the live bearing —
+  // syncRotationReadout is the one function every setRotation path (drag, nudge, snap,
+  // keyboard, restore) always calls.
+  updateOrientOutline();
   if (!mapRotate) return; // legacy slider panel is commented out — nothing else to sync
   const d = Math.round(norm);
   mapRotate.value = d;
@@ -1084,7 +1156,7 @@ $("#rotate-fine-plus")?.addEventListener("click", () => nudgeRotation(0.1));
 // of running square to the screen grid. Candidates come from the parcel's own boundary
 // edges (geometry.js computeSnapAngles), cached per ring. The ±0.1° nudges and arrow keys
 // deliberately don't snap — snapping a 1° step would trap fine adjustments in the zone.
-const SNAP_TOLERANCE_DEG = 4; // at 0.5°/px drag, a ~16px sticky zone around each aligned angle
+const SNAP_TOLERANCE_DEG = 0.75; // at 0.5°/px drag, a ~3px sticky zone around each aligned angle
 const rotateSnapToggle = $("#rotate-snap");
 let snapAnglesRing = null, snapAnglesCache = [];
 function parcelSnapAngles() {

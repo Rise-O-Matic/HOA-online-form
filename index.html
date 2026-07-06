@@ -55,7 +55,17 @@
 
 <!-- mockup notice -->
 <div class="mockup-banner" role="note">
-  <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Finish in <em>Save &amp; Print Packet</em>: save your application packet as a PDF — its first page explains how to submit it. Your work is saved locally in this browser.
+  <p class="mockup-banner__text">
+    <strong>Demo / mockup</strong> — this is a front-end preview hosted on GitHub Pages. Finish in <em>Save &amp; Print Packet</em>: save your application packet as a PDF — its first page explains how to submit it. Your work is saved locally in this browser.
+  </p>
+  <div class="mockup-banner__demo">
+    <label class="demo-toggle" for="demo-mode-toggle">
+      <input type="checkbox" id="demo-mode-toggle" aria-describedby="demo-mode-status" />
+      <span class="demo-toggle__track" aria-hidden="true"><span class="demo-toggle__thumb"></span></span>
+      <span class="demo-toggle__label">Demo mode — fill sample data</span>
+    </label>
+    <span class="demo-toggle__status" id="demo-mode-status" role="status" aria-live="polite"></span>
+  </div>
 </div>
 
 <!-- ===================== LANDING / BEFORE YOU BEGIN ===================== -->
@@ -148,7 +158,7 @@
     </p>
     <div class="sidenav__danger" role="group" aria-label="Danger zone">
       <p class="sidenav__danger-label">Danger zone</p>
-      <button type="button" class="btn btn--danger btn--sm" id="clear-draft">Clear all fields</button>
+      <button type="button" class="btn btn--danger btn--sm" id="clear-draft">Clear all data</button>
       <p class="sidenav__danger-note">Erases the form and deletes your saved draft. This can&rsquo;t be undone.</p>
     </div>
   </aside>
@@ -465,6 +475,9 @@
                     <span class="plot-status__brush-val" id="brush-size-val">1 ft</span>
                   </label>
                   <div class="plot-status__stamps" id="stamp-control" role="toolbar" aria-label="Stamp symbols" hidden></div>
+                  <div class="plot-status__align" id="align-control" hidden>
+                    <button type="button" class="btn btn--ghost btn--sm" id="align-reset">Reset corners</button>
+                  </div>
                   <ul class="plot-status__keys" aria-label="Mouse and keyboard controls">
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-left" /></svg><span>Tool</span></li>
                     <li><svg width="14" height="19" aria-hidden="true"><use href="#hk-mouse-right" /></svg><span>Erase</span></li>
@@ -654,5 +667,8 @@
 <script src="assets/vendor/maplibre-gl-5.23.0.js"></script>
 <script src="assets/vendor/konva-10.3.0.min.js"></script>
 <script type="module" src="assets/app.js"></script>
+<!-- Demo-mode toggle (see the "Demo / mockup" banner) — a thin add-on, not part of the
+     real application flow; loaded last since it only reacts to its own toggle switch. -->
+<script type="module" src="assets/demo-mode.js"></script>
 </body>
 </html>

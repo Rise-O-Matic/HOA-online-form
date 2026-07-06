@@ -698,6 +698,29 @@ function photoGroup(area, title, shots) {
   return group;
 }
 
+// The multi-file work-area close-up input must ACCUMULATE across separate picks: the
+// native file picker replaces an <input>'s whole FileList on each use, so browsing to
+// add a second photo would otherwise silently drop the first (the "only 1 photo at a
+// time" bug). We remember the committed set per input and merge freshly-picked files
+// into it. dropzone.js already appends on drop (it sets input.files to old+dropped
+// before firing change), so this merge is idempotent for that path — the dropped files
+// are already present. Kept in sync by the remove / remove-one paths below.
+const photoCommitted = new WeakMap();
+function photoFileKey(f) { return `${f.name}|${f.size}|${f.lastModified}`; }
+function mergePickedFiles(input) {
+  const prev = photoCommitted.get(input) || [];
+  const dt = new DataTransfer();
+  const seen = new Set();
+  [...prev, ...Array.from(input.files || [])].forEach(f => {
+    const k = photoFileKey(f);
+    if (!seen.has(k)) { seen.add(k); dt.items.add(f); }
+  });
+  input.files = dt.files;
+}
+function rememberCommitted(input) {
+  if (input && input.multiple) photoCommitted.set(input, Array.from(input.files || []));
+}
+
 function buildPhotoRequests() {
   photoRequestsEl.innerHTML = "";
   Object.entries(PHOTO_SPECS).forEach(([area, spec]) => {
@@ -707,6 +730,10 @@ function buildPhotoRequests() {
   photoRequestsEl.appendChild(photoGroup("material", "Color / material sample", [PHOTO_MATERIAL]));
   $$("[data-photo-input]", photoRequestsEl).forEach(input => {
     input.addEventListener("change", () => {
+      // Accumulate picks on the multi-file shot (skip during restore — the rehydrated
+      // FileList is already the full stored set, and there's no prior "committed" set).
+      if (input.multiple && !rehydratingAttachments) mergePickedFiles(input);
+      rememberCommitted(input);
       updatePhotoStatus(input.dataset.photoInput);
       persistAttachment("photo:" + input.dataset.photoInput, input);
     });
@@ -729,6 +756,7 @@ function buildPhotoRequests() {
       const id = remove.dataset.photoRemove;
       const inp = $(`[data-photo-input="${id}"]`, photoRequestsEl);
       if (inp) inp.value = "";
+      rememberCommitted(inp); // now empty — a later pick starts fresh
       updatePhotoStatus(id);
       // Programmatic clear fires no change event — mirror the removal into IDB by hand.
       if (inp) persistAttachment("photo:" + id, inp);
@@ -748,6 +776,7 @@ function buildPhotoRequests() {
         Array.from(inp.files).forEach((f, i) => { if (i !== idx) dt.items.add(f); });
         inp.files = dt.files;
       }
+      rememberCommitted(inp); // drop the removed file from the committed set too
       updatePhotoStatus(id);
       // Rebuilding the FileList fires no change event — mirror the shorter list into IDB.
       if (inp) persistAttachment("photo:" + id, inp);
@@ -1400,7 +1429,7 @@ function restoreDraft() {
 
 $("#save-draft").addEventListener("click", () => saveDraft(false));
 $("#clear-draft").addEventListener("click", async () => {
-  if (!confirm("Clear all fields and delete the saved draft?")) return;
+  if (!confirm("Clear all data and delete the saved draft?")) return;
   await wipeCurrentAttachments(); // clear stored file bytes before the reload cancels the async delete
   deleteDraft();
   location.reload();
@@ -1646,86 +1675,18 @@ function buildWarningCoverHTML() {
     </section>`;
 }
 
-/* Page 1 of the printed packet (the cover): concise submission instructions so the
-   applicant never needs to return to the web form. Sprint 21 reshaped it into a
-   two-column cover — steps + what-to-email + fees on the left, the 2026 review dates
-   down a right rail — with the adjacent-owner signature block folded onto the bottom
-   (the standalone last-page neighbor form was retired). The incompleteness warning that
-   used to sit inline here now prints as its own front page (buildWarningCoverHTML). */
+/* Page 1 of the printed packet (the cover). It leads with the application summary
+   (applicant table + acknowledgments + owner signature — moved here from its own page
+   2026-07-05 at the user's request), then one merged set of submission steps, the 2026
+   review dates in a right rail, a full-width "Questions?" contact row, and the
+   adjacent-owner signature block folded onto the bottom. The incompleteness warning that
+   used to sit inline here prints as its own front page (buildWarningCoverHTML). */
 function buildInstructionsHTML(d) {
-  const photoCount = Object.values(d.photos || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
-  const impPics = improvementChecklist().filter(it => it.file);
   const uploadPlot = d.planMode === "upload";
-  const include = [
-    "<strong>This packet (PDF)</strong>" + (uploadPlot ? "" : " — plot plan &amp; signature are inside"),
-    ...(uploadPlot
-      ? ["<strong>Your plot-plan file</strong>" + (d.plotUpload && d.plotUpload.length ? " — " + d.plotUpload.map(esc).join(", ") : " <em>(not attached yet)</em>")]
-      : []),
-    "<strong>Your property photos</strong>" + (photoCount
-      ? ` — the ${photoCount} original file${photoCount === 1 ? "" : "s"} you attached`
-      : " <em>(none attached yet)</em>"),
-    ...(impPics.length
-      ? [`<strong>Example / catalog pictures</strong> — ${impPics.map(it => esc(it.file)).join(", ")}`]
-      : []),
-    "<strong>The signed cover</strong> — scan or photograph it once adjacent owners have signed below"
-  ].map(li => `<li>${li}</li>`).join("");
+  const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
 
   return `
     <section class="print-page print-cover-page">
-      <div class="print-header">
-        <div>
-          <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
-          <div class="print-title">How to Submit This Application</div>
-        </div>
-        <div class="print-contact">
-          CarolMarie Taylor — Sr. Architectural Specialist<br>
-          951-801-4246 · carolmarie.taylor@fsresidential.com
-        </div>
-      </div>
-
-      <div class="print-cover">
-        <div class="print-cover__main">
-          <h4>How to submit</h4>
-          <ol class="print-steps">
-            <li><strong>Save or print this packet.</strong> It is your application and your record — the plot plan and signature are already inside.</li>
-            <li><strong>Collect adjacent-owner signatures</strong> on the block below, in person. A signature confirms your neighbor was notified — not approval. Then scan or photograph the signed cover.</li>
-            <li><strong>Email the complete packet</strong> to CarolMarie Taylor. Applications are accepted <strong>by email only</strong>:<br>
-              <span class="print-email">carolmarie.taylor@fsresidential.com</span></li>
-          </ol>
-
-          <h4>What to email</h4>
-          <ul class="print-include">${include}</ul>
-
-          <h4>Deadlines &amp; fees</h4>
-          <p class="print-info">The complete packet must arrive by the deadline (right) to make that month&rsquo;s board meeting; an incomplete application is returned unreviewed, and the 45-day review clock starts only once everything is received.</p>
-          <p class="print-info"><strong>No payment is due now</strong> — the fee is collected only after your application is reviewed and confirmed complete, and a receipt is emailed to you.</p>
-        </div>
-
-        <aside class="print-rail">
-          <div class="print-rail__title">2026 Review Dates</div>
-          ${printDatesHTML()}
-          <p class="print-rail__note">Submit by the <strong>deadline</strong> to make that month&rsquo;s board meeting — no exceptions. A late packet is held for the next meeting. Dates subject to change.</p>
-          <div class="print-rail__contact">
-            <strong>Questions?</strong><br>
-            CarolMarie Taylor<br>
-            951-801-4246<br>
-            Tue&ndash;Sat · 9:00&nbsp;AM&ndash;4:30&nbsp;PM<br>
-            <span>(in-person by appointment)</span>
-          </div>
-        </aside>
-      </div>
-
-      ${buildNeighborStripHTML(d)}
-    </section>`;
-}
-
-/* ----- application page (compact): applicant + acknowledgments + signature -----
-   The heavy sections (improvements, site/plot, photos) each get their own dedicated
-   page(s) below with real scaled images (Sprint 19), so this page stays to one sheet. */
-function buildApplicationPageHTML(d) {
-  const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
-  return `
-    <section class="print-page">
       <div class="print-header">
         <div>
           <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
@@ -1752,7 +1713,7 @@ function buildApplicationPageHTML(d) {
         </tr>
       </table>
 
-      <p class="print-info">The pages that follow are part of this application: your proposed improvements, your site / plot plan, and your property photos. The adjacent-owner signature form is the last page.</p>
+      <p class="print-info">The pages that follow are part of this application: your proposed improvements, your site / plot plan, and your property photos. The adjacent-owner signature form is at the bottom of this cover.</p>
 
       <h4>Owner Acknowledgments</h4>
       <p class="print-ack-summary">${acksChecked
@@ -1778,7 +1739,37 @@ function buildApplicationPageHTML(d) {
         </div>
       </div>
 
-      <p class="print-footer-note">This application was generated from the Fairway Canyon HOA online form. The 45-day review period begins once the complete application packet is received.</p>
+      <div class="print-cover">
+        <div class="print-cover__main">
+          <h4>How to submit</h4>
+          <ol class="print-steps">
+            <li><strong>Save or print this packet.</strong> Everything you entered — your proposed improvements, plot plan, property photos, and signature — is already inside it.</li>
+            <li><strong>Collect adjacent-owner signatures</strong> on the block below, in person, then scan or photograph the signed cover. A signature confirms your neighbor was notified — not approval.</li>
+            <li><strong>Email the packet and the signed cover</strong>${uploadPlot ? ", plus your plot-plan file," : ""} to CarolMarie Taylor. Applications are accepted <strong>by email only</strong>:<br>
+              <span class="print-email">carolmarie.taylor@fsresidential.com</span></li>
+          </ol>
+
+          <h4>Deadlines &amp; fees</h4>
+          <p class="print-info">The complete packet must arrive by the deadline (right) to make that month&rsquo;s board meeting; an incomplete application is returned unreviewed, and the 45-day review clock starts only once everything is received.</p>
+          <p class="print-info"><strong>No payment is due now</strong> — the fee is collected only after your application is reviewed and confirmed complete, and a receipt is emailed to you.</p>
+        </div>
+
+        <aside class="print-rail">
+          <div class="print-rail__title">2026 Review Dates</div>
+          ${printDatesHTML()}
+          <p class="print-rail__note">Submit by the <strong>deadline</strong> to make that month&rsquo;s board meeting — no exceptions. A late packet is held for the next meeting. Dates subject to change.</p>
+        </aside>
+      </div>
+
+      <div class="print-cover__questions">
+        <strong>Questions?</strong>
+        <span class="print-cover__q-name">CarolMarie Taylor</span>
+        <span class="print-cover__q-sep">951-801-4246</span>
+        <span class="print-cover__q-sep">Tue&ndash;Sat · 9:00&nbsp;AM&ndash;4:30&nbsp;PM</span>
+        <span class="print-cover__q-muted">(in-person by appointment)</span>
+      </div>
+
+      ${buildNeighborStripHTML(d)}
     </section>`;
 }
 
@@ -1861,17 +1852,18 @@ function buildPhotosPageHTML(d, imgs) {
 }
 
 /* The printed packet: an incompleteness warning page FIRST (Sprint 21 — printed only when
-   something's missing, else absent), then the cover/instructions (with the adjacent-owner
-   signatures folded onto its bottom), the compact application, and a dedicated page per
-   heavy section (improvements, site/plot, photos — each with real scaled images). `imgs`
-   is the pre-compressed image set gathered asynchronously by printPreview (preparePrintImages). */
+   something's missing, else absent), then the cover (which now leads with the applicant +
+   acknowledgments + owner-signature summary, folds in the submission steps, and pins the
+   adjacent-owner signatures to its bottom — the standalone application page was merged into
+   it 2026-07-05), then a dedicated page per heavy section (improvements, site/plot, photos —
+   each with real scaled images). `imgs` is the pre-compressed image set gathered
+   asynchronously by printPreview (preparePrintImages). */
 function buildPrintHTML(d, imgs) {
   imgs = imgs || [];
   return `
     <div class="print-doc">
       ${buildWarningCoverHTML()}
       ${buildInstructionsHTML(d)}
-      ${buildApplicationPageHTML(d)}
       ${buildImprovementsPageHTML(d, imgs)}
       ${buildPlotPageHTML(d, imgs)}
       ${buildPhotosPageHTML(d, imgs)}
@@ -2103,16 +2095,17 @@ async function printPreview() {
       .print-steps { margin: 5px 0 9px; padding-left: 18px; font-size: 12.5px; }
       .print-steps li { margin-bottom: 7px; }
       .print-email { display: inline-block; margin-top: 3px; font-size: 14px; font-weight: 700; }
-      .print-include { margin: 5px 0 9px; padding-left: 17px; font-size: 12px; }
-      .print-include li { margin-bottom: 4px; }
       .print-info { font-size: 12px; margin: 4px 0 7px; }
-      /* right rail: the 2026 review dates in ONE narrow table + a contact card */
+      /* full-width "Questions?" contact row at the bottom of the instructions (2026-07-05) */
+      .print-cover__questions { margin-top: 9px; border-top: 1px solid #e2ddd6; padding-top: 6px; font-size: 10px; line-height: 1.5; color: #3a352f; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+      .print-cover__questions strong { color: #7d0d18; }
+      .print-cover__q-name { font-weight: 600; }
+      .print-cover__q-muted { color: #8a8580; }
+      /* right rail: the 2026 review dates in ONE narrow table */
       .print-rail { border: 1px solid #e2ddd6; border-radius: 5px; padding: 9px 11px 10px; background: #faf8f4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-rail__title { font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: #7d0d18; border-bottom: 2px solid #a4111f; padding-bottom: 4px; margin-bottom: 6px; }
       .print-rail__note { font-size: 8.5px; line-height: 1.45; color: #6b645c; margin: 8px 0 0; }
       .print-rail__foot { font-size: 8px; color: #8a8580; margin: 2px 0 0; }
-      .print-rail__contact { font-size: 9px; line-height: 1.5; color: #3a352f; margin-top: 9px; padding-top: 8px; border-top: 1px solid #e2ddd6; }
-      .print-rail__contact span { color: #8a8580; }
       .print-dates-tbl { width: 100%; border-collapse: collapse; font-size: 9px; }
       .print-dates-tbl th { text-align: left; font-size: 7.5px; text-transform: uppercase; letter-spacing: .04em; color: #a4111f; background: #fff; padding: 2px 5px; border: 1px solid #e2ddd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-dates-tbl td { padding: 1.5px 5px; border: 1px solid #e2ddd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -2167,17 +2160,17 @@ async function printPreview() {
       .print-photo-img { display: block; width: 100%; max-height: 8.2in; object-fit: contain; border: 1px solid #ccc; background: #f7f5f2; }
       .print-photo-cap { font-size: 10px; color: #555; margin-top: 3px; }
       /* --- adjacent-owner signature strip, folded onto the cover bottom (Sprint 21) --- */
-      .print-neighbors { margin-top: 18px; padding-top: 11px; border-top: 2px solid #a4111f; break-inside: avoid; }
+      .print-neighbors { margin-top: 14px; padding-top: 8px; border-top: 2px solid #a4111f; break-inside: avoid; }
       .print-neighbors__head { display: flex; justify-content: space-between; align-items: baseline; }
       .print-neighbors__hint { font-size: 9px; color: #8a8580; font-style: italic; }
-      .print-neighbors__change { font-size: 10.5px; margin: 5px 0 3px; color: #1d1a17; }
+      .print-neighbors__change { font-size: 10.5px; margin: 4px 0 2px; color: #1d1a17; }
       .print-neighbors__lbl { display: inline-block; font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #a4111f; margin-right: 6px; }
       .nf-section { font-family: Georgia, serif; font-size: 13px; color: #7d0d18; font-weight: 700; }
-      .nf-note { font-size: 9.5px; line-height: 1.4; color: #6b645c; margin: 4px 0 6px; }
+      .nf-note { font-size: 9.5px; line-height: 1.35; color: #6b645c; margin: 3px 0 4px; }
       .nf-note strong { color: #3a352f; }
       .nf-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
-      .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 4px 6px; border: 1px solid #ccc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 39px; vertical-align: bottom; }
+      .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 3px 6px; border: 1px solid #ccc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 30px; vertical-align: bottom; }
       .nf-num { width: 22px; text-align: center; color: #999; }
       .nf-sig { width: 30%; }
       .nf-date { width: 82px; }
@@ -2272,13 +2265,8 @@ $("#finish-pdf-btn")?.addEventListener("click", () => {
 /* ----- ADJACENT-OWNER SIGNATURE STRIP (folded onto the cover, Sprint 21) -----
    Wet signatures, collected in person after printing — the standalone last-page form
    was retired and this compact block now pins to the bottom of the cover. Blank rows;
-   neighbors fill in their own details. The proposed-change summary comes from the
-   Section 02 items (optional notes field as fallback for migrated pre-item drafts). */
-function neighborChangeSummary(d) {
-  const changes = improvementRows(d).filter(it => it.name)
-    .map(it => `${ACTION_LABEL[it.action] ? ACTION_LABEL[it.action] + " — " : ""}${it.name}`);
-  return changes.length ? changes.join("; ") : (d.proposal || "");
-}
+   neighbors fill in their own details. The note points to the packet's reference id
+   (printed in the running header) rather than restating the proposed change inline. */
 function buildNeighborStripHTML(d) {
   let rows = "";
   for (let i = 0; i < 6; i++) {
@@ -2295,15 +2283,13 @@ function buildNeighborStripHTML(d) {
       <td class="nf-date">${nt(`Dte_es_:${signer}:date`)}</td>
     </tr>`;
   }
-  const summary = neighborChangeSummary(d);
   return `
     <div class="print-neighbors">
       <div class="print-neighbors__head">
         <div class="nf-section">Adjacent Owner Signatures</div>
         <span class="print-neighbors__hint">Collect in person, then scan the signed cover</span>
       </div>
-      <p class="print-neighbors__change"><span class="print-neighbors__lbl">Proposed change</span> ${esc(summary) || "&mdash;"}</p>
-      <p class="nf-note">By signing, each adjacent owner confirms they were <strong>notified</strong> of this change. A signature is <strong>not approval or disapproval</strong>.</p>
+      <p class="nf-note">By signing, each adjacent owner confirms they were <strong>notified</strong> of the changes in packet <strong>${esc(d.refId || "")}</strong>. A signature is <strong>not approval or disapproval</strong>.</p>
       <table class="nf-table">
         <thead><tr><th class="nf-num">#</th><th>Adjacent Owner Name</th><th>Property Address</th><th>Signature</th><th>Date</th></tr></thead>
         <tbody>${rows}</tbody>

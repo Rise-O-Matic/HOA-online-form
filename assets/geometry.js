@@ -194,6 +194,35 @@ export function snapBearing(deg, snapAngles, tolerance) {
   return bestAbs <= tolerance ? ((best % 360) + 360) % 360 : null;
 }
 
+// Per-edge "is this boundary edge square to the screen grid at bearing `deg`" test — the
+// Orient step draws the parcel outline solid on edges that read as aligned and dashed on
+// the rest. Same edge→bearing convention as computeSnapAngles (each edge collapses to one
+// candidate in [0, 90), short cul-de-sac-arc segments below minFrac of the longest edge
+// never count as square regardless of bearing) and the same tolerance-band tie-break as
+// snapBearing, just resolved per edge instead of against the ring's deduped candidate set.
+// Expects a closed ring (last vertex repeats the first); returns one boolean per edge, in
+// ring order.
+export function computeEdgeSquareFlags(ring, bearing, tolerance, minFrac = 0.2) {
+  if (!ring || ring.length < 3) return [];
+  const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+  const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  const local = geoToLocalMeters(ring, [cx, cy]);
+  const edges = [];
+  let longest = 0;
+  for (let i = 0; i < local.length - 1; i++) {
+    const dx = local[i + 1].x - local[i].x, dy = local[i + 1].y - local[i].y;
+    const len = Math.hypot(dx, dy);
+    if (len > longest) longest = len;
+    edges.push({ len, angle: Math.atan2(dy, dx) * 180 / Math.PI });
+  }
+  return edges.map(e => {
+    if (e.len < longest * minFrac) return false;
+    const a = (((90 - e.angle) % 90) + 90) % 90; // same edge→bearing convention as computeSnapAngles
+    const delta = (((bearing - a + 45) % 90) + 90) % 90 - 45;
+    return Math.abs(delta) <= tolerance;
+  });
+}
+
 // Closest point on segment a→b to the origin (the parcel centroid), in local meters.
 export function closestPointOnSegment(a, b) {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -258,6 +287,30 @@ export function pointOnAnyWall(x, y, segs) {
   return false;
 }
 
+// Inverse-distance-weighted interpolation of a ground-truth aerial alignment correction
+// (feet, east/north) across a handful of manually-calibrated control points — see plot-editor's
+// AERIAL_CONTROL_POINTS. Distance is real ground feet via geoToLocalMeters's flat-earth
+// approximation, which is accurate at neighborhood scale (verified empirically: the residual
+// between this approximation and true Web Mercator, after a similarity fit, is ~1e-4 ft even
+// on a 250+ ft parcel — four orders of magnitude below the few-feet aerial/cadastre mismatch
+// this interpolation exists to correct). Degrades gracefully with fewer than 2 points: 0 -> no
+// correction, 1 -> that point's value everywhere (today's flat-constant behavior).
+export function interpolateAerialNudge(lng, lat, points) {
+  if (!points || !points.length) return { east: 0, north: 0 };
+  if (points.length === 1) return { east: points[0].east, north: points[0].north };
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  let sumW = 0, sumE = 0, sumN = 0;
+  for (const p of points) {
+    const dx = (p.lng - lng) * cosLat * 111320;
+    const dy = (p.lat - lat) * 111320;
+    const distFt = Math.hypot(dx, dy) / FOOT_IN_METERS;
+    if (distFt < 1e-6) return { east: p.east, north: p.north }; // essentially exact match
+    const w = 1 / (distFt * distFt);
+    sumW += w; sumE += w * p.east; sumN += w * p.north;
+  }
+  return { east: sumE / sumW, north: sumN / sumW };
+}
+
 // Ray-cast point-in-polygon (even-odd rule). poly is a ring of {x, y} vertices — an
 // explicitly repeated closing vertex is fine (the zero-length wrap edge is a no-op).
 // Used by the plot editor to keep Stamp placement inside the parcel footprint.
@@ -269,6 +322,19 @@ export function pointInPolygon(x, y, poly) {
     if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
+}
+
+// Applies a sparse, index-matched array of {dx, dy} pixel offsets on top of a polygon,
+// without mutating it. offsets[i] missing/undefined/null is treated as no offset — callers
+// may pass a shorter or sparse array than polygon.length. Used to layer a manual, per-corner
+// visual correction on top of the pristine county-parcel outline WITHOUT touching the polygon
+// fitSimilarity() uses to register the aerial photo (see plot-editor.js's boundaryAdjust).
+export function applyPolygonOffsets(polygon, offsets) {
+  if (!polygon || !polygon.length) return [];
+  return polygon.map((p, i) => {
+    const o = offsets && offsets[i];
+    return o ? { x: p.x + (o.dx || 0), y: p.y + (o.dy || 0) } : { x: p.x, y: p.y };
+  });
 }
 
 // Paint-bucket core. Computes the tiles a flood from (c0, r0) should set to `id` (null = erase):
