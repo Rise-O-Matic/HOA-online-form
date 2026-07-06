@@ -119,6 +119,71 @@ address { font-style: normal; }
   box-shadow: 0 1px 0 rgba(0,0,0,.06);
 }
 
+/* --- Masthead scene: the community clubhouse as a "you are here" cue --- */
+.masthead__scene {
+  position: relative;
+  max-width: var(--maxw);
+  margin: -.4rem auto 0;
+  height: clamp(165px, 26vw, 315px);
+  overflow: hidden;
+}
+.masthead__scene picture { display: block; height: 100%; }
+.masthead__scene-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 40%;
+  /* The watercolor sits on white — multiply melts that white margin into the
+     warm paper, so it reads as painted onto the letterhead, not a boxed photo. */
+  mix-blend-mode: multiply;
+  /* Feather the cropped top & bottom cuts back into the page. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 17%, #000 84%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 17%, #000 84%, transparent 100%);
+}
+/* Grounding wash so the location plaque stays legible over the painting. */
+.masthead__scene::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 68%;
+  background: linear-gradient(to top,
+    rgba(247,244,238,.9) 0%, rgba(247,244,238,.5) 34%, transparent 78%);
+  pointer-events: none;
+}
+.masthead__place {
+  position: absolute;
+  left: clamp(1.1rem, 3.5vw, 2.6rem);
+  bottom: clamp(.7rem, 2.4vw, 1.5rem);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: .12rem;
+  padding-left: .95rem;
+  border-left: 2px solid var(--crimson);
+}
+.masthead__place-eyebrow {
+  font-size: .66rem;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--crimson);
+}
+.masthead__place-name {
+  font-family: var(--font-disp);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 3.6vw, 2.3rem);
+  line-height: 1;
+  letter-spacing: -.01em;
+  color: var(--ink);
+}
+.masthead__place-sub {
+  font-size: clamp(.72rem, 1.6vw, .84rem);
+  font-weight: 500;
+  letter-spacing: .01em;
+  color: var(--ink-soft);
+}
+
 /* ===================== MOCKUP BANNER ===================== */
 .mockup-banner {
   max-width: var(--maxw);
@@ -1823,5 +1888,5 @@ ul.tight li { margin-bottom: .25rem; }
 @media print {
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
-  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .palette-pop, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference { display: none !important; }
+  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .palette-pop, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference, .masthead__scene { display: none !important; }
 }
