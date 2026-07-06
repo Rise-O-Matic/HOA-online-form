@@ -1564,19 +1564,20 @@ function improvementRows(d) {
 }
 
 /* ----- Adobe Acrobat Sign text tags (Sprint 22, item 7) --------------------------------
-   OPTIONAL, OFF by default. When ADOBE_SIGN.enabled is on, the printed packet carries literal
-   Adobe Acrobat Sign "text tags" — e.g. {{Sig_es_:signer1:signature}} / {{Dte_es_:signer1:date}}
-   / {{N_es_:signer2:fullname}} — at the signature spots. Adobe Sign scans an *uploaded* PDF,
-   auto-detects these strings, and converts each to a fillable e-signature field; in a plain,
-   un-uploaded PDF they are completely inert and render near-invisibly (tiny, near-white via
-   .print-esign-tag) so they never mar the printed form. No library — just the documented
-   text-tag syntax embedded as text (Path A, per the roadmap).
+   OPTIONAL. Currently ENABLED (2026-07-05, per the user's decision to ship the tags on). When
+   ADOBE_SIGN.enabled is on, the printed packet carries literal Adobe Acrobat Sign "text tags" —
+   e.g. {{Sig_es_:signer1:signature}} / {{Dte_es_:signer1:date}} / {{N_es_:signer2:fullname}} —
+   at the signature spots. Adobe Sign scans an *uploaded* PDF, auto-detects these strings, and
+   converts each to a fillable e-signature field; in a plain, un-uploaded PDF they are completely
+   inert and render near-invisibly (tiny, near-white via .print-esign-tag) so they never mar the
+   printed form. No library — just the documented text-tag syntax embedded as text (Path A).
 
-   Flip `enabled` on only if FSResidential actually routes received packets through Adobe
-   Acrobat Sign (open HOA decision — see ROADMAP Sprint 22). `neighbors` additionally gives
-   each adjacent-owner row its own signer role (signer2, signer3, …) so every neighbor can
+   Set `enabled:false` to remove the tags entirely (the packet then reverts byte-for-byte to the
+   pre-Sprint-22 output) if FSResidential doesn't route received packets through Adobe Acrobat
+   Sign — the HOA-usage question is still technically open (see ROADMAP Sprint 22). `neighbors`
+   gives each adjacent-owner row its own signer role (signer2, signer3, …) so every neighbor can
    e-sign their own line; set it false for an owner-only e-signing flow. */
-const ADOBE_SIGN = { enabled: false, neighbors: true };
+const ADOBE_SIGN = { enabled: true, neighbors: true };
 
 // One Adobe Sign text tag as a near-invisible inline span — or "" when tagging is off, so it
 // drops out of the markup entirely (the default-OFF packet is byte-for-byte unchanged).
