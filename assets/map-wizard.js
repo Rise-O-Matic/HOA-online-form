@@ -12,7 +12,7 @@ import {
   FOOT_IN_METERS, GRID_MARGIN, GRID_MIN_PAD, MAX_GRID_DIM
 } from "./geometry.js";
 import { $, $$, esc } from "./utils.js";
-import { rebuildGridForParcel, setPlotBackdrop, plotUsed, isPlotConfirmed, setPlotConfirmed } from "./plot-editor.js";
+import { rebuildGridForParcel, setPlotBackdrop, plotUsed, isPlotConfirmed, setPlotConfirmed, openMaterialLibrary } from "./plot-editor.js";
 import { registerDropzone } from "./dropzone.js";
 // Function-only imports from the entry module (a deliberate ESM cycle — see the
 // note in plot-editor.js: call at event time only).
@@ -822,6 +822,17 @@ export function showStep(n) {
   if (n === 4 && currentStep === 3 && selectedParcelGeoJSON) {
     fetchAerialBackdrop();
   }
+  // Finishing orientation (entering Draw from Orient in a real wizard walk-through, not a
+  // demo-mode/calibration-overlay direct jump straight to step 4): show the quick tutorial
+  // once per browser, right before the user starts drawing.
+  if (n === 4 && currentStep === 3) {
+    maybeShowTutorialOnce();
+  }
+  // Entering Draw with an empty swatch row: offer the material library picker. Deferred a
+  // tick so a restorePlot() that follows a programmatic showStep(4) (demo mode's fill) lands
+  // first — its restored selection makes the non-forced open a no-op, and restorePlot also
+  // dismisses an already-open library as a backstop.
+  if (n === 4) setTimeout(() => openMaterialLibrary(false), 0);
   // Leaving Select for Orient: remember the selection view (center/zoom) so backing up to
   // step 2 shows the map as the user left it, not step 3's tight parcel framing.
   if (n === 3 && currentStep === 2 && mapInstance) {
@@ -988,6 +999,54 @@ export function setPlanMode(mode) {
   buildOnlyDots.forEach(d => { d.style.display = isUpload ? "none" : ""; });
   $("#step1-next").hidden = mode !== "build";
   refreshPacketUI(); // switching build/upload changes what the packet expects
+}
+
+/* ----- builder tutorial modal: auto-shows once on first launch, replayable via the
+   header button (see the card__head "Tutorial" button next to the section title) ----- */
+const TUTORIAL_SEEN_KEY = "fairwayCanyonArcTutorialSeen";
+const tutorialModal = $("#tutorial-modal");
+const tutorialVideo = $("#tutorial-video");
+
+// Dev/test escape hatch: `?reset` (or `#reset` — same param app.js's INIT block checks
+// for the draft wipe) also clears the tutorial seen-flag, so one URL param gives a fully
+// fresh reload instead of the flag silently suppressing the modal every time after the
+// first. Own tiny check (not exported/imported from app.js) so it's independent of the
+// deliberate function-only app.js↔module cycle documented in CLAUDE.md.
+if (new URLSearchParams(location.search).has("reset") || location.hash === "#reset") {
+  try { localStorage.removeItem(TUTORIAL_SEEN_KEY); } catch (e) {}
+}
+
+function openTutorialModal() {
+  tutorialModal.hidden = false;
+  document.body.style.overflow = "hidden";
+  // Every route here is a click handler (replay button, the step3-next "Continue" button),
+  // so unmuted autoplay is gesture-activated; if a browser still refuses, retry muted.
+  tutorialVideo.play().catch(() => {
+    tutorialVideo.muted = true;
+    tutorialVideo.play().catch(() => {});
+  });
+}
+function closeTutorialModal() {
+  tutorialModal.hidden = true;
+  document.body.style.overflow = "";
+  tutorialVideo.pause();
+  tutorialVideo.currentTime = 0;
+}
+$$("[data-close]", tutorialModal).forEach(el => el.addEventListener("click", closeTutorialModal));
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !tutorialModal.hidden) closeTutorialModal();
+});
+$("#tutorial-replay-btn").addEventListener("click", openTutorialModal);
+
+// Shown once per browser the first time orientation finishes and Draw is entered (a real
+// Orient→Draw transition, not a demo-mode/calibration direct jump) — the header button
+// above stays available to bring it back anytime.
+function maybeShowTutorialOnce() {
+  let seen = false;
+  try { seen = localStorage.getItem(TUTORIAL_SEEN_KEY) === "1"; } catch (e) {}
+  if (seen) return;
+  openTutorialModal();
+  try { localStorage.setItem(TUTORIAL_SEEN_KEY, "1"); } catch (e) {}
 }
 
 function startBuilder() {

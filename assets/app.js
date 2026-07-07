@@ -1870,7 +1870,8 @@ function buildPrintHTML(d, imgs) {
     </div>`;
 }
 
-// The preview modal is gone (Sprint 17); only the gate modal remains for Escape.
+// The preview modal is gone (Sprint 17); this handles Escape for the gate modal only —
+// the builder tutorial modal (map-wizard.js) has its own Escape listener.
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (!gateModal.hidden) closeGateModal();
@@ -2404,6 +2405,7 @@ window.addEventListener("scroll", () => {
 // so a page load starts clean. A hard refresh only clears the HTTP cache, never
 // localStorage, so this is the reliable way to shed leftover test entries between runs.
 // The param is stripped from the URL afterward so an ordinary reload doesn't keep wiping.
+// (map-wizard.js checks the same param independently to also clear the tutorial seen-flag.)
 if (new URLSearchParams(location.search).has("reset") || location.hash === "#reset") {
   deleteDraft();
   // No refId adopted yet at this point, so purge the whole attachment store (fire-and-forget).

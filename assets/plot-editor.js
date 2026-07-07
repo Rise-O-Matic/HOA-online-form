@@ -22,14 +22,23 @@ import { $, $$ } from "./utils.js";
 // binding from app.js at this module's top level).
 import { scheduleAutosave, updateProgress } from "./app.js";
 
+// The material library's built-in presets, in the order the library grid (and a
+// pre-library draft's default chip row) shows them: ground covers → hardscape →
+// water → structures. Ids are persisted in drafts — never rename one, only add.
 const PALETTE = [
-  { id: "turf",      label: "Turf",            color: "#7cb342" },
-  { id: "grass",     label: "Grass",           color: "#a5d36a", texture: "tufts" },
-  { id: "concrete",  label: "Concrete",        color: "#c2bdb2", texture: "speckle" },
-  { id: "patio",     label: "Patio Cover",     color: "#d98a6a", texture: "diag" },
-  { id: "mulch",     label: "Mulch / Planter", color: "#b07a4e", texture: "dashes" },
-  { id: "retaining", label: "Retaining Wall",  color: "#7a5c46", texture: "brick" },
-  { id: "shed",      label: "Shed",            color: "#e2473b", texture: "cross" }
+  { id: "turf",        label: "Turf",               color: "#7cb342" },
+  { id: "grass",       label: "Grass",              color: "#a5d36a", texture: "tufts" },
+  { id: "groundcover", label: "Ground Cover Plants", color: "#4e8f43", texture: "tufts" },
+  { id: "mulch",       label: "Mulch / Planter",    color: "#b07a4e", texture: "dashes" },
+  { id: "dg",          label: "Decomposed Granite", color: "#c9a86a", texture: "dots" },
+  { id: "gravel",      label: "Gravel / Rock",      color: "#98928a", texture: "speckle" },
+  { id: "concrete",    label: "Concrete",           color: "#c2bdb2", texture: "speckle" },
+  { id: "pavers",      label: "Pavers",             color: "#b3714e", texture: "brick" },
+  { id: "deck",        label: "Wood Deck",          color: "#9a6b3f", texture: "diag" },
+  { id: "patio",       label: "Patio Cover",        color: "#d98a6a", texture: "diag" },
+  { id: "pool",        label: "Pool / Spa",         color: "#2f7d9c", texture: "waves" },
+  { id: "retaining",   label: "Retaining Wall",     color: "#7a5c46", texture: "brick" },
+  { id: "shed",        label: "Shed",               color: "#e2473b", texture: "cross" }
 ];
 // Point objects retired from the paint palette (they're Stamps now). Their ids stay
 // resolvable so cells painted in old drafts still render — and the legend can name them.
@@ -42,6 +51,10 @@ const RETIRED_MATERIALS = [
 // materials (setCustomMaterials/addCustomMaterial mutate this map in place).
 const PALETTE_MAP = Object.fromEntries([...PALETTE, ...RETIRED_MATERIALS].map(p => [p.id, p]));
 let customMaterials = []; // { id, label, color, texture? } user-defined, persisted as plot.customMaterials
+// The swatches actually in the work row above the canvas — ids (built-in or custom) picked
+// from the material library, in chip order. Persisted as plot.selectedMaterials; empty until
+// the library modal's first "Use these materials".
+let selectedMaterials = [];
 
 /* --- Material textures --------------------------------------------------------
    Standard plan-drafting hatches so similar colors still read apart over the
@@ -105,6 +118,20 @@ const TEXTURES = {
       ctx.moveTo(x * k, y * k); ctx.lineTo((x - 1.6) * k, (y - 2.6) * k);
       ctx.moveTo(x * k, y * k); ctx.lineTo(x * k, (y - 3.2) * k);
       ctx.moveTo(x * k, y * k); ctx.lineTo((x + 1.6) * k, (y - 2.6) * k);
+    });
+    ctx.stroke();
+  } },
+  waves: { label: "Waves", draw(ctx, s, mark) {          // water (pool / spa)
+    // Two full-width S-curves per tile. Each row's start/end tangents match ((±4, ∓3)
+    // control offsets at both ends), so the wave continues seamlessly across tile
+    // seams; rows are mirrored for a watery alternation and stay ≥1px inside the
+    // tile, so no both-edges duplication is needed.
+    const k = s / 16;
+    ctx.strokeStyle = mark; ctx.lineWidth = 1.2 * k; ctx.lineCap = "round"; ctx.beginPath();
+    [[4, -1], [12, 1]].forEach(([y, dir]) => {
+      ctx.moveTo(0, y * k);
+      ctx.quadraticCurveTo(4 * k, (y + 3 * dir) * k, 8 * k, y * k);
+      ctx.quadraticCurveTo(12 * k, (y - 3 * dir) * k, 16 * k, y * k);
     });
     ctx.stroke();
   } }
@@ -1350,14 +1377,39 @@ function initAerialCalibration() {
 }
 
 /* --- Toolbars --- */
-// The material chip row: built-in materials + the user's custom ones + the "+ Add material"
-// chip. Re-rendered whenever the custom list changes (add, draft restore).
+// The material chip row: the swatches picked from the library (built-in or custom, in pick
+// order), each with a remove "×", plus the "+ Materials" chip that reopens the library.
+// Re-rendered whenever the selection changes (library apply, chip remove, draft restore).
 function renderPaletteChips() {
   const pal = $("#palette");
   if (!pal) return;
-  if (!PALETTE_MAP[activeMaterial]) activeMaterial = "turf"; // a restore may have replaced the customs
+  // Done-lock: the row becomes a legend of what's actually ON the plan — only painted
+  // materials show (the same set the print legend names, so a painted-then-removed or
+  // retired id still gets decoded), unused swatches hide. "Make changes" re-renders the
+  // full interactive row via setPlotConfirmed(false).
+  if (plotConfirmedFlag) {
+    const used = new Set(cellState ? cellState.values() : []);
+    const mats = [...PALETTE, ...RETIRED_MATERIALS, ...customMaterials].filter(p => used.has(p.id));
+    pal.classList.toggle("is-empty", !mats.length); // nothing painted (annotation-only plan): hide the bare "Legend:" row
+    pal.innerHTML = "";
+    mats.forEach(p => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.material = p.id;
+      const sw = document.createElement("span");
+      sw.className = "swatch";
+      sw.style.cssText = materialSwatchStyle(p);
+      b.append(sw, document.createTextNode(p.label));
+      pal.appendChild(b); // no listeners — the locked row is pointer-events:none anyway
+    });
+    return;
+  }
+  pal.classList.remove("is-empty");
+  selectedMaterials = selectedMaterials.filter(id => PALETTE_MAP[id]); // a restore may have replaced the customs
+  if (!selectedMaterials.includes(activeMaterial)) activeMaterial = selectedMaterials[0] || "";
   pal.innerHTML = "";
-  [...PALETTE, ...customMaterials].forEach(p => {
+  selectedMaterials.forEach(id => {
+    const p = PALETTE_MAP[id];
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.material = p.id;
@@ -1365,24 +1417,39 @@ function renderPaletteChips() {
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.cssText = materialSwatchStyle(p);
-    b.append(sw, document.createTextNode(p.label));
-    b.addEventListener("click", () => {
+    // The remove affordance is a span, not a nested <button> (invalid HTML) — the chip's
+    // click handler routes on the event target. Keyboard removal goes through the library
+    // modal instead (untick + Continue), which is fully focusable.
+    const x = document.createElement("span");
+    x.className = "palette__x";
+    x.title = "Remove from palette";
+    x.setAttribute("aria-hidden", "true");
+    x.textContent = "×";
+    b.append(sw, document.createTextNode(p.label), x);
+    b.addEventListener("click", e => {
+      if (e.target === x) { removeSelectedMaterial(p.id); return; }
       activeMaterial = p.id;
-      $$("#palette button").forEach(x => x.classList.toggle("is-active", x === b));
+      $$("#palette button").forEach(el => el.classList.toggle("is-active", el === b));
     });
     pal.appendChild(b);
   });
   const add = document.createElement("button");
   add.type = "button";
   add.className = "palette__add";
-  add.textContent = "+ Add material";
-  add.addEventListener("click", () => {
-    const pop = $("#palette-pop");
-    if (!pop) return;
-    pop.hidden = !pop.hidden;
-    if (!pop.hidden) { const warn = $("#custom-mat-warn"); if (warn) warn.hidden = true; $("#custom-mat-name")?.focus(); }
-  });
+  add.textContent = selectedMaterials.length ? "+ Materials" : "+ Choose materials";
+  add.addEventListener("click", () => openMaterialLibrary(true));
   pal.appendChild(add);
+}
+
+// Removing a chip only takes the swatch out of the work row — cells already painted with
+// it stay painted (PALETTE_MAP still resolves the color) and it still shows in the print
+// legend if used. Removing the last chip reopens the library: at least one swatch is
+// required to draw.
+function removeSelectedMaterial(id) {
+  selectedMaterials = selectedMaterials.filter(x => x !== id);
+  renderPaletteChips();
+  scheduleAutosave();
+  if (!selectedMaterials.length) openMaterialLibrary(true);
 }
 
 /* --- Custom named materials ("+ Add material" popover) --- */
@@ -1398,20 +1465,31 @@ function perceivedBrightness(hex) {
 function addCustomMaterial() {
   const nameEl = $("#custom-mat-name"), colorEl = $("#custom-mat-color"), warnEl = $("#custom-mat-warn");
   const label = (nameEl?.value || "").trim();
-  const color = colorEl ? colorEl.value : "";
-  const warn = msg => { if (warnEl) { warnEl.textContent = msg; warnEl.hidden = false; } };
-  if (!label) { warn("Give the material a name — the legend shows it to the reviewer."); nameEl?.focus(); return; }
-  if (perceivedBrightness(color) > 220) { warn("That color is too light to read over the aerial photo — pick a darker shade."); return; }
+  const color = colorEl ? colorEl.value : "#8a6d3b";
+  if (!label) {
+    if (warnEl) { warnEl.textContent = "Give the material a name — the legend shows it to the reviewer."; warnEl.hidden = false; }
+    nameEl?.focus();
+    return;
+  }
+  // (The old "too light to read over the aerial" brightness gate was removed 2026-07-07 at the
+  // user's request — a near-white custom may still wash out under the on-screen multiply blend.)
   const mat = { id: "custom-" + Date.now().toString(36), label, color };
   if (customTexture) mat.texture = customTexture;
   customMaterials.push(mat);
   PALETTE_MAP[mat.id] = mat;
-  activeMaterial = mat.id;
-  renderPaletteChips();
+  if (matLibPending) {
+    // Created from the open library: tick it there and keep picking.
+    matLibPending.add(mat.id);
+    renderMatLibGrid();
+    syncMatLibFooter();
+  } else {
+    // Defensive — the creation form only lives inside the library modal today.
+    selectedMaterials.push(mat.id);
+    activeMaterial = mat.id;
+    renderPaletteChips();
+  }
   if (nameEl) nameEl.value = "";
   if (warnEl) warnEl.hidden = true;
-  const pop = $("#palette-pop");
-  if (pop) pop.hidden = true;
   scheduleAutosave();
 }
 
@@ -1428,6 +1506,95 @@ function setCustomMaterials(list) {
     PALETTE_MAP[mat.id] = mat;
   });
   renderPaletteChips();
+}
+
+// Draft-restore path for the chip row. Pre-library drafts (incl. the captured demo session)
+// carry no selectedMaterials — default to every built-in + custom, the pre-feature row.
+function setSelectedMaterials(list) {
+  selectedMaterials = Array.isArray(list)
+    ? list.map(String).filter(id => PALETTE_MAP[id])
+    : [...PALETTE, ...customMaterials].map(m => m.id);
+  renderPaletteChips();
+}
+
+/* --- Material library modal ----------------------------------------------------
+   The Draw step opens it automatically while the swatch row is empty (the deferred
+   openMaterialLibrary(false) call in map-wizard's showStep(4)); the chip row's
+   "+ Materials" chip reopens it any time. Picks accumulate in matLibPending and only
+   commit to selectedMaterials on "Use these materials" — closing any other way
+   discards them. At least one swatch is required to begin: Continue stays disabled
+   at zero, removing the last chip reopens the library, and the paint tools reopen
+   it if the row is somehow empty (see onStagePointerDown). */
+let matLibPending = null; // Set of ids while the modal is open, else null
+
+export function openMaterialLibrary(force = false) {
+  if (!KONVA_AVAILABLE) return;
+  const modal = $("#material-library-modal");
+  if (!modal) return;
+  if (!force && selectedMaterials.length) return; // auto-open route: only offer while the row is empty
+  matLibPending = new Set(selectedMaterials);
+  renderMatLibGrid();
+  syncMatLibFooter();
+  const warn = $("#custom-mat-warn");
+  if (warn) warn.hidden = true;
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeMaterialLibrary(apply) {
+  const modal = $("#material-library-modal");
+  if (!modal || modal.hidden) return;
+  if (apply && matLibPending) {
+    // Surviving swatches keep their chip order; newly-ticked ones append in library order.
+    const keep = selectedMaterials.filter(id => matLibPending.has(id));
+    const added = [...PALETTE, ...customMaterials].map(m => m.id)
+      .filter(id => matLibPending.has(id) && !keep.includes(id));
+    selectedMaterials = [...keep, ...added];
+    renderPaletteChips();
+    scheduleAutosave();
+  }
+  matLibPending = null;
+  modal.hidden = true;
+  document.body.style.overflow = "";
+}
+
+function renderMatLibGrid() {
+  const grid = $("#mat-lib-grid");
+  if (!grid || !matLibPending) return;
+  grid.innerHTML = "";
+  [...PALETTE, ...customMaterials].forEach(m => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "mat-lib__item";
+    b.dataset.material = m.id;
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.cssText = materialSwatchStyle(m);
+    const label = document.createElement("span");
+    label.className = "mat-lib__label";
+    label.textContent = m.label;
+    const tick = document.createElement("span");
+    tick.className = "mat-lib__tick";
+    tick.setAttribute("aria-hidden", "true");
+    b.append(sw, label, tick);
+    const sync = on => { b.classList.toggle("is-selected", on); b.setAttribute("aria-pressed", on ? "true" : "false"); };
+    sync(matLibPending.has(m.id));
+    b.addEventListener("click", () => {
+      const on = !matLibPending.has(m.id);
+      if (on) matLibPending.add(m.id); else matLibPending.delete(m.id);
+      sync(on);
+      syncMatLibFooter();
+    });
+    grid.appendChild(b);
+  });
+}
+
+function syncMatLibFooter() {
+  const n = matLibPending ? matLibPending.size : 0;
+  const count = $("#mat-lib-count");
+  if (count) count.textContent = n ? `${n} material${n === 1 ? "" : "s"} selected` : "Select at least one material to begin";
+  const btn = $("#mat-lib-continue");
+  if (btn) btn.disabled = !n;
 }
 
 // The popover's texture row: one swatch button per texture (plus Solid), previewed
@@ -1748,14 +1915,19 @@ function anchorSpecsFor(node) {
     }));
   }
   if (kind === "measurement") {
-    const arrow = node.findOne("Arrow");
-    if (!arrow) return [];
+    // find, not findOne: the halo + ink arrows share points and must reshape together
+    // (an old draft's single-arrow measurement just yields a one-element list).
+    const arrows = node.find("Arrow");
+    if (!arrows.length) return [];
     return [0, 1].map(i => ({
-      get: () => { const p = arrow.points(); return toContent(p[i * 2], p[i * 2 + 1]); },
+      get: () => { const p = arrows[0].points(); return toContent(p[i * 2], p[i * 2 + 1]); },
       set: pos => {
-        const p = arrow.points().slice(); const l = toLocal(pos);
-        p[i * 2] = l.x; p[i * 2 + 1] = l.y;
-        arrow.points(p);
+        const l = toLocal(pos);
+        arrows.forEach(arrow => {
+          const p = arrow.points().slice();
+          p[i * 2] = l.x; p[i * 2 + 1] = l.y;
+          arrow.points(p);
+        });
         syncMeasurementLabel(node); // live re-measure: the feet label tracks the endpoint
       }
     }));
@@ -2017,26 +2189,37 @@ function hydrateShapesInto(layer, shapes) {
   syncAnnotationTextScale();
 }
 
-/* --- Measure (drag-to-draw dimension arrow with a feet label) --- */
+/* --- Measure (drag-to-draw dimension arrow with a feet label) ---
+   Every measure arrow is a PAIR: a fat white halo Arrow under the blue ink Arrow — the
+   standard plan-symbol treatment (same as the hardware stamps) so a dimension stays
+   legible over the aerial and painted materials alike. Anything that moves the arrow's
+   points must move BOTH (node.find("Arrow"), not findOne — see anchorSpecsFor). */
+function measureArrowPair(points) {
+  const shared = { points, pointerAtBeginning: true, pointerAtEnding: true, pointerLength: 7, pointerWidth: 7 };
+  return [
+    new Konva.Arrow({ ...shared, stroke: "#fff", fill: "#fff", strokeWidth: 4.5 }),
+    new Konva.Arrow({ ...shared, stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2 })
+  ];
+}
+
 function makeMeasureGhost(a) {
-  return new Konva.Arrow({ points: [a.x, a.y, a.x, a.y], stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2, pointerAtBeginning: true, pointerAtEnding: true, listening: false });
+  const g = new Konva.Group({ listening: false });
+  measureArrowPair([a.x, a.y, a.x, a.y]).forEach(n => g.add(n));
+  return g;
 }
 
 function buildMeasurementGroup(a, b) {
   const group = new Konva.Group();
   group.setAttr("kind", "measurement");
-  const arrow = new Konva.Arrow({
-    points: [a.x, a.y, b.x, b.y],
-    stroke: "#2b6cb0", fill: "#2b6cb0", strokeWidth: 2,
-    pointerAtBeginning: true, pointerAtEnding: true, pointerLength: 7, pointerWidth: 7
-  });
+  const [halo, arrow] = measureArrowPair([a.x, a.y, b.x, b.y]);
   const label = new Konva.Text({
     text: "",
-    fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, fontStyle: "bold", fill: "#2b6cb0", padding: 2
+    fontFamily: "sans-serif", fontSize: ANNOTATION_FONT_PX, fontStyle: "bold", fill: "#2b6cb0", padding: 2,
+    stroke: "#fff", strokeWidth: 3, fillAfterStrokeEnabled: true
   });
   label.setAttr("screenFixed", true);
   label.scale({ x: annotationTextScale(), y: annotationTextScale() });
-  group.add(arrow, label);
+  group.add(halo, arrow, label);
   syncMeasurementLabel(group);
   return group;
 }
@@ -2256,6 +2439,13 @@ function onStagePointerDown(e) {
     const hit = annotationAtPointer();
     if (hit) { eraseGesture = false; deleteAnnotation(hit); return; }
   }
+  // No swatches in the work row (library dismissed unpicked, or every chip removed): the
+  // material tools have nothing to paint with — reopen the library instead. Erase gestures
+  // and the non-material tools (stamps, lines, callouts…) still work.
+  if (["rect", "fill", "paint"].includes(activeMode) && !eraseGesture && !PALETTE_MAP[activeMaterial]) {
+    openMaterialLibrary(true);
+    return;
+  }
   if (activeMode === "rect") {
     // Rectangle tool: rubber-band a filled block of cells. Right-click/Ctrl erases the block instead.
     const cell = cellFromPointer();
@@ -2382,7 +2572,7 @@ function onStagePointerMove() {
   }
   const pos = contentPos();
   if (!pos) return;
-  if (dragOrigin && ghostNode) { ghostNode.points([dragOrigin.x, dragOrigin.y, pos.x, pos.y]); overlayLayer.batchDraw(); return; }
+  if (dragOrigin && ghostNode) { ghostNode.find("Arrow").forEach(a => a.points([dragOrigin.x, dragOrigin.y, pos.x, pos.y])); overlayLayer.batchDraw(); return; }
   if (calloutDraft) { updateCalloutGhost(pos); return; }
   if (activeMode === "stamp" && !eraseGesture && !painting && !spacePan) updateStampGhost(pos);
 }
@@ -2477,6 +2667,7 @@ export function setPlotConfirmed(v) {
   syncAllNodeInteractivity();
   if (!v && activeMode === "align") buildBoundaryHandles(); // restore handles if Align Corners was active before lock
   if (plotHost) plotHost.style.cursor = v ? "default" : cursorForMode(activeMode);
+  renderPaletteChips(); // locked → used-materials-only legend; unlocked → the full interactive row
   updateProgress();   // cascades refreshPacketUI → Done button, Draw dot, packet list, lock class
   scheduleAutosave();
 }
@@ -2600,9 +2791,12 @@ setActiveMode("rect");
 $("#plot-clear").addEventListener("click", clearPlot);
 $("#align-reset")?.addEventListener("click", resetBoundaryCorners);
 $("#custom-mat-add")?.addEventListener("click", addCustomMaterial);
-$("#custom-mat-cancel")?.addEventListener("click", () => { const pop = $("#palette-pop"); if (pop) pop.hidden = true; });
-// The popover sits inside the big <form>: Enter in the name field must add the material,
-// not submit the whole application to the preview modal.
+// Material library modal: Continue commits the picks; ×/backdrop/Esc discards them
+// (closeMaterialLibrary no-ops while the modal is hidden, so the Esc listener is safe).
+$("#mat-lib-continue")?.addEventListener("click", () => closeMaterialLibrary(true));
+$$("#material-library-modal [data-close]").forEach(el => el.addEventListener("click", () => closeMaterialLibrary(false)));
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeMaterialLibrary(false); });
+// Enter in the name field must add the material, never submit anything.
 $("#custom-mat-name")?.addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); addCustomMaterial(); }
 });
@@ -2647,6 +2841,7 @@ export function serializePlot() {
     annotations: (drawLayer ? JSON.parse(drawLayer.toJSON()).children : []) || [],
     confirmed: plotConfirmedFlag,
     customMaterials: customMaterials.map(m => ({ ...m })),
+    selectedMaterials: [...selectedMaterials],
     boundaryAdjust: boundaryAdjust.map(o => o ? { ...o } : o) // sparse; holes serialize as null through JSON
   };
 }
@@ -2656,6 +2851,8 @@ export function serializePlot() {
 export function restorePlot(plot) {
   if (!stageReady) return;
   setCustomMaterials(plot.customMaterials); // before loadCells — restored cells may use custom colors
+  setSelectedMaterials(plot.selectedMaterials); // after the customs registered — the selection may reference them
+  closeMaterialLibrary(false); // a demo/draft restore may land under an auto-opened library — dismiss it
   loadCells(plot.cells);
   gridLayer.batchDraw();
   if (Array.isArray(plot.annotations)) {

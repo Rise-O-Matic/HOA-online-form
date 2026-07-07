@@ -183,6 +183,11 @@ address { font-style: normal; }
   letter-spacing: .01em;
   color: var(--ink-soft);
 }
+/* The watercolor is a "you are here" cue for the landing page only — once the applicant
+   is inside the form itself (#form-layout unhidden), it's just a large image pushing the
+   real work down, so hide it there. :has() ties this purely to markup state (the existing
+   #landing/#form-layout hidden toggle in app.js), no extra JS needed. */
+body:has(#form-layout:not([hidden])) .masthead__scene { display: none; }
 
 /* ===================== MOCKUP BANNER ===================== */
 .mockup-banner {
@@ -216,7 +221,11 @@ address { font-style: normal; }
   font-weight: 600;
   color: #5a4710;
 }
-.demo-toggle input {
+/* The [type="checkbox"] qualifier is load-bearing: the global input[type="checkbox"] rule
+   further down has equal specificity but later source order, so without it the checkbox's
+   position/size get re-styled into a visible 1.2rem tick box — showing BOTH a box and the
+   toggle track. The extra attribute selector keeps this rule winning. */
+.demo-toggle input[type="checkbox"] {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
@@ -439,6 +448,17 @@ address { font-style: normal; }
   letter-spacing: -.01em;
 }
 .card__sub { margin: .3rem 0 0; color: var(--ink-soft); font-size: .9rem; }
+.tutorial-replay {
+  display: flex; align-items: center; gap: .4rem;
+  margin-left: auto; align-self: center; flex-shrink: 0;
+  font-family: var(--font-ui); font-size: .82rem; font-weight: 600;
+  padding: .5rem .9rem; border-radius: 99px;
+  border: 1px solid var(--line-2); background: var(--paper);
+  color: var(--ink-soft); cursor: pointer; white-space: nowrap;
+  transition: border-color .15s, color .15s;
+}
+.tutorial-replay svg { width: 1.05rem; height: 1.05rem; flex-shrink: 0; }
+.tutorial-replay:hover { border-color: var(--crimson); color: var(--crimson); }
 
 /* "Save and come back later" reassurance for the multi-day steps (Sections 04 & 05) */
 .pause-note {
@@ -753,34 +773,68 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 }
 .palette.is-muted button.palette__add { color: var(--ink-faint); }
 
-/* "+ Add material" popover: an inline panel that opens under the chip row */
-.palette-pop {
-  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem;
-  margin: -.2rem 0 .7rem; padding: .6rem .8rem;
-  border: 1px solid var(--line-2); border-radius: var(--radius-sm);
-  background: var(--paper);
-  font-size: .85rem;
+/* Per-chip remove "×" (a span inside the chip button — see renderPaletteChips) */
+.palette__x {
+  display: grid; place-items: center;
+  width: 1.05rem; height: 1.05rem; margin: 0 -.15rem 0 .05rem;
+  border-radius: 50%;
+  font-size: .85rem; line-height: 1; color: var(--ink-faint);
+  flex-shrink: 0;
 }
-.palette-pop[hidden] { display: none; } /* author display beats [hidden] otherwise */
-.palette-pop label { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; color: var(--ink-soft); }
-.palette-pop input[type=text] {
+.palette__x:hover { background: var(--crimson); color: #fff; }
+
+/* Material library modal (#material-library-modal): the Draw step's swatch picker.
+   Opens automatically while the chip row is empty; "+ Materials" reopens it any time. */
+.mat-lib__lead { margin: 0 0 1rem; color: var(--ink-soft); font-size: .9rem; }
+.mat-lib__grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: .6rem;
+}
+.mat-lib__item {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .55rem .65rem;
+  background: #fff; border: 1px solid var(--line-2); border-radius: 8px;
+  font-family: var(--font-ui); font-size: .85rem; font-weight: 500; color: var(--ink-soft);
+  cursor: pointer; text-align: left;
+  transition: border-color .15s, box-shadow .15s, color .15s;
+}
+.mat-lib__item:hover { border-color: var(--ink-faint); }
+.mat-lib__item .swatch {
+  width: 1.7rem; height: 1.7rem; border-radius: 5px;
+  border: 1px solid rgba(0,0,0,.18); flex-shrink: 0;
+}
+.mat-lib__label { flex: 1; min-width: 0; }
+.mat-lib__tick {
+  width: 1.15rem; height: 1.15rem; border-radius: 50%;
+  border: 1.5px solid var(--line-2); flex-shrink: 0;
+  display: grid; place-items: center;
+  font-size: .7rem; color: #fff;
+}
+.mat-lib__item.is-selected { border-color: var(--green); box-shadow: 0 0 0 2px var(--green); color: var(--ink); }
+.mat-lib__item.is-selected .mat-lib__tick { background: var(--green); border-color: var(--green); }
+.mat-lib__item.is-selected .mat-lib__tick::after { content: "✓"; }
+.mat-lib__custom { margin-top: 1.3rem; padding-top: 1rem; border-top: 1px dashed var(--line-2); }
+.mat-lib__custom-title { margin: 0 0 .6rem; font-family: var(--font-ui); font-size: .9rem; color: var(--ink-soft); }
+.mat-lib__custom-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; font-size: .85rem; }
+.mat-lib__custom-row label { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; color: var(--ink-soft); }
+.mat-lib__custom-row input[type=text] {
   padding: .35rem .55rem; border: 1px solid var(--line-2); border-radius: 6px;
   font: inherit; width: 11rem;
 }
-.palette-pop input[type=color] {
+.mat-lib__custom-row input[type=color] {
   inline-size: 2.6rem; block-size: 1.9rem; padding: 2px;
   border: 1px solid var(--line-2); border-radius: 6px; background: #fff; cursor: pointer;
 }
-.palette-pop__warn { flex-basis: 100%; margin: 0; color: var(--crimson); font-size: .8rem; }
-.palette-pop__texgroup { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; color: var(--ink-soft); }
-.palette-pop__textures { display: inline-flex; gap: .3rem; }
-.palette-pop__textures button {
+.mat-lib__warn { margin: .5rem 0 0; color: var(--crimson); font-size: .8rem; }
+.mat-lib__texgroup { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; color: var(--ink-soft); }
+.mat-lib__textures { display: inline-flex; gap: .3rem; }
+.mat-lib__textures button {
   width: 1.6rem; height: 1.6rem; padding: 0;
   border: 1px solid var(--line-2); border-radius: 5px;
   cursor: pointer;
 }
-.palette-pop__textures button:hover { border-color: var(--ink-faint); }
-.palette-pop__textures button.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
+.mat-lib__textures button:hover { border-color: var(--ink-faint); }
+.mat-lib__textures button.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
+.mat-lib__count { margin-right: auto; font-size: .85rem; color: var(--ink-soft); }
 
 /* Rail + canvas column, centered as a block */
 .plot__surface {
@@ -1039,10 +1093,22 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 /* "Done — use this plan" locks the surface: the material palette, tool rail, and status/hints
    strip are hidden and the canvas is frozen (behavioral guards live in plot-editor.js), leaving
    just the plan + zoom/scale aids for review. "Make changes" clears the flag to edit again. */
-.plot.is-locked #palette,
-.plot.is-locked .palette-pop,
 .plot.is-locked .tool-rail,
 .plot.is-locked .plot-status { display: none; }
+/* The chip row survives the lock as a read-only legend: the picked swatches stay visible
+   (swatch + name = the plan's key), but nothing is clickable and the add/remove
+   affordances disappear. The #palette id outweighs .is-active/.is-muted chip styling. */
+.plot.is-locked #palette { pointer-events: none; }
+.plot.is-locked #palette::before {
+  content: "Legend:";
+  align-self: center;
+  font-size: .8rem; font-weight: 600; color: var(--ink-soft);
+}
+.plot.is-locked #palette .palette__add,
+.plot.is-locked #palette .palette__x { display: none; }
+/* Annotation-only plan (no painted cells): nothing to decode, hide the bare "Legend:" row */
+.plot.is-locked #palette.is-empty { display: none; }
+.plot.is-locked #palette button { color: var(--ink-soft); border-color: var(--line-2); box-shadow: none; }
 .plot.is-locked .plot__konva-host { cursor: default; }
 .linklike {
   background: none; border: none; padding: 0;
@@ -1709,6 +1775,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 
 /* soft-gate modal */
 .modal__panel--sm { width: min(560px, 100%); }
+
+/* builder tutorial modal */
+.modal__panel--video { width: min(760px, 100%); }
+.tutorial-lead { margin: 0 0 1rem; font-size: .9rem; color: var(--ink-soft); }
+.tutorial-video { width: 100%; border-radius: var(--radius-sm); background: #000; display: block; }
 .gate-lead { margin-top: 0; font-size: .9rem; }
 .gate-missing { margin: .8rem 0 0; padding-left: 1.2rem; font-size: .88rem; display: grid; gap: .3rem; }
 .gate-missing li::marker { color: var(--crimson); }
@@ -1914,6 +1985,8 @@ ul.tight li { margin-bottom: .25rem; }
   .landing__title { font-size: 1.6rem; }
   .photo-quiz__options { grid-template-columns: 1fr; }
   .photo-examples { grid-template-columns: 1fr; }
+  .card__head { flex-wrap: wrap; }
+  .tutorial-replay { margin-left: 0; flex-basis: 100%; justify-content: center; margin-top: .3rem; }
 }
 
 /* Keyboard rotation focus stop (the Orient step sets tabindex on the map container) */
@@ -1937,5 +2010,5 @@ ul.tight li { margin-bottom: .25rem; }
 @media print {
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
-  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .palette-pop, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference, .masthead__scene { display: none !important; }
+  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference, .masthead__scene { display: none !important; }
 }
