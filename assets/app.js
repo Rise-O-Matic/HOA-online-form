@@ -819,7 +819,7 @@ function revokeThumbUrls(id) {
 // file-type placeholder instead of an <img> preview.
 function thumbCardHTML(f, url, removeAttr, removeVal, fileIndex) {
   const frame = url
-    ? `<img class="photo-thumb__img is-fresh" src="${url}" alt="Your attached file" />`
+    ? `<img class="photo-thumb__img is-fresh" src="${url}" alt="Preview of attached file: ${esc(f.name)}" />`
     : `<span class="photo-thumb__doc" aria-hidden="true">${esc((f.name.split(".").pop() || "file").toUpperCase())}</span>`;
   return `
     <figure class="photo-thumb photo-thumb--multi">
@@ -884,6 +884,7 @@ function updatePhotoStatus(id) {
       photoThumbUrls[id].push(url);
       const img = $(".photo-thumb__img", thumb);
       img.src = url;
+      img.alt = `Preview of attached photo: ${f.name}`;
       $("[data-photo-thumb-name]", thumb).textContent = f.name;
       $("[data-photo-thumb-size]", thumb).textContent = formatBytes(f.size);
       thumb.hidden = false;
@@ -1744,41 +1745,50 @@ function buildInstructionsHTML(d) {
         </tr>
       </table>
 
-      <p class="print-info">The pages that follow are part of this application: your proposed improvements, your site / plot plan, and your property photos. The adjacent-owner signature form is at the bottom of this cover.</p>
+      <p class="print-info print-cover-intro">The pages that follow contain your proposed improvements, site / plot plan, and property photos. Complete the steps below, then use the adjacent-owner signature form at the bottom of this cover.</p>
 
-      <h4>Owner Acknowledgments</h4>
-      <p class="print-ack-summary">${acksChecked
-        ? "All 8 acknowledgment items have been read and accepted."
-        : "⚠ Not all acknowledgment items were checked."}</p>
-
-      <div class="print-sig-block">
-        <div class="print-sig-row">
-          <div class="print-sig-field">
-            <div class="print-sig-ink">${
-              d.ownerSigMethod === "type"
-                ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
-                : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" />` : "")
-            }${esignTag("Sig_es_:signer1:signature")}</div>
-            <div class="print-sig-line"></div>
-            <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " — signed electronically by typing name" : ""}</div>
-          </div>
-          <div class="print-sig-field print-sig-field--narrow">
-            <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
-            <div class="print-sig-line"></div>
-            <div class="print-sig-label">Date</div>
-          </div>
+      <div class="print-cover-main">
+        <div class="print-cover">
+          <h4>Submit in four steps</h4>
+          <ol class="print-steps">
+            <li><strong>Save or print this packet.</strong> Everything you entered — proposed improvements, plot plan, property photos, and your signature — is already inside it.</li>
+            <li><strong>Collect adjacent-owner signatures</strong> below, in person, then scan or photograph the signed cover. A signature confirms notification, not approval.</li>
+            <li><strong>Email the packet and signed cover${uploadPlot ? ", plus your plot-plan file," : ""}.</strong> Your complete packet must arrive by a posted deadline to make that month&rsquo;s board meeting.</li>
+            <li><strong>Wait for our reply.</strong> <strong>No payment is due now.</strong> The committee will request the review fee after confirming the application is complete.</li>
+          </ol>
         </div>
-      </div>
 
-      <div class="print-cover">
-        <h4>How to submit</h4>
-        <ol class="print-steps">
-          <li><strong>Save or print this packet.</strong> Everything you entered — your proposed improvements, plot plan, property photos, and signature — is already inside it.</li>
-          <li><strong>Collect adjacent-owner signatures</strong> on the block below, in person, then scan or photograph the signed cover. A signature confirms your neighbor was notified — not approval.</li>
-          <li><strong>Email the packet and the signed cover${uploadPlot ? ", plus your plot-plan file," : ""}</strong> to <span class="print-email">carolmarie.taylor@fsresidential.com</span> — applications are accepted <strong>by email only</strong>. The next two turn-in deadlines are <strong>${dl1}</strong> and <strong>${dl2}</strong>; your complete packet must arrive by a deadline to make that month&rsquo;s board meeting. <a class="print-link" href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">See the full 2026 review-date schedule &rarr;</a></li>
-          <li><strong>Wait for our reply.</strong> <strong>No payment is due now.</strong> Once the committee confirms your application is complete, you&rsquo;ll receive a response requesting the review fee; a receipt is emailed to you after payment.</li>
-        </ol>
-        <p class="print-info">An incomplete application is returned unreviewed, and the 45-day review clock starts only once everything is received. Dates are subject to change.</p>
+        <aside class="print-cert" aria-label="Submission destination and owner certification">
+          <div class="print-submit-card">
+            <span class="print-submit-card__label">Email only</span>
+            <strong>carolmarie.taylor@fsresidential.com</strong>
+            <span>Next deadlines: ${dl1} and ${dl2}</span>
+            <a class="print-link" href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Full 2026 review-date schedule &rarr;</a>
+          </div>
+
+          <h4>Owner certification</h4>
+          <p class="print-ack-summary">${acksChecked
+            ? "All 8 acknowledgment items have been read and accepted."
+            : "⚠ Not all acknowledgment items were checked."}</p>
+
+          <div class="print-sig-block">
+            <div class="print-sig-field">
+              <div class="print-sig-ink">${
+                d.ownerSigMethod === "type"
+                  ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
+                  : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" alt="Homeowner signature" />` : "")
+              }${esignTag("Sig_es_:signer1:signature")}</div>
+              <div class="print-sig-line"></div>
+              <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " — signed electronically by typing name" : ""}</div>
+            </div>
+            <div class="print-sig-field print-sig-field--date">
+              <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
+              <div class="print-sig-line"></div>
+              <div class="print-sig-label">Date</div>
+            </div>
+          </div>
+          <p class="print-cert__note">Incomplete applications are returned unreviewed. The 45-day review clock starts only when everything is received.</p>
+        </aside>
       </div>
 
       ${buildNeighborStripHTML(d)}
@@ -1787,8 +1797,8 @@ function buildInstructionsHTML(d) {
 
 // A print <img> sized by its encoded pixel dims via aspect-ratio, so paged.js can measure
 // the page deterministically without waiting for the (large) data: URI to decode.
-function printImg(entry, cls) {
-  return `<img class="${cls}" src="${entry.dataUrl}" style="aspect-ratio:${entry.w}/${entry.h}" alt="" />`;
+function printImg(entry, cls, alt) {
+  return `<img class="${cls}" src="${entry.dataUrl}" style="aspect-ratio:${entry.w}/${entry.h}" alt="${esc(alt || "Attached application image")}" />`;
 }
 
 /* ----- Proposed Improvements page: one block per item (~4 per page), each with its
@@ -1807,7 +1817,7 @@ function buildImprovementsPageHTML(d, imgs) {
       (remove || noDims) ? "" : `<tr><td>Dimensions</td><td>${esc(it.dimensions) || "—"}</td></tr>`
     ].join("");
     const picsHTML = pics.length
-      ? `<div class="print-imp-imgs">${pics.map(e => printImg(e, "print-imp-img")).join("")}</div>`
+      ? `<div class="print-imp-imgs">${pics.map(e => printImg(e, "print-imp-img", `Example or catalog image for ${it.name || "proposed improvement"}${e.name ? `: ${e.name}` : ""}`)).join("")}</div>`
       : picNames.length
         ? `<p class="print-imp-noimg">Example / catalog file attached separately: ${picNames.map(esc).join(", ")}.</p>`
         : `<p class="print-imp-noimg">${remove ? "No picture (optional for a removal)." : "⚠ No example / catalog picture attached."}</p>`;
@@ -1838,7 +1848,7 @@ function buildPlotPageHTML(d, imgs) {
   const uploadNote = d.plotUpload && d.plotUpload.length ? d.plotUpload.map(esc).join(", ") : "";
   if (!plot && !uploadNote) return ""; // nothing drawn or uploaded — skip an empty page
   const body = plot
-    ? `<figure class="print-plot-figure">${printImg(plot, "print-plot-large")}</figure>${upload ? "" : plotLegendHTML("print-legend")}`
+    ? `<figure class="print-plot-figure">${printImg(plot, "print-plot-large", `Site or plot plan for ${d.propertyAddress || "the application property"}`)}</figure>${upload ? "" : plotLegendHTML("print-legend")}`
     : `<p class="print-info">Plot plan uploaded as a separate file: <strong>${uploadNote}</strong>. Include ${d.plotUpload.length > 1 ? "these files" : "this file"} when you email your packet.</p>`;
   return `<section class="print-page">
       <h3 class="print-pagetitle">Site / Plot Plan</h3>
@@ -1870,7 +1880,7 @@ function buildPhotosPageHTML(d, imgs) {
       const req = e.instr
         ? `<p class="print-plate__req"><span class="print-plate__reqlabel">Should show</span>${esc(e.instr)}</p>` : "";
       return `<figure class="print-plate">
-        <div class="print-plate__frame">${printImg(e, "print-plate__img")}</div>
+        <div class="print-plate__frame">${printImg(e, "print-plate__img", `${e.area || "Property photo"} — ${e.shotTitle || e.caption || "attached photo"}${e.name ? `: ${e.name}` : ""}`)}</div>
         <figcaption class="print-plate__cap">
           <div class="print-plate__caphead">
             <span class="print-plate__area">${esc(e.area || "Photo")}</span>
@@ -2072,20 +2082,20 @@ async function printPreview() {
   // Absolute URL so the about:blank popup (no base URL of its own) can resolve the vendored file.
   const pagedSrc = new URL("assets/vendor/paged.polyfill.0.4.3.js", location.href).href;
   w.document.open();
-  w.document.write(`<!DOCTYPE html><html><head><title>Fairway Canyon HOA — ARC Application</title>
+  w.document.write(`<!DOCTYPE html><html lang="en"><head><title>Fairway Canyon HOA — ARC Application</title>
     <meta charset="utf-8">
     <style>
       @page {
         size: letter;
         margin: 18mm 16mm 16mm;
         /* Running header/footer, rendered by paged.js into the page margin boxes. */
-        @top-left { content: ${applicantCss}; font: 8px 'Segoe UI', Arial, sans-serif; color: #8a8580; vertical-align: bottom; padding-bottom: 3mm; }
-        @top-right { content: ${refCss}; font: 700 8px 'Segoe UI', Arial, sans-serif; color: #a4111f; letter-spacing: .03em; vertical-align: bottom; padding-bottom: 3mm; }
-        @bottom-left { content: "Fairway Canyon HOA — Architectural Review Committee Application"; font: 8px 'Segoe UI', Arial, sans-serif; color: #b3aea8; vertical-align: top; padding-top: 2.5mm; }
-        @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8px 'Segoe UI', Arial, sans-serif; color: #8a8580; vertical-align: top; padding-top: 2.5mm; }
+        @top-left { content: ${applicantCss}; font: 8pt 'Segoe UI', Arial, sans-serif; color: #5b5650; vertical-align: bottom; padding-bottom: 3mm; }
+        @top-right { content: ${refCss}; font: 700 8pt 'Segoe UI', Arial, sans-serif; color: #a4111f; letter-spacing: .03em; vertical-align: bottom; padding-bottom: 3mm; }
+        @bottom-left { content: "Fairway Canyon HOA — Architectural Review Committee Application"; font: 8pt 'Segoe UI', Arial, sans-serif; color: #68625b; vertical-align: top; padding-top: 2.5mm; }
+        @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt 'Segoe UI', Arial, sans-serif; color: #5b5650; vertical-align: top; padding-top: 2.5mm; }
       }
       * { box-sizing: border-box; }
-      body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.4; font-size: 11px; margin: 0; }
+      body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.42; font-size: 11pt; margin: 0; }
       .print-doc { max-width: 100%; }
       /* One section per sheet. paged.js honors break-after: page (native @page fallback uses it too). */
       .print-page { break-after: page; }
@@ -2110,97 +2120,105 @@ async function printPreview() {
       .print-warncover__band { flex: none; height: 16px; background: repeating-linear-gradient(-45deg, #a4111f 0 2.5px, transparent 2.5px 11px); border-top: 1px solid #e6c9c6; border-bottom: 1px solid #e6c9c6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-warncover__body { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px 9% 26px; }
       .print-warncover__icon { width: 118px; height: auto; }
-      .print-warncover__eyebrow { margin-top: 22px; font-size: 11px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: #a4111f; }
-      .print-warncover__title { font-family: Georgia, serif; font-size: 30px; font-weight: 700; color: #1d1a17; margin: 5px 0 0; line-height: 1.04; }
-      .print-warncover__lead { font-size: 12.5px; line-height: 1.5; max-width: 31em; color: #3a352f; margin: 13px 0 22px; }
+      .print-warncover__eyebrow { margin-top: 22px; font-size: 9pt; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: #a4111f; }
+      .print-warncover__title { font-family: Georgia, serif; font-size: 25pt; font-weight: 700; color: #1d1a17; margin: 5px 0 0; line-height: 1.04; }
+      .print-warncover__lead { font-size: 11pt; line-height: 1.5; max-width: 31em; color: #3a352f; margin: 13px 0 22px; }
       .print-warncover__lead strong { color: #7d0d18; }
       .print-warncover__card { width: 100%; max-width: 33em; text-align: left; border: 1.5px solid #e6c9c6; border-radius: 6px; overflow: hidden; }
-      .print-warncover__cardhead { display: flex; justify-content: space-between; align-items: baseline; color: #a4111f; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 7px 13px 6px; border-bottom: 1.5px solid #e6c9c6; }
-      .print-warncover__cardhead span { font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #8a8580; text-transform: none; }
+      .print-warncover__cardhead { display: flex; justify-content: space-between; align-items: baseline; color: #a4111f; font-size: 9.5pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 7px 13px 6px; border-bottom: 1.5px solid #e6c9c6; }
+      .print-warncover__cardhead span { font-size: 9pt; font-weight: 600; letter-spacing: .04em; color: #5b5650; text-transform: none; }
       .print-warncover__list { list-style: none; margin: 0; padding: 2px 0; }
       .print-warncover__list li { display: flex; gap: 11px; align-items: baseline; padding: 7px 13px; border-top: 1px solid #f2e5e3; }
       .print-warncover__list li:first-child { border-top: none; }
-      .print-warncover__num { flex: none; font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: #a4111f; width: 20px; }
-      .print-warncover__what { font-size: 11.5px; color: #1d1a17; line-height: 1.35; }
+      .print-warncover__num { flex: none; font-family: Georgia, serif; font-size: 11pt; font-weight: 700; color: #a4111f; width: 20px; }
+      .print-warncover__what { font-size: 10pt; color: #1d1a17; line-height: 1.35; }
       .print-warncover__what strong { display: block; }
-      .print-warncover__what span { display: block; color: #6b645c; font-size: 10.5px; }
-      .print-warncover__attach { width: 100%; max-width: 33em; text-align: left; margin-top: 18px; font-size: 12px; line-height: 1.5; color: #3a352f; border: 1px solid #e6c9c6; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 11px 15px; }
+      .print-warncover__what span { display: block; color: #5b5650; font-size: 9.5pt; }
+      .print-warncover__attach { width: 100%; max-width: 33em; text-align: left; margin-top: 18px; font-size: 10.5pt; line-height: 1.5; color: #3a352f; border: 1px solid #e6c9c6; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 11px 15px; }
       .print-warncover__attach strong { color: #7d0d18; }
-      .print-warncover__foot { flex: none; text-align: center; font-size: 9.5px; color: #8a8580; padding: 0 9% 18px; }
+      .print-warncover__foot { flex: none; text-align: center; font-size: 9pt; color: #5b5650; padding: 0 9% 18px; }
       /* --- cover (page 1): concise submission instructions, two-column --- */
       /* Flex column so the folded signature strip pins to the bottom of the sheet
          (min-height under the ~9.66in content box keeps it to one page). */
       .print-cover-page { display: flex; flex-direction: column; min-height: 8.8in; }
       .print-cover-page .print-neighbors { margin-top: auto; }
-      .print-cover h4 { font-size: 13px; }
+      .print-cover-main { display: grid; grid-template-columns: minmax(0, 1.34fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 4px; }
+      .print-cover h4, .print-cert h4 { font-size: 12pt; }
       .print-cover h4:first-child { margin-top: 2px; }
-      .print-steps { margin: 5px 0 9px; padding-left: 18px; font-size: 12.5px; }
-      .print-steps li { margin-bottom: 7px; }
+      .print-steps { margin: 6px 0 0; padding-left: 20px; font-size: 10pt; line-height: 1.42; }
+      .print-steps li { margin-bottom: 8px; padding-left: 2px; }
       .print-email { font-weight: 700; }
       .print-link { color: #7d0d18; font-weight: 600; text-decoration: none; border-bottom: 1px solid #d9b7ba; white-space: nowrap; }
-      .print-info { font-size: 12px; margin: 4px 0 7px; }
+      .print-info { font-size: 10pt; margin: 4px 0 7px; }
+      .print-cover-intro { margin-bottom: 7px; }
       .print-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
-      .print-eyebrow { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
-      .print-title { font-family: Georgia, serif; font-size: 16px; font-weight: 600; line-height: 1.1; }
-      .print-contact { font-size: 9px; color: #555; text-align: right; line-height: 1.5; }
+      .print-eyebrow { font-size: 8.5pt; letter-spacing: .15em; text-transform: uppercase; color: #a4111f; font-weight: 700; }
+      .print-title { font-family: Georgia, serif; font-size: 16pt; font-weight: 600; line-height: 1.1; }
+      .print-contact { font-size: 9pt; color: #45413c; text-align: right; line-height: 1.45; }
       .print-contact__q { color: #7d0d18; }
-      h4 { font-size: 11px; color: #7d0d18; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 10px 0 4px; }
-      .print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
-      .print-table td, .print-table th { padding: 3px 6px; border: 1px solid #ddd; vertical-align: top; }
-      .print-label { font-weight: 600; color: #555; width: 100px; white-space: nowrap; background: #faf8f4; }
-      .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 0; padding: 0; font-size: 9px; }
+      h4 { font-size: 11pt; color: #7d0d18; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 10px 0 4px; }
+      .print-table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-bottom: 4px; }
+      .print-table td, .print-table th { padding: 4px 7px; border: 1px solid #d5d0c9; vertical-align: top; }
+      .print-label { font-weight: 700; color: #45413c; width: 100px; white-space: nowrap; background: #faf8f4; }
+      .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 3px 13px; margin: 5px 0 0; padding: 0; font-size: 9pt; }
       .print-legend li { display: flex; align-items: center; gap: 4px; }
-      .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #999; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #777; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-legend svg, .print-legend img { flex: none; width: 12px; height: 12px; }
-      .print-ack-summary { font-size: 10px; margin: 2px 0 6px; }
-      .print-sig-block { margin-top: 10px; }
-      .print-sig-row { display: flex; gap: 20px; }
+      .print-ack-summary { font-size: 9.5pt; margin: 4px 0 7px; }
+      .print-submit-card { display: flex; flex-direction: column; gap: 3px; border: 1.5px solid #d9b8b5; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 9px 11px; margin: 2px 0 10px; background: #fffafa; }
+      .print-submit-card__label { color: #7d0d18; font-size: 8.5pt; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+      .print-submit-card strong { font-size: 10.5pt; overflow-wrap: anywhere; }
+      .print-submit-card span:not(.print-submit-card__label), .print-submit-card a { font-size: 9pt; }
+      .print-cert { border: 1px solid #ded8d1; border-radius: 5px; padding: 10px 12px; background: #fcfbf9; }
+      .print-cert h4 { margin-top: 0; }
+      .print-cert__note { margin: 9px 0 0; padding-top: 7px; border-top: 1px solid #ded8d1; color: #45413c; font-size: 9pt; line-height: 1.4; }
+      .print-sig-block { margin-top: 8px; }
       .print-sig-field { flex: 1; }
-      .print-sig-field--narrow { flex: 0 0 160px; }
-      .print-sig-ink { min-height: 28px; display: flex; align-items: flex-end; }
+      .print-sig-field--date { margin-top: 10px; max-width: 125px; }
+      .print-sig-ink { min-height: 30px; display: flex; align-items: flex-end; }
       .print-sig-line { border-bottom: 1px solid #333; margin-top: 2px; }
-      .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 16px; }
-      .print-sig-label { font-size: 9px; color: #777; margin-top: 2px; }
+      .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 14pt; }
+      .print-sig-label { font-size: 9pt; color: #514c46; margin-top: 3px; }
       /* Adobe Acrobat Sign text tags (Sprint 22): inert in a plain PDF; Adobe Sign converts
          them to fillable fields on upload. Tiny near-white text so they don't mar the printed
          signature spots. print-color-adjust:exact keeps the near-white from being darkened. */
       .print-esign-tag { font-size: 5px; line-height: 1; color: #efece7; letter-spacing: 0; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-footer-note { font-size: 8px; color: #999; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
+      .print-footer-note { font-size: 9pt; color: #5b5650; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
       /* --- dedicated section pages (Sprint 19): improvements, site/plot, photos --- */
-      .print-pagetitle { font-family: Georgia, serif; font-size: 17px; font-weight: 600; color: #7d0d18; border-bottom: 3px solid #a4111f; padding-bottom: 5px; margin: 0 0 12px; }
+      .print-pagetitle { font-family: Georgia, serif; font-size: 16pt; font-weight: 600; color: #7d0d18; border-bottom: 3px solid #a4111f; padding-bottom: 5px; margin: 0 0 12px; }
       /* Proposed Improvements — one block per item, kept whole across a page break. */
       .print-imp-block { break-inside: avoid; border: 1px solid #e2ddd6; border-radius: 4px; padding: 9px 11px; margin-bottom: 11px; }
       .print-imp-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 6px; }
-      .print-imp-action { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: #a4111f; border-radius: 3px; padding: 1px 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-imp-action--remove { background: #8a8580; }
-      .print-imp-name { font-size: 13px; font-weight: 600; }
-      .print-imp-type { font-size: 9.5px; color: #8a8580; margin-left: auto; }
-      .print-imp-fields { border-collapse: collapse; font-size: 10.5px; margin-bottom: 6px; }
+      .print-imp-action { font-size: 8.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: #a4111f; border-radius: 3px; padding: 1px 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-imp-action--remove { background: #5b5650; }
+      .print-imp-name { font-size: 12pt; font-weight: 600; }
+      .print-imp-type { font-size: 9pt; color: #5b5650; margin-left: auto; }
+      .print-imp-fields { border-collapse: collapse; font-size: 10pt; margin-bottom: 8px; }
       .print-imp-fields td { padding: 1px 10px 1px 0; vertical-align: top; }
-      .print-imp-fields td:first-child { color: #8a8580; white-space: nowrap; }
-      .print-imp-imgs { display: flex; flex-wrap: wrap; gap: 8px; }
-      .print-imp-img { height: 150px; max-width: 100%; object-fit: contain; border: 1px solid #ccc; background: #f7f5f2; }
-      .print-imp-noimg { font-size: 10px; color: #999; font-style: italic; margin: 2px 0 0; }
+      .print-imp-fields td:first-child { color: #5b5650; white-space: nowrap; }
+      .print-imp-imgs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+      .print-imp-img { width: 100%; height: 2.35in; object-fit: contain; border: 1px solid #bdb7b0; background: #f7f5f2; }
+      .print-imp-noimg { font-size: 9.5pt; color: #5b5650; font-style: italic; margin: 2px 0 0; }
       /* Site / Plot Plan — the plan on its own page, larger than the old half-column. */
       .print-plot-figure { margin: 0 0 6px; }
       .print-plot-large { display: block; width: 100%; max-height: 8in; object-fit: contain; border: 1px solid #ccc; }
       /* Property Photos — grouped by area, each photo a self-describing "plate" whose
          context (area + shot + requirement + filename) is BOUND to the image so a page
          break can never strand a photo from the information that explains it. */
-      .print-photos-intro { font-size: 10px; color: #6b6660; font-style: italic; margin: -6px 0 12px; }
+      .print-photos-intro { font-size: 10pt; color: #514c46; font-style: italic; margin: -6px 0 12px; }
       .print-photogroup { margin-bottom: 6px; }
       /* Area band: a serif divider that leads each area's plates. break-after: avoid keeps
          it from orphaning at a page bottom, away from its first photo. */
       .print-photogroup__band { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-        font-family: Georgia, serif; font-size: 12.5px; font-weight: 600; color: #7d0d18;
+        font-family: Georgia, serif; font-size: 11pt; font-weight: 600; color: #7d0d18;
         text-transform: uppercase; letter-spacing: .09em; border-bottom: 1.5px solid #d9b8b5;
         padding: 0 0 3px; margin: 15px 0 10px; break-after: avoid; }
       .print-photogroup__band::before { content: ""; }
       .print-photogroup__name { position: relative; padding-left: 13px; }
       .print-photogroup__name::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
         width: 7px; height: 7px; background: #a4111f; border-radius: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-photogroup__count { font-family: 'Segoe UI', Arial, sans-serif; font-size: 8.5px; font-weight: 600;
-        text-transform: none; letter-spacing: .02em; color: #b0aaa2; }
+      .print-photogroup__count { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9pt; font-weight: 600;
+        text-transform: none; letter-spacing: .02em; color: #5b5650; }
       /* The plate: photo + its bound caption block, kept whole across a page break. */
       .print-plate { break-inside: avoid; border: 1px solid #e2ddd6; border-radius: 5px; overflow: hidden;
         background: #fff; margin: 0 0 12px; }
@@ -2208,26 +2226,26 @@ async function printPreview() {
       .print-plate__img { display: block; width: 100%; max-height: 6.5in; object-fit: contain; }
       .print-plate__cap { border-top: 1px solid #e2ddd6; padding: 7px 11px 9px; }
       .print-plate__caphead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-      .print-plate__area { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      .print-plate__area { font-size: 8.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
         color: #fff; background: #a4111f; border-radius: 3px; padding: 1.5px 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-plate__shot { font-size: 12px; font-weight: 600; color: #1d1a17; }
-      .print-plate__req { font-size: 9.5px; line-height: 1.4; color: #6b6660; margin: 5px 0 0; }
-      .print-plate__reqlabel { font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: 7.5px;
+      .print-plate__shot { font-size: 11pt; font-weight: 600; color: #1d1a17; }
+      .print-plate__req { font-size: 10pt; line-height: 1.4; color: #514c46; margin: 5px 0 0; }
+      .print-plate__reqlabel { font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: 8.5pt;
         color: #a4111f; margin-right: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-plate__file { display: inline-block; font-family: 'Consolas', 'SFMono-Regular', ui-monospace, monospace;
-        font-size: 8.5px; color: #8a8580; margin-top: 6px; }
+        font-size: 9pt; color: #5b5650; margin-top: 6px; }
       /* --- adjacent-owner signature strip, folded onto the cover bottom (Sprint 21) --- */
       .print-neighbors { margin-top: 14px; padding-top: 8px; border-top: 2px solid #a4111f; break-inside: avoid; }
       .print-neighbors__head { display: flex; justify-content: space-between; align-items: baseline; }
-      .print-neighbors__hint { font-size: 9px; color: #8a8580; font-style: italic; }
-      .print-neighbors__change { font-size: 10.5px; margin: 4px 0 2px; color: #1d1a17; }
-      .print-neighbors__lbl { display: inline-block; font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #a4111f; margin-right: 6px; }
-      .nf-section { font-family: Georgia, serif; font-size: 13px; color: #7d0d18; font-weight: 700; }
-      .nf-note { font-size: 9.5px; line-height: 1.35; color: #6b645c; margin: 3px 0 4px; }
+      .print-neighbors__hint { font-size: 9pt; color: #5b5650; font-style: italic; }
+      .print-neighbors__change { font-size: 10pt; margin: 4px 0 2px; color: #1d1a17; }
+      .print-neighbors__lbl { display: inline-block; font-size: 8.5pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #a4111f; margin-right: 6px; }
+      .nf-section { font-family: Georgia, serif; font-size: 12pt; color: #7d0d18; font-weight: 700; }
+      .nf-note { font-size: 9.5pt; line-height: 1.35; color: #514c46; margin: 4px 0 6px; }
       .nf-note strong { color: #3a352f; }
       .nf-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
-      .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 3px 6px; border: 1px solid #999; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .nf-table td { border: 1px solid #999; padding: 0 6px; height: 33px; vertical-align: bottom; }
+      .nf-table th { font-size: 9pt; text-transform: uppercase; letter-spacing: .04em; color: #7d0d18; background: #faf8f4; text-align: left; padding: 4px 6px; border: 1px solid #777; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .nf-table td { border: 1px solid #777; padding: 0 6px; height: .46in; vertical-align: bottom; }
       .nf-num { width: 22px; text-align: center; color: #777; }
       .nf-sig { width: 30%; }
       .nf-date { width: 82px; }
