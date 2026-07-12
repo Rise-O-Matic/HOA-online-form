@@ -1700,14 +1700,37 @@ function buildWarningCoverHTML() {
     </section>`;
 }
 
-/* Page 1 of the printed packet (the cover). It leads with the application summary
-   (applicant table + acknowledgments + owner signature — moved here from its own page
-   2026-07-05 at the user's request), then the four submission steps (the fourth: wait for
-   the committee's reply, which requests the review fee), with the two nearest turn-in
-   deadlines and a link to the full schedule folded into the email step, and the
-   adjacent-owner signature block folded onto the bottom. The specialist's contact + hours
-   ("Questions?") sit in the header. The incompleteness warning that used to sit inline
-   here prints as its own front page (buildWarningCoverHTML). */
+/* Page 1 of the printed packet (the cover). Below the masthead, three content blocks are
+   spread down the sheet with even whitespace between them (.print-cover-body, a flex column
+   with justify-content:space-between): (1) a grouped top card (.print-topgroup) holding the
+   Applicant of Record summary + the Owner Certification signature block as one unit, (2) the
+   four submission steps, and (3) the adjacent-owner signature strip. A single-line "Questions?"
+   contact footer sits below that body at the bottom of the sheet. Everything the applicant
+   needs to submit lives in the four-step block (2026-07-11): the destination email + the two
+   nearest turn-in deadlines are folded into the email step. The applicant table + owner
+   certification were grouped and the three blocks set to even distribution 2026-07-11 at the
+   user's request (the record + certification had previously been separated by the steps). Within
+   the certification block the "Owner certification" header sits on top, the acknowledgments
+   summary under it, then the signature (2/3 width) + date (1/3 width) fields share one baseline.
+   The full incompleteness warning prints as its own front page when anything is missing
+   (buildWarningCoverHTML).
+
+   Design polish (2026-07-11): the cover is refined line-art letterhead — NO solid ink blocks
+   (matching the warning page's approved aesthetic). The masthead is the wordmark alone, closed
+   by a thin-gold hairline (.print-header::after). The applicant table is a horizontal-hairline
+   record card under a ruled .sec-eyebrow; the four steps are a line-art STEPPER (outlined serif
+   numerals via a CSS counter, joined by a hairline gutter connector — .print-steps
+   li::before/::after); the "Questions?" footer is a warm hairline callout constrained to one
+   line (white-space:nowrap). Per the 2026-07-12 cleanup, the crimson section-divider rules
+   (masthead border-bottom, "Submit in four steps" heading rule, the certification tick, and the
+   neighbor-strip top rule) were removed — the cover now separates sections by whitespace/hairline
+   only, no red horizontal rules. Per the 2026-07-11 declutter request the FC seal and the
+   "Review Season ${REVIEW_YEAR}" stamp were removed from the masthead, the "What happens next"
+   headnote was dropped, and the running page header (@top-left/@top-right margin boxes) is
+   suppressed on the cover only via a named page (.print-cover-page{page:cover} + @page cover{
+   @top-*: content none }) since the masthead already stands in for it. All cover CSS is
+   cover-scoped in printPreview's inline <style>; note .print-cover__head h4 sets border:0 to
+   neutralize the print doc's generic h4 rule. */
 function buildInstructionsHTML(d) {
   const uploadPlot = d.planMode === "upload";
   const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
@@ -1718,80 +1741,75 @@ function buildInstructionsHTML(d) {
 
   return `
     <section class="print-page print-cover-page">
-      <div class="print-header">
-        <div>
+      <header class="print-header">
+        <div class="print-header__word">
           <div class="print-eyebrow">Fairway Canyon Homeowners Association</div>
-          <div class="print-title">Architectural Review Committee Application</div>
+          <div class="print-title">Architectural Review Committee</div>
+          <div class="print-subtitle">Homeowner Application &amp; Submission Cover · Beaumont, California</div>
         </div>
-        <div class="print-contact">
-          <strong class="print-contact__q">Questions?</strong> CarolMarie Taylor — Sr. Architectural Specialist<br>
-          951-801-4246 · carolmarie.taylor@fsresidential.com<br>
-          Tue&ndash;Sat · 9:00&nbsp;AM&ndash;4:30&nbsp;PM (in-person by appointment)
+      </header>
+
+      <div class="print-cover-body">
+        <div class="print-topgroup">
+          <div class="print-record">
+            <div class="sec-eyebrow">Applicant of record</div>
+            <table class="print-table">
+              <tr>
+                <td class="print-label">Homeowner(s)</td>
+                <td class="print-value">${esc(d.ownerName) || ""}</td>
+                <td class="print-label">Property Address</td>
+                <td class="print-value">${esc(d.propertyAddress) || ""}</td>
+              </tr>
+              <tr>
+                <td class="print-label">Phone</td>
+                <td class="print-value">${esc(d.ownerPhone) || ""}</td>
+                <td class="print-label">Email</td>
+                <td class="print-value">${esc(d.ownerEmail) || ""}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="print-certline" aria-label="Owner certification">
+            <p class="print-certline__ack">
+              ${acksChecked
+                ? "All 8 acknowledgment items have been read and accepted."
+                : "⚠ Not all acknowledgment items were checked."}
+            </p>
+            <div class="print-certline__sign">
+              <div class="print-sig-field print-sig-field--sign">
+                <div class="print-sig-ink">${
+                  d.ownerSigMethod === "type"
+                    ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
+                    : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" alt="Homeowner signature" />` : "")
+                }${esignTag("Sig_es_:signer1:signature")}</div>
+                <div class="print-sig-line"></div>
+                <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " (signed electronically by typing name)" : ""}</div>
+              </div>
+              <div class="print-sig-field print-sig-field--date">
+                <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
+                <div class="print-sig-line"></div>
+                <div class="print-sig-label">Date</div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <table class="print-table">
-        <tr>
-          <td class="print-label">Homeowner(s)</td>
-          <td>${esc(d.ownerName) || "—"}</td>
-          <td class="print-label">Property Address</td>
-          <td>${esc(d.propertyAddress) || "—"}</td>
-        </tr>
-        <tr>
-          <td class="print-label">Phone</td>
-          <td>${esc(d.ownerPhone) || "—"}</td>
-          <td class="print-label">Email</td>
-          <td>${esc(d.ownerEmail) || "—"}</td>
-        </tr>
-      </table>
-
-      <p class="print-info print-cover-intro">The pages that follow contain your proposed improvements, site / plot plan, and property photos. Complete the steps below, then use the adjacent-owner signature form at the bottom of this cover.</p>
-
-      <div class="print-cover-main">
         <div class="print-cover">
-          <h4>Submit in four steps</h4>
+          <div class="print-cover__head">
+            <h4>Submit in four steps</h4>
+          </div>
           <ol class="print-steps">
-            <li><strong>Save or print this packet.</strong> Everything you entered — proposed improvements, plot plan, property photos, and your signature — is already inside it.</li>
-            <li><strong>Collect adjacent-owner signatures</strong> below, in person, then scan or photograph the signed cover. A signature confirms notification, not approval.</li>
-            <li><strong>Email the packet and signed cover${uploadPlot ? ", plus your plot-plan file," : ""}.</strong> Your complete packet must arrive by a posted deadline to make that month&rsquo;s board meeting.</li>
-            <li><strong>Wait for our reply.</strong> <strong>No payment is due now.</strong> The committee will request the review fee after confirming the application is complete.</li>
+            <li><strong>Save or print this packet.</strong> Everything you entered (proposed improvements, plot plan, property photos, and your signature) is already inside it.</li>
+            <li><strong>Collect adjacent-owner signatures</strong> on the form at the bottom of this cover, in person, then scan or photograph the signed cover. A signature confirms notification, not approval.</li>
+            <li><strong>Email everything to <span class="print-email">carolmarie.taylor@fsresidential.com</span>.</strong> Send this packet and the signed cover${uploadPlot ? ", plus your plot-plan file," : ""} so it arrives by a posted deadline. The next two are <span class="dl">${dl1}</span> and <span class="dl">${dl2}</span>. Meeting a deadline puts you on that month&rsquo;s board agenda.</li>
+            <li><strong>Wait for our reply. No payment is due now.</strong> The committee requests the review fee only after confirming your application is complete.</li>
           </ol>
         </div>
 
-        <aside class="print-cert" aria-label="Submission destination and owner certification">
-          <div class="print-submit-card">
-            <span class="print-submit-card__label">Email only</span>
-            <strong>carolmarie.taylor@fsresidential.com</strong>
-            <span>Next deadlines: ${dl1} and ${dl2}</span>
-            <a class="print-link" href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">Full 2026 review-date schedule &rarr;</a>
-          </div>
-
-          <h4>Owner certification</h4>
-          <p class="print-ack-summary">${acksChecked
-            ? "All 8 acknowledgment items have been read and accepted."
-            : "⚠ Not all acknowledgment items were checked."}</p>
-
-          <div class="print-sig-block">
-            <div class="print-sig-field">
-              <div class="print-sig-ink">${
-                d.ownerSigMethod === "type"
-                  ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
-                  : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" alt="Homeowner signature" />` : "")
-              }${esignTag("Sig_es_:signer1:signature")}</div>
-              <div class="print-sig-line"></div>
-              <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " — signed electronically by typing name" : ""}</div>
-            </div>
-            <div class="print-sig-field print-sig-field--date">
-              <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
-              <div class="print-sig-line"></div>
-              <div class="print-sig-label">Date</div>
-            </div>
-          </div>
-          <p class="print-cert__note">Incomplete applications are returned unreviewed. The 45-day review clock starts only when everything is received.</p>
-        </aside>
+        ${buildNeighborStripHTML(d)}
       </div>
 
-      ${buildNeighborStripHTML(d)}
+      <p class="print-cover__questions"><strong>Questions?</strong> CarolMarie Taylor, Sr. Architectural Specialist · 951-801-4246 · Tue to Sat, 9:00&nbsp;AM to 4:30&nbsp;PM, by appointment</p>
     </section>`;
 }
 
@@ -2094,6 +2112,13 @@ async function printPreview() {
         @bottom-left { content: "Fairway Canyon HOA — Architectural Review Committee Application"; font: 8pt 'Segoe UI', Arial, sans-serif; color: #68625b; vertical-align: top; padding-top: 2.5mm; }
         @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt 'Segoe UI', Arial, sans-serif; color: #5b5650; vertical-align: top; padding-top: 2.5mm; }
       }
+      /* Suppress the running header on the cover page only (its own masthead stands in);
+         the bottom footer + page counters stay. The cover is assigned this named page via
+         .print-cover-page{ page: cover } — paged.js supports named pages + per-page margin boxes. */
+      @page cover {
+        @top-left { content: none; }
+        @top-right { content: none; }
+      }
       * { box-sizing: border-box; }
       body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #1d1a17; line-height: 1.42; font-size: 11pt; margin: 0; }
       .print-doc { max-width: 100%; }
@@ -2113,6 +2138,12 @@ async function printPreview() {
          rule got extracted and hid the bar in the very preview it belongs in (the first two
          attempts' "no bar" bug). Inline styles can't be disabled/extracted; the bar is hidden
          from real printouts via beforeprint/afterprint in JS instead of @media print. */
+      /* Belt-and-suspenders for the "@page cover" running-header suppression: also blank the
+         generated top-left/top-right margin boxes on cover pages by class, in case the named-
+         page margin-box cascade doesn't fully override. Scoped to .pagedjs_cover_page so only
+         the cover loses its header; the bottom footer + page counters are untouched. */
+      .pagedjs_cover_page .pagedjs_margin-top-left,
+      .pagedjs_cover_page .pagedjs_margin-top-right { visibility: hidden !important; }
       /* --- Sprint 21 warning "cover-cover" page (printed ONLY when something is missing;
          buildWarningCoverHTML returns "" for a complete application, so it simply vanishes) --- */
       .print-warncover { display: flex; flex-direction: column; min-height: 8.8in; }
@@ -2137,48 +2168,75 @@ async function printPreview() {
       .print-warncover__attach { width: 100%; max-width: 33em; text-align: left; margin-top: 18px; font-size: 10.5pt; line-height: 1.5; color: #3a352f; border: 1px solid #e6c9c6; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 11px 15px; }
       .print-warncover__attach strong { color: #7d0d18; }
       .print-warncover__foot { flex: none; text-align: center; font-size: 9pt; color: #5b5650; padding: 0 9% 18px; }
-      /* --- cover (page 1): concise submission instructions, two-column --- */
-      /* Flex column so the folded signature strip pins to the bottom of the sheet
-         (min-height under the ~9.66in content box keeps it to one page). */
-      .print-cover-page { display: flex; flex-direction: column; min-height: 8.8in; }
-      .print-cover-page .print-neighbors { margin-top: auto; }
-      .print-cover-main { display: grid; grid-template-columns: minmax(0, 1.34fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 4px; }
-      .print-cover h4, .print-cert h4 { font-size: 12pt; }
-      .print-cover h4:first-child { margin-top: 2px; }
-      .print-steps { margin: 6px 0 0; padding-left: 20px; font-size: 10pt; line-height: 1.42; }
-      .print-steps li { margin-bottom: 8px; padding-left: 2px; }
-      .print-email { font-weight: 700; }
-      .print-link { color: #7d0d18; font-weight: 600; text-decoration: none; border-bottom: 1px solid #d9b7ba; white-space: nowrap; }
+      /* --- cover (page 1): concise submission instructions, full-width single column --- */
+      /* The sheet is a flex column: masthead at the top, a single-line Questions footer at the
+         bottom, and .print-cover-body filling the middle. min-height stays under the ~9.66in
+         content box so the whole cover keeps to one page. */
+      .print-cover-page { display: flex; flex-direction: column; min-height: 9.2in; page: cover; }
+      /* The three content blocks (grouped record+certification, the steps, the signature strip)
+         are spread down the page with even whitespace between them (space-between; the gap is a
+         floor so a full page still breathes). ONE-PAGE BUDGET (measured 2026-07-12): the packed
+         natural height of this cover is ~9.23in, which clears the ~9.66in printable content box
+         (letter minus the 18/16/16mm @page margins) by ~0.4in. The block paddings/margins here,
+         the four-step gaps, and the .nf-table row height (.38in) were tuned to hold that budget —
+         the neighbor strip's 6 rows are the dominant term. Re-inflating any of them (or restoring
+         the .46in rows) pushes the cover onto a second page, so re-measure if you loosen spacing. */
+      .print-cover-body { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; gap: 13px; }
+      /* Grouped top card: Applicant of Record + Owner Certification read as one unit, the
+         certification's own top hairline serving as the internal divider between them. */
+      .print-topgroup { border: 1px solid #e6ddd4; border-radius: 6px; padding: 10px 14px; }
+      /* Zero the strip's own top margin inside the evenly-distributed body so the space-between
+         gap above it matches the gap above the steps (its crimson top rule + padding stay). */
+      .print-cover-body .print-neighbors { margin-top: 0; }
+      .print-cover { margin-top: 0; }
+      .print-cover__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 2px; margin-bottom: 6px; }
+      .print-cover__head h4 { font-family: Georgia, serif; font-size: 14pt; font-weight: 600; color: #7d0d18; margin: 0; border: 0; padding: 0; }
+      /* Line-art stepper: outlined serif numerals joined by a hairline gutter. */
+      .print-steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+      .print-steps li { counter-increment: step; position: relative; padding-left: 33px; margin-bottom: 7px; font-size: 10pt; line-height: 1.42; color: #2a2620; }
+      .print-steps li:last-child { margin-bottom: 0; }
+      .print-steps li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid #a4111f; background: #fff; color: #a4111f; font-family: Georgia, serif; font-weight: 700; font-size: 11pt; display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-steps li:not(:last-child)::after { content: ""; position: absolute; left: 10.5px; top: 23px; bottom: -7px; width: 1px; background: #e6ceca; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-steps strong { color: #1d1a17; }
+      .print-steps .dl { font-weight: 700; color: #a4111f; white-space: nowrap; }
+      .print-email { font-weight: 700; color: #7d0d18; border-bottom: 1.5px solid #d9b8b5; padding-bottom: .5px; overflow-wrap: anywhere; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      /* Single-line contact footer, pinned to the bottom of the cover (after the signature strip). */
+      .print-cover__questions { margin: 9px 0 0; padding: 7px 12px; font-size: 8pt; color: #45413c; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #faf8f4; border: 1px solid #ecdfd6; border-left: 3px solid #a4111f; border-radius: 0 4px 4px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-cover__questions strong { color: #7d0d18; letter-spacing: .01em; }
       .print-info { font-size: 10pt; margin: 4px 0 7px; }
-      .print-cover-intro { margin-bottom: 7px; }
-      .print-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
-      .print-eyebrow { font-size: 8.5pt; letter-spacing: .15em; text-transform: uppercase; color: #a4111f; font-weight: 700; }
-      .print-title { font-family: Georgia, serif; font-size: 16pt; font-weight: 600; line-height: 1.1; }
-      .print-contact { font-size: 9pt; color: #45413c; text-align: right; line-height: 1.45; }
-      .print-contact__q { color: #7d0d18; }
+      /* Masthead: the wordmark, closed by a thin gold rule. */
+      .print-header { display: flex; align-items: center; gap: 15px; position: relative; padding-bottom: 9px; margin-bottom: 8px; }
+      .print-header::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4.5px; height: 1px; background: #b08433; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-header__word { flex: 1 1 auto; }
+      .print-eyebrow { font-size: 8pt; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 700; }
+      .print-title { font-family: Georgia, 'Times New Roman', serif; font-size: 21pt; font-weight: 600; line-height: 1.02; color: #1d1a17; margin: 3px 0 1px; letter-spacing: -.005em; }
+      .print-subtitle { font-size: 9.5pt; color: #5b5650; }
       h4 { font-size: 11pt; color: #7d0d18; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 10px 0 4px; }
-      .print-table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-bottom: 4px; }
-      .print-table td, .print-table th { padding: 4px 7px; border: 1px solid #d5d0c9; vertical-align: top; }
-      .print-label { font-weight: 700; color: #45413c; width: 100px; white-space: nowrap; background: #faf8f4; }
+      /* Applicant record: a small ruled eyebrow + a clean horizontal-hairline record card. */
+      .print-record { margin-bottom: 3px; }
+      .sec-eyebrow { font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; font-weight: 700; color: #a4111f; display: flex; align-items: center; gap: 7px; margin: 0 0 4px; }
+      .sec-eyebrow::after { content: ""; flex: 1 1 auto; height: 1px; background: #ecdfd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-table { width: 100%; border-collapse: collapse; font-size: 10pt; border-top: 1px solid #d5d0c9; border-bottom: 1px solid #d5d0c9; }
+      .print-table td { padding: 5px 8px; vertical-align: baseline; border-bottom: 1px solid #efe9e1; }
+      .print-table tr:last-child td { border-bottom: none; }
+      .print-label { font-size: 7.5pt; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #8a8278; width: 96px; white-space: nowrap; }
+      .print-value { font-weight: 500; color: #1d1a17; }
       .print-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 3px 13px; margin: 5px 0 0; padding: 0; font-size: 9pt; }
       .print-legend li { display: flex; align-items: center; gap: 4px; }
       .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #777; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-legend svg, .print-legend img { flex: none; width: 12px; height: 12px; }
       .print-ack-summary { font-size: 9.5pt; margin: 4px 0 7px; }
-      .print-submit-card { display: flex; flex-direction: column; gap: 3px; border: 1.5px solid #d9b8b5; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 9px 11px; margin: 2px 0 10px; background: #fffafa; }
-      .print-submit-card__label { color: #7d0d18; font-size: 8.5pt; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
-      .print-submit-card strong { font-size: 10.5pt; overflow-wrap: anywhere; }
-      .print-submit-card span:not(.print-submit-card__label), .print-submit-card a { font-size: 9pt; }
-      .print-cert { border: 1px solid #ded8d1; border-radius: 5px; padding: 10px 12px; background: #fcfbf9; }
-      .print-cert h4 { margin-top: 0; }
-      .print-cert__note { margin: 9px 0 0; padding-top: 7px; border-top: 1px solid #ded8d1; color: #45413c; font-size: 9pt; line-height: 1.4; }
-      .print-sig-block { margin-top: 8px; }
-      .print-sig-field { flex: 1; }
-      .print-sig-field--date { margin-top: 10px; max-width: 125px; }
+      /* Owner certification: acknowledgment summary, then the
+         signature (2/3) + date (1/3) fields on one shared baseline. */
+      .print-certline { display: block; margin-top: 9px; padding-top: 8px; position: relative; }
+      .print-certline__ack { margin: 0 0 9px; font-size: 9.5pt; color: #45413c; line-height: 1.42; }
+      .print-certline__sign { display: flex; align-items: flex-end; gap: 24px; }
+      .print-certline__sign .print-sig-field--sign { flex: 2 1 0; }
+      .print-certline__sign .print-sig-field--date { flex: 1 1 0; white-space: nowrap; }
       .print-sig-ink { min-height: 30px; display: flex; align-items: flex-end; }
       .print-sig-line { border-bottom: 1px solid #333; margin-top: 2px; }
       .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 14pt; }
-      .print-sig-label { font-size: 9pt; color: #514c46; margin-top: 3px; }
+      .print-sig-label { font-size: 8pt; color: #514c46; margin-top: 3px; letter-spacing: .02em; }
       /* Adobe Acrobat Sign text tags (Sprint 22): inert in a plain PDF; Adobe Sign converts
          them to fillable fields on upload. Tiny near-white text so they don't mar the printed
          signature spots. print-color-adjust:exact keeps the near-white from being darkened. */
@@ -2235,18 +2293,18 @@ async function printPreview() {
       .print-plate__file { display: inline-block; font-family: 'Consolas', 'SFMono-Regular', ui-monospace, monospace;
         font-size: 9pt; color: #5b5650; margin-top: 6px; }
       /* --- adjacent-owner signature strip, folded onto the cover bottom (Sprint 21) --- */
-      .print-neighbors { margin-top: 14px; padding-top: 8px; border-top: 2px solid #a4111f; break-inside: avoid; }
+      .print-neighbors { margin-top: 14px; padding-top: 8px; break-inside: avoid; }
       .print-neighbors__head { display: flex; justify-content: space-between; align-items: baseline; }
       .print-neighbors__hint { font-size: 9pt; color: #5b5650; font-style: italic; }
       .print-neighbors__change { font-size: 10pt; margin: 4px 0 2px; color: #1d1a17; }
       .print-neighbors__lbl { display: inline-block; font-size: 8.5pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #a4111f; margin-right: 6px; }
       .nf-section { font-family: Georgia, serif; font-size: 12pt; color: #7d0d18; font-weight: 700; }
-      .nf-note { font-size: 9.5pt; line-height: 1.35; color: #514c46; margin: 4px 0 6px; }
+      .nf-note { font-size: 9.5pt; line-height: 1.35; color: #514c46; margin: 3px 0 5px; }
       .nf-note strong { color: #3a352f; }
       .nf-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
-      .nf-table th { font-size: 9pt; text-transform: uppercase; letter-spacing: .04em; color: #7d0d18; background: #faf8f4; text-align: left; padding: 4px 6px; border: 1px solid #777; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .nf-table td { border: 1px solid #777; padding: 0 6px; height: .46in; vertical-align: bottom; }
-      .nf-num { width: 22px; text-align: center; color: #777; }
+      .nf-table th { font-size: 8pt; text-transform: uppercase; letter-spacing: .06em; color: #7d0d18; background: #faf8f4; text-align: left; padding: 4px 7px; border: 1px solid #cdbfae; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .nf-table td { border: 1px solid #cdbfae; padding: 0 7px; height: .38in; vertical-align: bottom; }
+      .nf-num { width: 22px; text-align: center; color: #8a8278; }
       .nf-sig { width: 30%; }
       .nf-date { width: 82px; }
     </style></head><body>
