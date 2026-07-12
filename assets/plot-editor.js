@@ -351,9 +351,9 @@ const ANNOTATION_REF_ZOOM = 0.71; // pivot: at/below this zoom labels hold at AN
 const PRINT_PLOT_WIDTH_PX = 340; // how wide the plan prints, in the print doc's CSS px: letter page
                                  // (8.5in) minus 16mm side margins ≈ 695px, split into two flex
                                  // columns with a 14px gap (see buildPrintHTML's .print-col/.print-plot)
-const SCREEN_AERIAL_OPACITY = 0.33; // faint tracing aid on the live stage (multiply paint reads over it)
-const PRINT_AERIAL_OPACITY = 0.72;  // stronger on paper — it's the actual satellite base map of the lot,
-                                    // not a tracing aid, and there's no screen backlight/multiply to help it
+const SCREEN_AERIAL_OPACITY = 0.33; // faint tracing aid on the live stage AND in print — the printed
+                                    // packet matches the builder: this faded opacity plus a real
+                                    // multiply blend (globalCompositeOperation in renderPlotImage)
 const SAFE_CANVAS_PX = 3200;  // cap on the backing canvas's longest side (content × zoom) to bound memory
 // Ground-truth aerial alignment calibration. The county's 2020 orthophoto sits a few feet off
 // the parcel vectors at any given lot — verified NOT a datum issue (a NAD83↔WGS84
@@ -2748,14 +2748,19 @@ export function renderPlotImage() {
   // graph paper reads over it and painted materials (opaque in print) sit on top of the ground.
   // Only composited once the image has decoded (cached in plotBgImg); omitted gracefully if not.
   if (plotBgImg && plotBgImg.complete && plotBgImg.naturalWidth) {
-    const aerial = buildAerialNode(plotBgImg, PRINT_AERIAL_OPACITY);
+    const aerial = buildAerialNode(plotBgImg, SCREEN_AERIAL_OPACITY);
     if (aerial) layer.add(aerial);
   }
-  if (gridLinesCanvas) layer.add(new Konva.Image({ image: gridLinesCanvas, x: 0, y: 0 }));
+  // Match the live builder: the grid + painted materials multiply over the faded aerial so the
+  // ground texture reads through them. On the live stage this is CSS mixBlendMode on the grid
+  // layer's DOM canvas, but toDataURL() ignores CSS blend — so here it's Konva's own
+  // globalCompositeOperation (which IS baked into the exported bitmap), applied to each node so
+  // it multiplies against the white+aerial already drawn beneath it on this one layer.
+  if (gridLinesCanvas) layer.add(new Konva.Image({ image: gridLinesCanvas, x: 0, y: 0, globalCompositeOperation: "multiply" }));
   if (paintCanvas) {
     // Occlude paint outside the footprint in print/preview too (same clip as the live stage).
     const clip = new Konva.Group({ clipFunc: clipToParcel });
-    clip.add(new Konva.Image({ image: paintCanvas, x: 0, y: 0 }));
+    clip.add(new Konva.Image({ image: paintCanvas, x: 0, y: 0, globalCompositeOperation: "multiply" }));
     layer.add(clip);
   }
   {

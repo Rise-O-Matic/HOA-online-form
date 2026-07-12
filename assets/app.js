@@ -36,6 +36,9 @@ const SCROLL_KEY = "fairwayCanyonArcDraft.scroll"; // sessionStorage — per-tab
    is a client-side mockup with no backend, so this is a locally-generated handle for the
    applicant/reviewer to cite — NOT an official HOA case number. */
 let appRefId = null;
+// Base57 alphabet (the shortuuid default: 0/O/1/I/l dropped so a hand-cited id can't be
+// misread). Case-sensitive — the encoding depends on both cases, so never upper-case it.
+const REFID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 function genRefId() {
   const uuid = (typeof crypto !== "undefined" && crypto.randomUUID)
     ? crypto.randomUUID()
@@ -44,7 +47,11 @@ function genRefId() {
         const r = Math.floor(Math.random() * 16), v = c === "x" ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
-  return "FC-ARC-" + uuid.toUpperCase();
+  // Base57-encode the full 128-bit UUID into a compact, human-friendly handle: a fixed 22
+  // characters, no ambiguous glyphs, shorter to read aloud or type than the hex-dashed form.
+  let n = BigInt("0x" + uuid.replace(/-/g, "")), out = "";
+  while (n > 0n) { out = REFID_ALPHABET[Number(n % 57n)] + out; n /= 57n; }
+  return "FC-ARC-" + out.padStart(22, REFID_ALPHABET[0]);
 }
 function getRefId() { return appRefId || (appRefId = genRefId()); }
 
@@ -619,6 +626,15 @@ Object.values(PHOTO_SPECS).forEach(spec => spec.shots.forEach(s => { PHOTO_TITLE
 PHOTO_TITLE[PHOTO_CLOSEUP.id] = PHOTO_CLOSEUP.title; // deliberately no area prefix
 PHOTO_TITLE[PHOTO_MATERIAL.id] = PHOTO_MATERIAL.title;
 function photoTitle(id) { return PHOTO_TITLE[id] || id; }
+// id -> {area, shot, instr}: the context each print "plate" binds to its photo so a
+// reviewer never has to flip back to the request list (area = grouping label, shot =
+// the specific request title, instr = what the shot should show).
+const PHOTO_INFO = {};
+Object.entries(PHOTO_SPECS).forEach(([, spec]) => spec.shots.forEach(s => {
+  PHOTO_INFO[s.id] = { area: spec.label, shot: s.title, instr: s.instr };
+}));
+PHOTO_INFO[PHOTO_CLOSEUP.id] = { area: "Work area", shot: PHOTO_CLOSEUP.title, instr: PHOTO_CLOSEUP.instr };
+PHOTO_INFO[PHOTO_MATERIAL.id] = { area: "Material sample", shot: PHOTO_MATERIAL.title, instr: PHOTO_MATERIAL.instr };
 
 const photoRequestsEl = $("#photo-requests");
 const photoEmptyEl = $("#photo-empty");
@@ -1616,18 +1632,26 @@ function esignTag(directive) {
   return ADOBE_SIGN.enabled ? `<span class="print-esign-tag">{{${directive}}}</span>` : "";
 }
 
-/* The 2026 review-date table from the source form's "Architectural Review Dates"
-   page — each board-meeting date paired with its application deadline (the DATES
-   constant, same data the landing page shows). Sprint 21 stacks all twelve months
-   into ONE narrow table that lives down the cover's right rail; month names are
-   abbreviated and "(tentative)" collapses to a "†" footnote so the column stays tight. */
-function printDatesHTML() {
-  const compact = s => String(s).replace(/^(\w{3})\w*/, "$1").replace(/\s*\(tentative\)/i, " †");
-  const anyTentative = DATES.some(([m]) => /tentative/i.test(m));
-  return `<table class="print-dates-tbl">
-      <thead><tr><th>Meeting</th><th>Deadline</th></tr></thead>
-      <tbody>${DATES.map(([m, dl]) => `<tr><td>${esc(compact(m))}</td><td>${esc(compact(dl))}</td></tr>`).join("")}</tbody>
-    </table>${anyTentative ? `<p class="print-rail__foot">† date tentative</p>` : ""}`;
+/* The next `count` upcoming application deadlines, parsed from the DATES constant (the
+   2026 review-date table, deadline column) relative to today. The cover used to print the
+   whole twelve-month chart down a right rail; now the two nearest turn-in deadlines ride
+   inside the submission steps and the full schedule is a link. Each returned entry is a
+   {label, tentative} — label reads "July 21, 2026". Falls back to the first `count` rows
+   if the year is already past every deadline, so the steps always name two dates. */
+const REVIEW_YEAR = 2026;
+const MONTH_NAMES = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+function nextDeadlines(count) {
+  const today = new Date();
+  const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const parsed = DATES.map(([, dl]) => {
+    const tentative = /tentative/i.test(dl);
+    const [mon, day] = dl.replace(/\s*\(tentative\)/i, "").trim().split(/\s+/);
+    return { date: new Date(REVIEW_YEAR, MONTH_NAMES.indexOf(mon), parseInt(day, 10)),
+             label: `${mon} ${parseInt(day, 10)}, ${REVIEW_YEAR}`, tentative };
+  });
+  const upcoming = parsed.filter(p => p.date >= cutoff);
+  return (upcoming.length >= count ? upcoming : parsed).slice(0, count);
 }
 
 /* Sprint 21 — the incompleteness "cover-cover" page (a warning that prints BEFORE the
@@ -1677,13 +1701,19 @@ function buildWarningCoverHTML() {
 
 /* Page 1 of the printed packet (the cover). It leads with the application summary
    (applicant table + acknowledgments + owner signature — moved here from its own page
-   2026-07-05 at the user's request), then one merged set of submission steps, the 2026
-   review dates in a right rail, a full-width "Questions?" contact row, and the
-   adjacent-owner signature block folded onto the bottom. The incompleteness warning that
-   used to sit inline here prints as its own front page (buildWarningCoverHTML). */
+   2026-07-05 at the user's request), then the four submission steps (the fourth: wait for
+   the committee's reply, which requests the review fee), with the two nearest turn-in
+   deadlines and a link to the full schedule folded into the email step, and the
+   adjacent-owner signature block folded onto the bottom. The specialist's contact + hours
+   ("Questions?") sit in the header. The incompleteness warning that used to sit inline
+   here prints as its own front page (buildWarningCoverHTML). */
 function buildInstructionsHTML(d) {
   const uploadPlot = d.planMode === "upload";
   const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
+  const deadlines = nextDeadlines(2);
+  const dlText = x => x ? `${x.label}${x.tentative ? " (tentative)" : ""}` : "";
+  const dl1 = esc(dlText(deadlines[0]) || "the next posted deadline");
+  const dl2 = esc(dlText(deadlines[1]) || "the following deadline");
 
   return `
     <section class="print-page print-cover-page">
@@ -1693,8 +1723,9 @@ function buildInstructionsHTML(d) {
           <div class="print-title">Architectural Review Committee Application</div>
         </div>
         <div class="print-contact">
-          CarolMarie Taylor — Sr. Architectural Specialist<br>
-          951-801-4246 · carolmarie.taylor@fsresidential.com
+          <strong class="print-contact__q">Questions?</strong> CarolMarie Taylor — Sr. Architectural Specialist<br>
+          951-801-4246 · carolmarie.taylor@fsresidential.com<br>
+          Tue&ndash;Sat · 9:00&nbsp;AM&ndash;4:30&nbsp;PM (in-person by appointment)
         </div>
       </div>
 
@@ -1740,33 +1771,14 @@ function buildInstructionsHTML(d) {
       </div>
 
       <div class="print-cover">
-        <div class="print-cover__main">
-          <h4>How to submit</h4>
-          <ol class="print-steps">
-            <li><strong>Save or print this packet.</strong> Everything you entered — your proposed improvements, plot plan, property photos, and signature — is already inside it.</li>
-            <li><strong>Collect adjacent-owner signatures</strong> on the block below, in person, then scan or photograph the signed cover. A signature confirms your neighbor was notified — not approval.</li>
-            <li><strong>Email the packet and the signed cover</strong>${uploadPlot ? ", plus your plot-plan file," : ""} to CarolMarie Taylor. Applications are accepted <strong>by email only</strong>:<br>
-              <span class="print-email">carolmarie.taylor@fsresidential.com</span></li>
-          </ol>
-
-          <h4>Deadlines &amp; fees</h4>
-          <p class="print-info">The complete packet must arrive by the deadline (right) to make that month&rsquo;s board meeting; an incomplete application is returned unreviewed, and the 45-day review clock starts only once everything is received.</p>
-          <p class="print-info"><strong>No payment is due now</strong> — the fee is collected only after your application is reviewed and confirmed complete, and a receipt is emailed to you.</p>
-        </div>
-
-        <aside class="print-rail">
-          <div class="print-rail__title">2026 Review Dates</div>
-          ${printDatesHTML()}
-          <p class="print-rail__note">Submit by the <strong>deadline</strong> to make that month&rsquo;s board meeting — no exceptions. A late packet is held for the next meeting. Dates subject to change.</p>
-        </aside>
-      </div>
-
-      <div class="print-cover__questions">
-        <strong>Questions?</strong>
-        <span class="print-cover__q-name">CarolMarie Taylor</span>
-        <span class="print-cover__q-sep">951-801-4246</span>
-        <span class="print-cover__q-sep">Tue&ndash;Sat · 9:00&nbsp;AM&ndash;4:30&nbsp;PM</span>
-        <span class="print-cover__q-muted">(in-person by appointment)</span>
+        <h4>How to submit</h4>
+        <ol class="print-steps">
+          <li><strong>Save or print this packet.</strong> Everything you entered — your proposed improvements, plot plan, property photos, and signature — is already inside it.</li>
+          <li><strong>Collect adjacent-owner signatures</strong> on the block below, in person, then scan or photograph the signed cover. A signature confirms your neighbor was notified — not approval.</li>
+          <li><strong>Email the packet and the signed cover${uploadPlot ? ", plus your plot-plan file," : ""}</strong> to <span class="print-email">carolmarie.taylor@fsresidential.com</span> — applications are accepted <strong>by email only</strong>. The next two turn-in deadlines are <strong>${dl1}</strong> and <strong>${dl2}</strong>; your complete packet must arrive by a deadline to make that month&rsquo;s board meeting. <a class="print-link" href="https://www.fsresidential.com/california/communities/fairway-canyon/" target="_blank" rel="noopener">See the full 2026 review-date schedule &rarr;</a></li>
+          <li><strong>Wait for our reply.</strong> <strong>No payment is due now.</strong> Once the committee confirms your application is complete, you&rsquo;ll receive a response requesting the review fee; a receipt is emailed to you after payment.</li>
+        </ol>
+        <p class="print-info">An incomplete application is returned unreviewed, and the 45-day review clock starts only once everything is received. Dates are subject to change.</p>
       </div>
 
       ${buildNeighborStripHTML(d)}
@@ -1834,20 +1846,50 @@ function buildPlotPageHTML(d, imgs) {
     </section>`;
 }
 
-/* ----- Property Photos page(s): one image per row at full page width, object-fit:
-   contain (scaled, never cropped), captioned by shot title + filename. Flows across as
-   many pages as needed. ----- */
+/* ----- Property Photos page(s): grouped by area into labeled bands, and — crucially —
+   each photo is a self-describing "plate" that binds its context (area chip + the specific
+   shot + what the shot should show + filename) to the image itself. Every plate is
+   break-inside:avoid, so no matter where paged.js drops a page break, a photo is never
+   stranded on a page away from the information that explains it. Flows across as many
+   pages as needed. ----- */
 function buildPhotosPageHTML(d, imgs) {
   const photos = imgs.filter(e => e.kind === "photo");
   if (!photos.length) return "";
-  const blocks = photos.map(e => `
-    <figure class="print-photo-block">
-      ${printImg(e, "print-photo-img")}
-      <figcaption class="print-photo-cap"><strong>${esc(e.caption || "Photo")}</strong>${e.name ? " — " + esc(e.name) : ""}</figcaption>
-    </figure>`).join("");
-  return `<section class="print-page">
+  // Group by area, preserving first-seen (questionnaire) order: front → back → side →
+  // exterior → work-area close-ups → material sample.
+  const order = [];
+  const groups = new Map();
+  photos.forEach(e => {
+    const area = e.area || "Photos";
+    if (!groups.has(area)) { groups.set(area, []); order.push(area); }
+    groups.get(area).push(e);
+  });
+  const sections = order.map(area => {
+    const list = groups.get(area);
+    const plates = list.map(e => {
+      const req = e.instr
+        ? `<p class="print-plate__req"><span class="print-plate__reqlabel">Should show</span>${esc(e.instr)}</p>` : "";
+      return `<figure class="print-plate">
+        <div class="print-plate__frame">${printImg(e, "print-plate__img")}</div>
+        <figcaption class="print-plate__cap">
+          <div class="print-plate__caphead">
+            <span class="print-plate__area">${esc(e.area || "Photo")}</span>
+            <span class="print-plate__shot">${esc(e.shotTitle || e.caption || "Photo")}</span>
+          </div>
+          ${req}
+          ${e.name ? `<span class="print-plate__file">${esc(e.name)}</span>` : ""}
+        </figcaption>
+      </figure>`;
+    }).join("");
+    return `<div class="print-photogroup">
+        <h4 class="print-photogroup__band"><span class="print-photogroup__name">${esc(area)}</span><span class="print-photogroup__count">${list.length} photo${list.length > 1 ? "s" : ""}</span></h4>
+        ${plates}
+      </div>`;
+  }).join("");
+  return `<section class="print-page print-photos-page">
       <h3 class="print-pagetitle">Property Photos</h3>
-      <div class="print-photos">${blocks}</div>
+      <p class="print-photos-intro">Each photo is labeled with the area it documents and what it should show, so it can be reviewed on its own — no need to cross-reference the request list.</p>
+      ${sections}
     </section>`;
 }
 
@@ -1964,8 +2006,9 @@ async function preparePrintImages(d) {
   const sources = [];
   photoChecklist().forEach(r => {
     const input = $(`[data-photo-input="${r.id}"]`, photoRequestsEl);
+    const info = PHOTO_INFO[r.id] || { area: "", shot: r.title, instr: "" };
     Array.from((input && input.files) || []).forEach((f, i) => {
-      if (f.type && f.type.startsWith("image/")) sources.push({ key: `photo:${r.id}:${i}`, kind: "photo", ownerId: r.id, caption: r.title, name: f.name, blob: f });
+      if (f.type && f.type.startsWith("image/")) sources.push({ key: `photo:${r.id}:${i}`, kind: "photo", ownerId: r.id, caption: r.title, area: info.area, shotTitle: info.shot, instr: info.instr, name: f.name, blob: f });
     });
   });
   $$(".improvement", improvementList).forEach(node => {
@@ -2022,8 +2065,8 @@ async function printPreview() {
   if (w.closed) return; // the user closed the placeholder while we worked
 
   const html = buildPrintHTML(d, imgs);
-  // Running-header content: reference id + applicant name/address, plus page counters.
-  const applicant = [d.ownerName, d.propertyAddress].filter(Boolean).join("  ·  ");
+  // Running-header content: reference id + applicant name/address/phone/email, plus page counters.
+  const applicant = [d.ownerName, d.propertyAddress, d.ownerPhone, d.ownerEmail].filter(Boolean).join("  ·  ");
   const refCss = cssStr("Ref " + (d.refId || ""));
   const applicantCss = cssStr(applicant);
   // Absolute URL so the about:blank popup (no base URL of its own) can resolve the vendored file.
@@ -2089,32 +2132,18 @@ async function printPreview() {
          (min-height under the ~9.66in content box keeps it to one page). */
       .print-cover-page { display: flex; flex-direction: column; min-height: 8.8in; }
       .print-cover-page .print-neighbors { margin-top: auto; }
-      .print-cover { display: grid; grid-template-columns: 1fr 1.95in; gap: 22px; align-items: start; }
-      .print-cover__main { min-width: 0; }
-      .print-cover__main h4 { font-size: 13px; }
-      .print-cover__main h4:first-child { margin-top: 2px; }
+      .print-cover h4 { font-size: 13px; }
+      .print-cover h4:first-child { margin-top: 2px; }
       .print-steps { margin: 5px 0 9px; padding-left: 18px; font-size: 12.5px; }
       .print-steps li { margin-bottom: 7px; }
-      .print-email { display: inline-block; margin-top: 3px; font-size: 14px; font-weight: 700; }
+      .print-email { font-weight: 700; }
+      .print-link { color: #7d0d18; font-weight: 600; text-decoration: none; border-bottom: 1px solid #d9b7ba; white-space: nowrap; }
       .print-info { font-size: 12px; margin: 4px 0 7px; }
-      /* full-width "Questions?" contact row at the bottom of the instructions (2026-07-05) */
-      .print-cover__questions { margin-top: 9px; border-top: 1px solid #e2ddd6; padding-top: 6px; font-size: 10px; line-height: 1.5; color: #3a352f; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
-      .print-cover__questions strong { color: #7d0d18; }
-      .print-cover__q-name { font-weight: 600; }
-      .print-cover__q-muted { color: #8a8580; }
-      /* right rail: the 2026 review dates in ONE narrow table */
-      .print-rail { border: 1px solid #e2ddd6; border-radius: 5px; padding: 9px 11px 10px; background: #faf8f4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-rail__title { font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: #7d0d18; border-bottom: 2px solid #a4111f; padding-bottom: 4px; margin-bottom: 6px; }
-      .print-rail__note { font-size: 8.5px; line-height: 1.45; color: #6b645c; margin: 8px 0 0; }
-      .print-rail__foot { font-size: 8px; color: #8a8580; margin: 2px 0 0; }
-      .print-dates-tbl { width: 100%; border-collapse: collapse; font-size: 9px; }
-      .print-dates-tbl th { text-align: left; font-size: 7.5px; text-transform: uppercase; letter-spacing: .04em; color: #a4111f; background: #fff; padding: 2px 5px; border: 1px solid #e2ddd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-dates-tbl td { padding: 1.5px 5px; border: 1px solid #e2ddd6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .print-dates-tbl td:last-child { font-weight: 600; }
-      .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
+      .print-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; border-bottom: 3px solid #a4111f; padding-bottom: 6px; margin-bottom: 8px; }
       .print-eyebrow { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #a4111f; font-weight: 600; }
       .print-title { font-family: Georgia, serif; font-size: 16px; font-weight: 600; line-height: 1.1; }
-      .print-contact { font-size: 9px; color: #555; text-align: right; }
+      .print-contact { font-size: 9px; color: #555; text-align: right; line-height: 1.5; }
+      .print-contact__q { color: #7d0d18; }
       h4 { font-size: 11px; color: #7d0d18; border-bottom: 1.5px solid #a4111f; padding-bottom: 2px; margin: 10px 0 4px; }
       .print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
       .print-table td, .print-table th { padding: 3px 6px; border: 1px solid #ddd; vertical-align: top; }
@@ -2155,11 +2184,38 @@ async function printPreview() {
       /* Site / Plot Plan — the plan on its own page, larger than the old half-column. */
       .print-plot-figure { margin: 0 0 6px; }
       .print-plot-large { display: block; width: 100%; max-height: 8in; object-fit: contain; border: 1px solid #ccc; }
-      /* Property Photos — one image per row, full width, scaled but never cropped. */
-      .print-photos { display: flex; flex-direction: column; gap: 14px; }
-      .print-photo-block { break-inside: avoid; }
-      .print-photo-img { display: block; width: 100%; max-height: 8.2in; object-fit: contain; border: 1px solid #ccc; background: #f7f5f2; }
-      .print-photo-cap { font-size: 10px; color: #555; margin-top: 3px; }
+      /* Property Photos — grouped by area, each photo a self-describing "plate" whose
+         context (area + shot + requirement + filename) is BOUND to the image so a page
+         break can never strand a photo from the information that explains it. */
+      .print-photos-intro { font-size: 10px; color: #6b6660; font-style: italic; margin: -6px 0 12px; }
+      .print-photogroup { margin-bottom: 6px; }
+      /* Area band: a serif divider that leads each area's plates. break-after: avoid keeps
+         it from orphaning at a page bottom, away from its first photo. */
+      .print-photogroup__band { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+        font-family: Georgia, serif; font-size: 12.5px; font-weight: 600; color: #7d0d18;
+        text-transform: uppercase; letter-spacing: .09em; border-bottom: 1.5px solid #d9b8b5;
+        padding: 0 0 3px; margin: 15px 0 10px; break-after: avoid; }
+      .print-photogroup__band::before { content: ""; }
+      .print-photogroup__name { position: relative; padding-left: 13px; }
+      .print-photogroup__name::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+        width: 7px; height: 7px; background: #a4111f; border-radius: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-photogroup__count { font-family: 'Segoe UI', Arial, sans-serif; font-size: 8.5px; font-weight: 600;
+        text-transform: none; letter-spacing: .02em; color: #b0aaa2; }
+      /* The plate: photo + its bound caption block, kept whole across a page break. */
+      .print-plate { break-inside: avoid; border: 1px solid #e2ddd6; border-radius: 5px; overflow: hidden;
+        background: #fff; margin: 0 0 12px; }
+      .print-plate__frame { background: #f2efea; padding: 6px; }
+      .print-plate__img { display: block; width: 100%; max-height: 6.5in; object-fit: contain; }
+      .print-plate__cap { border-top: 1px solid #e2ddd6; padding: 7px 11px 9px; }
+      .print-plate__caphead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+      .print-plate__area { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+        color: #fff; background: #a4111f; border-radius: 3px; padding: 1.5px 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-plate__shot { font-size: 12px; font-weight: 600; color: #1d1a17; }
+      .print-plate__req { font-size: 9.5px; line-height: 1.4; color: #6b6660; margin: 5px 0 0; }
+      .print-plate__reqlabel { font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: 7.5px;
+        color: #a4111f; margin-right: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-plate__file { display: inline-block; font-family: 'Consolas', 'SFMono-Regular', ui-monospace, monospace;
+        font-size: 8.5px; color: #8a8580; margin-top: 6px; }
       /* --- adjacent-owner signature strip, folded onto the cover bottom (Sprint 21) --- */
       .print-neighbors { margin-top: 14px; padding-top: 8px; border-top: 2px solid #a4111f; break-inside: avoid; }
       .print-neighbors__head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -2170,9 +2226,9 @@ async function printPreview() {
       .nf-note { font-size: 9.5px; line-height: 1.35; color: #6b645c; margin: 3px 0 4px; }
       .nf-note strong { color: #3a352f; }
       .nf-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
-      .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 3px 6px; border: 1px solid #ccc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .nf-table td { border: 1px solid #ccc; padding: 0 6px; height: 30px; vertical-align: bottom; }
-      .nf-num { width: 22px; text-align: center; color: #999; }
+      .nf-table th { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; color: #a4111f; background: #faf8f4; text-align: left; padding: 3px 6px; border: 1px solid #999; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .nf-table td { border: 1px solid #999; padding: 0 6px; height: 33px; vertical-align: bottom; }
+      .nf-num { width: 22px; text-align: center; color: #777; }
       .nf-sig { width: 30%; }
       .nf-date { width: 82px; }
     </style></head><body>
