@@ -138,6 +138,8 @@ async function fillImprovements(data) {
     setSelectValue($("[data-imp-category]", row), spec.category);
     setSelectValue($("[data-imp-action]", row), spec.action);
     setInputValue($("[data-imp-name]", row), spec.name);
+    const loc = $("[data-imp-location]", row); // additive (Sprint 25) — older captures just leave it unanswered
+    if (loc && spec.location) setSelectValue(loc, spec.location);
     setInputValue($("[data-imp-materials]", row), spec.materials);
     const dims = $("[data-imp-dims]", row);
     if (dims) setInputValue(dims, spec.dimensions);

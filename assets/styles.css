@@ -1159,6 +1159,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .plan-choice__title { font-weight: 700; font-size: 1rem; color: var(--ink); }
 .plan-choice__desc { font-size: .82rem; color: var(--ink-soft); line-height: 1.45; }
 .plan-upload { margin: 0 0 1rem; }
+/* The Design Diagram Requirements reminder under the upload dropzone (Sprint 25) —
+   advisory framing, matching the pause-note register rather than an error box. */
+.plan-upload__checklist {
+  margin: .85rem 0 0; padding: .8rem 1rem;
+  background: var(--paper-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); font-size: .84rem; color: var(--ink-soft);
+}
+.plan-upload__checklist strong { display: block; margin-bottom: .35rem; color: var(--ink); }
+.plan-upload__checklist ul { margin: 0; }
 .plot-choice-msg { margin: .4rem 0 0; font-size: .84rem; min-height: 1em; }
 .plot-choice-msg.err { color: var(--crimson); font-weight: 600; }
 @media (max-width: 620px) { .plan-choice { grid-template-columns: 1fr; } }

@@ -25,6 +25,7 @@ import {
   clearAttachments, clearAllAttachments
 } from "./attach-store.js";
 import { allocateImageBudget, dataUrlByteLength, ENCODE_LADDER } from "./image-budget.js";
+import { assessApplication, validEmail, validPhone } from "./requirements.js";
 
 const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
 const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
@@ -284,9 +285,22 @@ function improvementTemplate(idx) {
           </select>
         </div>
       </div>
-      <div class="field">
-        <label for="imp_name_${idx}">What is it?</label>
-        <input type="text" id="imp_name_${idx}" name="imp_name_${idx}" data-imp-name required placeholder="e.g. Alumawood patio cover" />
+      <div class="grid-2">
+        <div class="field">
+          <label for="imp_name_${idx}">What is it?</label>
+          <input type="text" id="imp_name_${idx}" name="imp_name_${idx}" data-imp-name required placeholder="e.g. Alumawood patio cover" />
+        </div>
+        <div class="field">
+          <label for="imp_loc_${idx}">Where is it?</label>
+          <select id="imp_loc_${idx}" name="imp_loc_${idx}" data-imp-location>
+            <option value="">Select location&hellip;</option>
+            <option value="front">Front yard</option>
+            <option value="back">Back yard</option>
+            <option value="side">Side yard</option>
+            <option value="exterior">Home exterior (walls, roof, paint)</option>
+            <option value="multiple">Multiple / whole property</option>
+          </select>
+        </div>
       </div>
       <div class="grid-2">
         <div class="field" data-imp-materials-field>
@@ -483,6 +497,7 @@ function improvementItems() {
       category: $("[data-imp-category]", node)?.value || DEFAULT_CATEGORY,
       action: $("[data-imp-action]", node)?.value || "add",
       name: $("[data-imp-name]", node)?.value.trim() || "",
+      location: $("[data-imp-location]", node)?.value || "", // Sprint 25 — the source's explicit "Location" ask
       materials: $("[data-imp-materials]", node)?.value.trim() || "",
       dimensions: $("[data-imp-dims]", node)?.value.trim() || "",
       photo: (input && input.files && input.files.length) ? Array.from(input.files).map(f => f.name) : []
@@ -946,26 +961,14 @@ refreshPhotoGroups();
 ------------------------------------------------------ */
 const form = $("#arc-form");
 export function updateProgress() {
-  const required = $$("#arc-form [required]");
-  let done = 0;
-  required.forEach(el => {
-    if (el.type === "checkbox") { if (el.checked) done++; }
-    else if (el.value && el.value.trim()) done++;
-  });
-  // count the ack signature as required-ish (drawn ink or a typed name, per the chosen method)
-  let total = required.length + 1;
-  if (ownerSignatureProvided()) done++;
-  // Two workflow signals that aren't [required] DOM fields still count, so 100% stays
-  // unreachable with an empty packet: a provided plot plan (Step 03) and every requested
-  // photo attached (Step 04). Catalog pictures no longer gate (Sprint 20) — the print
-  // pages show them, and requiring one per improvement read as nagging.
-  total += 2;
-  if (plotProvided().ok) done++;
-  const reqPhotos = photoChecklist();
-  if (reqPhotos.length > 0 && reqPhotos.every(p => p.file)) done++;
-  const pct = Math.round((done / total) * 100);
-  $("#progress-fill").style.width = pct + "%";
-  $("#progress-text").textContent = pct + "% complete";
+  // The meter derives from the requirements engine (Sprint 25): required rows only —
+  // recommended/not-applicable never dilute, the auto-stamped ack date never inflates
+  // (an empty form honestly reads 0%), and 100% means every category-aware requirement
+  // — item materials/dimensions/pictures, both photo questions, every requested shot,
+  // the plot, the acks, the signature — is actually present.
+  const { progress } = assessApplication(requirementsInput());
+  $("#progress-fill").style.width = progress.pct + "%";
+  $("#progress-text").textContent = progress.pct + "% complete";
   refreshPacketUI();
 }
 form.addEventListener("input", updateProgress);
@@ -1038,69 +1041,61 @@ const STEPS = [
   { num: "04", label: "Photos", id: "photos-section" },
   { num: "05", label: "Acknowledgments", id: "acknowledgments" }
 ];
-const FIELDS_REASON = "Some required details are still blank.";
 
-// Shared required-field predicate — used by the (pure) section-completeness check
-// AND by fieldIssues() (which additionally paints inline errors). Returns {bad, msg}.
+// Shared required-field predicate — used by fieldIssues() to paint inline errors
+// (the pure completeness judgments live in requirements.js since Sprint 25).
+// Format checks come from the same engine, so the painter and the meter agree.
 function checkRequired(el) {
   let bad = false, msg = "This field is required.";
   if (el.type === "checkbox") bad = !el.checked;
   else bad = !el.value || !el.value.trim();
-  if (!bad && el.type === "email" && !EMAIL_RE.test(el.value.trim())) {
+  if (!bad && el.type === "email" && !validEmail(el.value)) {
     bad = true; msg = "Please enter a valid email address.";
   }
-  if (!bad && el.type === "tel") {
-    const digits = (el.value.match(PHONE_DIGITS_RE) || []).length;
-    if (digits < 10 || !PHONE_RE.test(el.value.trim())) {
-      bad = true; msg = "Please enter a valid phone number (at least 10 digits).";
-    }
+  if (!bad && el.type === "tel" && !validPhone(el.value)) {
+    bad = true; msg = "Please enter a valid phone number (at least 10 digits).";
   }
   return { bad, msg };
 }
 
-// Pure (no DOM side effects) — is every [required] input inside this section satisfied?
-// The live overview + progress meter use this; the gate uses the painting fieldIssues().
-function sectionRequiredComplete(sectionId) {
-  const sec = document.getElementById(sectionId);
-  if (!sec) return true;
-  return $$("[required]", sec).every(el => !checkRequired(el).bad);
+/* ----- requirements engine input (Sprint 25) -----
+   One reader of live form state, shaped for requirements.js's assessApplication().
+   Every completion consumer — meter, overview, gate, printed warning cover — judges
+   from the same assessment, so "complete" means the same thing everywhere. */
+function requirementsInput() {
+  return {
+    applicant: {
+      ownerName: $("#owner-name").value,
+      propertyAddress: $("#property-address").value,
+      ownerPhone: $("#owner-phone").value,
+      ownerEmail: $("#owner-email").value,
+    },
+    items: improvementItems(),
+    plan: {
+      mode: planMode,
+      drawn: plotUsed(),
+      confirmed: isPlotConfirmed(),
+      uploadNames: plotUploadInput.files ? Array.from(plotUploadInput.files).map(f => f.name) : [],
+    },
+    photos: {
+      areas: Object.fromEntries($$(".photo-quiz [data-area]").map(c => [c.dataset.area, c.checked])),
+      materialAnswer: selectedPhotoMaterial(),
+      shots: photoChecklist().map(r => ({ id: r.id, title: r.title, attached: !!r.file })),
+    },
+    acks: $$("#acks input[type=checkbox]").map(c => c.checked),
+    signatureProvided: ownerSignatureProvided(),
+  };
 }
 
-// One-line reason a plot step isn't done (build vs upload, and the "drawn but not
-// confirmed" third state).
-function plotStepReason(plot) {
-  if (plot.mode === "upload") return "Upload chosen, but no plot-plan file is attached.";
-  if (plot.started) return "Plan drawn — press “Done — use this plan” to finish it.";
-  return "No plot plan yet — draw one, or switch to uploading a file.";
-}
-
-// Per-step done/incomplete for the overview, gate, meter, and printed cover — each step
-// judged by its OWN inputs. Steps 03/04/05 add the non-field signals (plot provided,
-// photos attached, signature present). Pure — never paints inline errors.
+// Per-step done/incomplete for the overview, gate, meter, and printed cover — one
+// engine assessment mapped onto the STEPS list. `reason` names the actual gaps
+// ("2 of 3 missing an example picture"); `notes` carries the non-gating
+// recommendations (upload-plan checklist, material-sample nudge, area suggestions).
 function stepStatus() {
+  const assessment = assessApplication(requirementsInput());
   return STEPS.map(step => {
-    const fieldsOk = sectionRequiredComplete(step.id);
-    let ok = fieldsOk, reason = fieldsOk ? "" : FIELDS_REASON;
-    if (step.id === "siteplan") {
-      const plot = plotProvided();
-      ok = fieldsOk && plot.ok;
-      if (!plot.ok) reason = plotStepReason(plot);
-    } else if (step.id === "photos-section") {
-      const photos = photoChecklist();
-      const photosOk = photos.length > 0 && photos.every(p => p.file);
-      ok = fieldsOk && photosOk;
-      if (!photos.length) reason = "Answer the questionnaire to see which photos are needed.";
-      else if (!photosOk) {
-        const need = photos.filter(p => !p.file).length;
-        reason = `${need} of ${photos.length} requested photo${photos.length === 1 ? "" : "s"} still to attach.`;
-      }
-    } else if (step.id === "acknowledgments") {
-      const signed = ownerSignatureProvided();
-      ok = fieldsOk && signed;
-      if (!fieldsOk) reason = "Check each acknowledgment to finish.";
-      else if (!signed) reason = "Sign the acknowledgment — draw or type your full legal name.";
-    }
-    return { ...step, href: "#" + step.id, ok, reason };
+    const s = assessment.steps[step.id] || { ok: true, reason: "", notes: [] };
+    return { ...step, href: "#" + step.id, ok: s.ok, reason: s.reason, notes: s.notes };
   });
 }
 
@@ -1143,12 +1138,17 @@ function packetItemNode(item) {
 function renderStepStatus() {
   if (!stepStatusEl) return;
   stepStatusEl.textContent = "";
-  stepStatus().forEach(s => stepStatusEl.appendChild(packetItemNode({
-    label: `${s.num} · ${s.label}`,
-    ok: s.ok,
-    note: s.ok ? null : s.reason,
-    href: s.href
-  })));
+  stepStatus().forEach(s => {
+    // Non-gating recommendations (upload-plan checklist, material-sample nudge, photo-area
+    // suggestions) ride along as the row's note even when the step itself reads done.
+    const notes = (s.notes || []).join(" ");
+    stepStatusEl.appendChild(packetItemNode({
+      label: `${s.num} · ${s.label}`,
+      ok: s.ok,
+      note: s.ok ? (notes || null) : [s.reason, notes].filter(Boolean).join(" "),
+      href: s.href
+    }));
+  });
 }
 
 function refreshFinishSteps() {
@@ -1386,6 +1386,7 @@ function restoreDraft() {
       const actionSel = $("[data-imp-action]", node);
       if (actionSel && it.action) actionSel.value = it.action;
       $(`[name=imp_name_${idx}]`, node).value = it.name || "";
+      $(`[name=imp_loc_${idx}]`, node).value = it.location || ""; // additive (Sprint 25) — older drafts restore unanswered
       $(`[name=imp_materials_${idx}]`, node).value = it.materials || "";
       $(`[name=imp_dims_${idx}]`, node).value = it.dimensions || "";
       applyImprovementSchema(node);
@@ -1513,9 +1514,8 @@ export function setFieldError(el, message) {
 }
 
 // US phone: at least 10 digits, with optional formatting
-const PHONE_RE = /^[\d\s().+-]{10,}$/;
-const PHONE_DIGITS_RE = /\d/g;
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/;
+// (Field format regexes moved into requirements.js in Sprint 25 — checkRequired()
+// imports validEmail/validPhone so the inline painter and the meter agree.)
 
 // Walk every [required] field, painting inline error messages as a side effect,
 // and return a list of {label, target} issues (empty = all complete). Advisory
