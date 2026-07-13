@@ -1083,6 +1083,7 @@ function requirementsInput() {
       shots: photoChecklist().map(r => ({ id: r.id, title: r.title, attached: !!r.file })),
     },
     acks: $$("#acks input[type=checkbox]").map(c => c.checked),
+    ackDate: $("#ack-date").value,
     signatureProvided: ownerSignatureProvided(),
   };
 }

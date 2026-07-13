@@ -37,6 +37,7 @@ const fullInput = (over = {}) => ({
     shots: [{ id: "back_wide", title: "Back yard — full view", attached: true }],
   },
   acks: [true, true, true, true, true, true, true, true],
+  ackDate: "2026-07-13",
   signatureProvided: true,
   ...over,
 });
@@ -65,8 +66,19 @@ test("an empty form reads 0%, not 6% off a prefilled date", () => {
   assert.equal(res.progress.done, 0);
   assert.equal(res.progress.pct, 0);
   assert.ok(Object.values(res.steps).every(s => !s.ok));
-  // no acknowledgment-date row exists at all — it's auto-stamped, not a user task
-  assert.ok(!res.rows.some(r => /date/i.test(r.id)));
+});
+
+test("the ack date is asymmetric: presence earns no row, a cleared date resurfaces as a gap", () => {
+  // present (the app auto-stamps it at init) → no row at all, so it can't inflate progress
+  const present = assessApplication(fullInput());
+  assert.equal(rowById(present, "ack.date"), undefined);
+  assert.equal(present.progress.pct, 100);
+  // cleared mid-session → a required-missing row, the step re-gates, and 100% is unreachable
+  const cleared = assessApplication(fullInput({ ackDate: "" }));
+  assert.equal(rowById(cleared, "ack.date").status, REQUIRED_MISSING);
+  assert.equal(cleared.steps.acknowledgments.ok, false);
+  assert.match(cleared.steps.acknowledgments.reason, /date/i);
+  assert.ok(cleared.progress.pct < 100);
 });
 
 /* ----- applicant ----- */
@@ -271,6 +283,16 @@ test("recommended and not-applicable rows never count toward progress", () => {
   const counted = res.rows.filter(r => r.status === REQUIRED_PRESENT || r.status === REQUIRED_MISSING);
   assert.equal(res.progress.total, counted.length);
   assert.equal(res.progress.pct, 100); // remove-item n/a rows + the checklist don't dilute
+});
+
+test("pct never rounds up to a false 100 — holds at 99 while anything is missing", () => {
+  // 38 complete items push the required-row count high enough that one missing
+  // requirement would round 206/207 → 100 without the clamp.
+  const items = Array.from({ length: 38 }, (_, i) => item({ uid: "iu-" + i }));
+  items[0] = item({ uid: "iu-0", dimensions: "" }); // exactly one gap
+  const res = assessApplication(fullInput({ items }));
+  assert.ok(res.progress.done < res.progress.total);
+  assert.equal(res.progress.pct, 99);
 });
 
 test("ITEM_RULES covers every category the form offers", () => {

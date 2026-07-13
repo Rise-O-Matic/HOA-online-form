@@ -35,9 +35,12 @@
    Step ids match the form's <section> ids: applicant · description ·
    siteplan · photos-section · acknowledgments.
 
-   NOTE: the acknowledgment DATE is deliberately NOT a requirement row —
-   it's auto-stamped at init (and Sprint 28 re-stamps it at signing), so an
-   empty form honestly reads 0%, not "6% complete" off a prefilled date.
+   NOTE: the acknowledgment DATE is an ASYMMETRIC requirement — it's
+   auto-stamped at init (and Sprint 28 re-stamps it at signing), so its
+   presence earns no progress row (an empty form honestly reads 0%, not
+   "6% complete" off a prefilled date) — but a user can clear it, and a
+   blank required date on a printed packet is a real defect, so a
+   required-missing row appears ONLY when it's absent.
    ========================================================= */
 
 export const REQUIRED_PRESENT = "required-present";
@@ -276,10 +279,15 @@ export function assessApplication(input) {
     });
     const signed = !!input.signatureProvided;
     add("signature", "acknowledgments", "Owner signature", signed ? REQUIRED_PRESENT : REQUIRED_MISSING);
+    // Asymmetric on purpose (see the header NOTE): the auto-stamped date emits a row
+    // only when it's been cleared — presence earns nothing, absence is a real gap.
+    const dated = nonEmpty(input.ackDate);
+    if (!dated) add("ack.date", "acknowledgments", "Acknowledgment date", REQUIRED_MISSING);
     steps.acknowledgments = {
-      ok: !unchecked && signed,
+      ok: !unchecked && signed && dated,
       reason: unchecked ? `${unchecked} of ${acks.length} acknowledgments still to check.`
-        : !signed ? "Sign the acknowledgment — draw or type your full legal name." : "",
+        : !signed ? "Sign the acknowledgment — draw or type your full legal name."
+        : !dated ? "Fill in the date next to your signature." : "",
       notes: [],
     };
   }
@@ -288,7 +296,10 @@ export function assessApplication(input) {
   const req = rows.filter(r => r.status === REQUIRED_PRESENT || r.status === REQUIRED_MISSING);
   const done = req.filter(r => r.status === REQUIRED_PRESENT).length;
   const total = req.length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  let pct = total ? Math.round((done / total) * 100) : 0;
+  // Never round up to a false "100% complete": with enough rows, one missing
+  // requirement can still round to 100 — hold at 99 until everything is present.
+  if (pct === 100 && done < total) pct = 99;
 
   return { rows, steps, progress: { done, total, pct } };
 }
