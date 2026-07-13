@@ -47,11 +47,23 @@ function genRefId() {
         const r = Math.floor(Math.random() * 16), v = c === "x" ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
-  // Base57-encode the full 128-bit UUID into a compact, human-friendly handle: a fixed 22
-  // characters, no ambiguous glyphs, shorter to read aloud or type than the hex-dashed form.
+  // Base57-encode the UUID and keep the low-order REFID_LEN digits as the random tail — no
+  // ambiguous glyphs, short to read aloud or type. The random tail carries ALL the collision
+  // resistance (57^8 ≈ 1.1e14 of space); the two-digit year prefix is pure human provenance
+  // (self-dating for filing) layered on top, and also partitions collisions by year. Because the
+  // year isn't load-bearing for uniqueness, a wrong client clock only mislabels the year — it
+  // can't raise collision risk (unlike a timestamp-only id, whose uniqueness IS the clock).
+  // Slicing the *tail* (low-order digits) stays uniform, whereas the leading digit is slightly
+  // constrained since 57^22 > 2^122. Old drafts keep their full-length refId (restore re-adopts
+  // d.refId verbatim), so this shortening/prefixing is forward-only.
   let n = BigInt("0x" + uuid.replace(/-/g, "")), out = "";
   while (n > 0n) { out = REFID_ALPHABET[Number(n % 57n)] + out; n /= 57n; }
-  return "FC-ARC-" + out.padStart(22, REFID_ALPHABET[0]);
+  const REFID_LEN = 8;
+  const tail = out.padStart(REFID_LEN, REFID_ALPHABET[0]).slice(-REFID_LEN);
+  // Plain decimal year (not base57) so it reads as a year at a glance, kept as its own dash-
+  // delimited segment so the familiar number never blurs into the opaque random tail.
+  const yy = String(new Date().getFullYear() % 100).padStart(2, "0");
+  return "FC-ARC-" + yy + "-" + tail;
 }
 function getRefId() { return appRefId || (appRefId = genRefId()); }
 
