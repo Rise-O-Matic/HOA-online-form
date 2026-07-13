@@ -522,12 +522,37 @@ input:focus, textarea:focus {
   border-color: var(--crimson);
   box-shadow: 0 0 0 3px rgba(164,17,31,.12);
 }
-input.invalid, textarea.invalid, .sigpad.invalid {
+input.invalid, textarea.invalid, select.invalid, .sigpad.invalid {
   border-color: var(--crimson);
   box-shadow: 0 0 0 3px rgba(164,17,31,.1);
 }
 .field__meta { font-size: .74rem; color: var(--ink-faint); text-align: right; margin-top: .3rem; }
 .field__error { display: block; font-size: .78rem; color: var(--crimson); font-weight: 500; margin-top: .3rem; }
+
+/* Engine-driven attention hint (highlightStepGaps, app.js): outlines a block-shaped
+   gap — a photo card, a questionnaire question, a dropzone, the plot CTA — after the
+   user jumps to a section from an incomplete checklist row or the review gate. The
+   outline persists until the user interacts inside the element (delegated clearing
+   listeners in app.js); the pulse runs twice on arrival to catch the eye. */
+.gap-hint {
+  outline: 2px solid var(--crimson);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+  animation: gap-hint-pulse 1.2s ease-out 2;
+}
+/* The hint's author outline replaces the UA focus ring — keep keyboard focus
+   visible on a hinted control (the Done CTA, a dropzone's inner input) by
+   thickening the outline and adding a halo while focus is inside. */
+.gap-hint:focus-visible, .gap-hint:focus-within {
+  outline-width: 3px;
+  box-shadow: 0 0 0 4px rgba(164,17,31,.18);
+}
+@keyframes gap-hint-pulse {
+  0%   { outline-offset: 3px; outline-color: rgba(164,17,31,.35); }
+  45%  { outline-offset: 6px; outline-color: var(--crimson); }
+  100% { outline-offset: 3px; outline-color: var(--crimson); }
+}
+@media (prefers-reduced-motion: reduce) { .gap-hint { animation: none; } }
 
 input[type="file"] { padding: .55rem; background: var(--paper); cursor: pointer; }
 .filelist { list-style: none; margin: .7rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -1763,6 +1788,10 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   font-size: .88rem;
 }
 .packet-item.is-ok { background: #f1f5ef; border-color: #c5d8bd; }
+/* An incomplete row is clickable end-to-end (it delegates to its "Open section"
+   link, which also paints the section's gap hints — see packetItemNode). */
+.packet-item.is-clickable { cursor: pointer; }
+.packet-item.is-clickable:hover { border-color: var(--crimson); }
 .packet-item__icon { flex-shrink: 0; width: 1.2rem; text-align: center; font-weight: 700; color: var(--crimson); }
 .packet-item.is-ok .packet-item__icon { color: var(--green); }
 .packet-item__body { flex: 1; min-width: 0; }
@@ -2040,4 +2069,7 @@ ul.tight li { margin-bottom: .25rem; }
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
   .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference, .masthead__scene { display: none !important; }
+  /* Advisory gap hints are screen chrome, never ink (the real packet is the print
+     popup — this covers a direct Ctrl+P of the on-screen page). */
+  .gap-hint { outline: none !important; animation: none !important; }
 }

@@ -25,7 +25,7 @@ import {
   clearAttachments, clearAllAttachments
 } from "./attach-store.js";
 import { allocateImageBudget, dataUrlByteLength, ENCODE_LADDER } from "./image-budget.js";
-import { assessApplication, validEmail, validPhone } from "./requirements.js";
+import { assessApplication, validEmail, validPhone, REQUIRED_MISSING } from "./requirements.js";
 
 const DRAFT_KEY = "fairwayCanyonArcDraft.v4";        // fixed-scale grid painter + Konva annotations
 const PLOT_VERSION = 4;                              // kept in lockstep with DRAFT_KEY's suffix; drafts written before the reconcile carry plot.version 3 in the identical format, so restore accepts >= 3
@@ -966,9 +966,10 @@ export function updateProgress() {
   // (an empty form honestly reads 0%), and 100% means every category-aware requirement
   // — item materials/dimensions/pictures, both photo questions, every requested shot,
   // the plot, the acks, the signature — is actually present.
-  const { progress } = assessApplication(requirementsInput());
+  const { rows, progress } = assessApplication(requirementsInput());
   $("#progress-fill").style.width = progress.pct + "%";
   $("#progress-text").textContent = progress.pct + "% complete";
+  reconcileGapPaint(rows); // drop stale jump-click highlights whose gap got fixed
   refreshPacketUI();
 }
 form.addEventListener("input", updateProgress);
@@ -1128,7 +1129,20 @@ function packetItemNode(item) {
     a.className = "packet-item__link";
     a.href = item.href;
     a.textContent = "Open section";
+    // Paint the section's gap hints before the anchor jump runs, so the user
+    // arrives with the missing fields already highlighted (see highlightStepGaps).
+    if (item.onJump) a.addEventListener("click", item.onJump);
     li.appendChild(a);
+    // The whole incomplete row is a click target — the ✗ + reason text reads as
+    // the actionable thing, so clicking anywhere on it behaves like the link.
+    // (Unless the user is selecting text: don't hijack copying the reason.)
+    li.classList.add("is-clickable");
+    li.addEventListener("click", e => {
+      if (e.target.closest("a")) return;
+      const sel = document.getSelection ? document.getSelection() : null;
+      if (sel && !sel.isCollapsed) return;
+      a.click();
+    });
   }
   return li;
 }
@@ -1147,7 +1161,8 @@ function renderStepStatus() {
       label: `${s.num} · ${s.label}`,
       ok: s.ok,
       note: s.ok ? (notes || null) : [s.reason, notes].filter(Boolean).join(" "),
-      href: s.href
+      href: s.href,
+      onJump: () => highlightStepGaps(s.id)
     }));
   });
 }
@@ -1573,6 +1588,141 @@ function scrollToIssue(target) {
   try { if (el.focus) el.focus({ preventScroll: true }); } catch (_) {}
 }
 
+/* ----- gap highlighting (jump-to-section hints) -----
+   Clicking an incomplete row in the step-status overview (or a review-gate jump
+   link) paints attention hints on that section's actual gaps — engine-driven, so
+   the hints and the checklist reason can never disagree. Field-shaped gaps reuse
+   setFieldError (persistent until the user types, the existing painter); block-
+   shaped targets — photo cards, the questionnaire questions, dropzones, the plot
+   CTA — get a .gap-hint outline instead, cleared on any interaction inside them
+   (delegated listeners next to the error-clearing one). Advisory like everything
+   else in the review path: hints draw the eye, they never block. */
+
+// Block-level attention hint: crimson outline + a short pulse (.gap-hint, styles.css).
+function markGapHint(el) {
+  if (!el) return;
+  el.classList.remove("gap-hint");
+  void el.offsetWidth; // restart the pulse when the hint is already showing
+  el.classList.add("gap-hint");
+}
+
+const APPLICANT_GAP_FIELDS = {
+  ownerName: "#owner-name", propertyAddress: "#property-address",
+  ownerPhone: "#owner-phone", ownerEmail: "#owner-email",
+};
+
+// Build-mode plot hint target, best visible candidate first: the Done CTA when
+// it's live (drawn, on the Draw step), else the step-1 method cards, else the
+// wizard step dots (steps 2–4 mid-flow, or Done still disabled).
+function plotGapTarget() {
+  const done = $("#plot-done");
+  if (done && done.offsetParent && !done.disabled) return done;
+  const choice = $("#siteplan .plan-choice");
+  if (choice && choice.offsetParent) return choice;
+  return $("#siteplan .plot-steps-nav");
+}
+
+// Resolve one engine row (status REQUIRED_MISSING) to its paint operations:
+// {el, error} → setFieldError(el, error); {el, flag} → bare .invalid class (the
+// checkbox/sigpad treatment fieldIssues uses); {el} alone → a .gap-hint block.
+// Shared by the painter (highlightStepGaps) and the remove-only reconciler
+// (reconcileGapPaint), so "what would be highlighted" has ONE definition. Row ids
+// are the engine's stable keys (see requirements.js): applicant.<field> ·
+// item.<uid>.<slot> · plan.file/confirmed · photos.areas/material-question ·
+// photo.<shotId> · ack.<n> · ack.date · signature. Hidden slots never resolve —
+// the engine already emits not-applicable for them (Remove items, paint's dims).
+function gapPaintOps(row) {
+  const id = row.id, ops = [];
+  if (id.startsWith("applicant.")) {
+    const sel = APPLICANT_GAP_FIELDS[id.slice(10)];
+    const el = sel ? $(sel) : null; // never $("") — an empty selector THROWS, it doesn't return null
+    if (el) ops.push({ el, error: checkRequired(el).msg });
+  } else if (id.startsWith("item.")) {
+    const dot = id.lastIndexOf(".");
+    const uid = id.slice(5, dot), field = id.slice(dot + 1);
+    const node = $(`.improvement[data-imp-uid="${uid}"]`, improvementList);
+    if (!node) return ops;
+    if (field === "photo") {
+      const dz = $(".dropzone", node);
+      if (dz) ops.push({ el: dz });
+    } else {
+      const sel = { name: "[data-imp-name]", materials: "[data-imp-materials]",
+        dims: "[data-imp-dims]", location: "[data-imp-location]" }[field];
+      const el = sel ? $(sel, node) : null;
+      // The name is a plain [required] field — keep its message identical to
+      // fieldIssues()'s so the two painters can never disagree on wording.
+      const msg = field === "location" ? "Select a location."
+        : field === "name" ? "This field is required." : "Needed for this improvement.";
+      if (el) ops.push({ el, error: msg });
+    }
+  } else if (id === "items.any") {
+    // Defense-in-depth: unreachable today (the row list never empties — the per-row
+    // remove handler re-adds a starter row), but harmless if that invariant changes.
+    const btn = $("#add-improvement");
+    if (btn) ops.push({ el: btn });
+  } else if (id === "plan.file") {
+    const dz = $('[data-dropzone="plot"]');
+    if (dz) ops.push({ el: dz });
+  } else if (id === "plan.confirmed") {
+    const t = plotGapTarget();
+    if (t) ops.push({ el: t });
+  } else if (id === "photos.areas" || id === "photos.material-question") {
+    const q = $(`.photo-quiz [data-quiz="${id === "photos.areas" ? "areas" : "material"}"]`);
+    if (q) ops.push({ el: q });
+  } else if (id.startsWith("photo.")) {
+    const input = $(`[data-photo-input="${id.slice(6)}"]`, photoRequestsEl);
+    const card = input && input.closest(".photo-request");
+    if (card) ops.push({ el: card });
+  } else if (id === "ack.date") {
+    const el = $("#ack-date");
+    if (el) ops.push({ el, error: "This field is required." });
+  } else if (id.startsWith("ack.")) {
+    const cb = $(`#acks input[name="ack_${id.slice(4)}"]`);
+    // The label carries the visible hint; the checkbox's .invalid is a bookkeeping
+    // flag only (parity with fieldIssues' checkbox painting — no CSS renders it).
+    if (cb) { ops.push({ el: cb, flag: true }); ops.push({ el: cb.closest("label") }); }
+  } else if (id === "signature") {
+    // Method-aware, mirroring fieldIssues()'s signature painting.
+    if (sigMethod === "type") ops.push({ el: typedSigInput, error: "Type your full legal name to sign." });
+    else ops.push({ el: sigPads.ownerAckSignature.wrap, flag: true });
+  }
+  return ops;
+}
+
+// Highlight every incomplete requirement in one section. Fresh assessment per
+// call — the click may come long after the last render.
+function highlightStepGaps(stepId) {
+  assessApplication(requirementsInput()).rows
+    .filter(r => r.step === stepId && r.status === REQUIRED_MISSING)
+    .forEach(row => gapPaintOps(row).forEach(op => {
+      if (op.error) setFieldError(op.el, op.error);
+      else if (op.flag) op.el.classList.add("invalid");
+      else markGapHint(op.el);
+    }));
+}
+
+// Remove-only reconciliation, run from every updateProgress(): clear painted gap
+// hints/errors whose engine row is no longer required-missing. This catches fixes
+// that happen OUTSIDE the painted element — finishing the plot wizard clears the
+// step-dots hint, switching an item's action to Remove clears its now-not-applicable
+// location error — which the delegated interaction clearers can't see. It never
+// ADDS paint (highlights only appear from an explicit jump click), so the advisory
+// feel survives: nothing lights up on its own, stale paint just goes away.
+function reconcileGapPaint(rows) {
+  const painted = $$(".gap-hint, .invalid", form);
+  if (!painted.length) return;
+  const keep = new Set();
+  rows.forEach(r => {
+    if (r.status !== REQUIRED_MISSING) return;
+    gapPaintOps(r).forEach(op => keep.add(op.el));
+  });
+  painted.forEach(el => {
+    if (keep.has(el)) return;
+    el.classList.remove("gap-hint");
+    if (el.classList.contains("invalid")) clearFieldError(el);
+  });
+}
+
 // Run `action`, but first offer an advisory review of anything incomplete. Nothing
 // blocks: if any workflow step is incomplete we open the gate (one jump link per step
 // + a Continue button that runs `action`); if all clear, `action` runs straight away.
@@ -1584,16 +1734,31 @@ function reviewThen(action, continueLabel) {
   if (!incomplete.length) { action(); return; }
   const rows = incomplete.map(s => ({
     label: `${s.num} · ${s.label}${s.reason ? " — " + s.reason : ""}`,
-    target: s.href
+    target: s.href,
+    // Jumping from the gate paints the same engine-driven gap hints the
+    // step-status rows do — arriving shows exactly what's missing, not just
+    // the [required]-field errors painted above.
+    onJump: () => highlightStepGaps(s.id)
   }));
   openGateModal(rows, action, continueLabel);
 }
 
 // Clear inline errors on input (the typed signature isn't [required] — its requiredness
-// is conditional on the selected signature method — but its error should clear the same way)
+// is conditional on the selected signature method — but its error should clear the same
+// way, as should the engine-driven errors highlightStepGaps paints on non-[required]
+// fields like an item's materials or location — hence the .invalid check).
 form.addEventListener("input", e => {
-  if (e.target.matches("[required]") || e.target === typedSigInput) clearFieldError(e.target);
+  if (e.target.matches("[required]") || e.target === typedSigInput || e.target.classList.contains("invalid")) clearFieldError(e.target);
 });
+// A .gap-hint block clears on any interaction inside it — the hint's job was to draw
+// the eye there; once the user engages it must not linger like an error state (we
+// often can't verify the fix from an event alone, e.g. a picker opened then cancelled).
+["input", "change", "click"].forEach(evt =>
+  form.addEventListener(evt, e => {
+    const hinted = e.target.closest ? e.target.closest(".gap-hint") : null;
+    if (hinted) hinted.classList.remove("gap-hint");
+  })
+);
 
 /* ------------------------------------------------------
    PRINT
@@ -2467,7 +2632,7 @@ function openGateModal(issues, onContinue, continueLabel) {
       btn.type = "button";
       btn.className = "gate-jump";
       btn.innerHTML = esc(iss.label) + " <span aria-hidden=\"true\">›</span>";
-      btn.addEventListener("click", () => { closeGateModal(); scrollToIssue(iss.target); });
+      btn.addEventListener("click", () => { closeGateModal(); if (iss.onJump) iss.onJump(); scrollToIssue(iss.target); });
       li.appendChild(btn);
     } else {
       li.textContent = iss.label;
