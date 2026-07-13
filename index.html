@@ -603,6 +603,11 @@
           </div>
         </header>
 
+        <!-- Sprint 26: the packet's reference id, surfaced on screen before it appears in the
+             printed running header (a client-side handle, not an official HOA case number —
+             see getRefId() in app.js). Filled by refreshPacketUI(). -->
+        <p class="packet-ref">Packet reference: <strong id="packet-refid">—</strong><span class="packet-ref__hint"> · printed in your packet&rsquo;s page header &mdash; cite it if you contact the Architectural Specialist about this application.</span></p>
+
         <h3 class="packet__subhead">Section checklist</h3>
         <ul class="packet-list" id="step-status"></ul>
 
@@ -610,7 +615,7 @@
           <div class="finish-step" id="finish-step-1">
             <div class="finish-step__body">
               <h4 class="finish-step__title">Save &amp; print your application packet</h4>
-              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved, or print paper copies. The packet is complete on its own: <strong>page 1 is your submission instructions, with the adjacent-owner signature form on the bottom of that same page</strong> — collect those signatures in person after printing — and the application follows with your plot plan and signature included automatically. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
+              <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved, or print paper copies. <strong>Page 1 is your submission instructions, with the adjacent-owner signature form on the bottom of that same page</strong> — collect those signatures in person after printing — and the application follows with your acknowledgment terms, plot plan, and signature included automatically. If any attached file can&rsquo;t be embedded (a PDF, for example), the cover lists it so you can attach it to your email alongside the packet. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
               <p class="finish-step__note"><strong>No payment is due now.</strong> Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment — review does not begin until both the complete application and the fee are received.</p>
               <div class="finish-step__actions">
                 <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save &amp; print packet</button>

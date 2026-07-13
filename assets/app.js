@@ -1211,6 +1211,12 @@ export function refreshPacketUI() {
   renderStepStatus();
   refreshFinishSteps();
   refreshPlotDoneUI();
+  // Sprint 26: surface the packet reference id on screen (Section 06) so the applicant
+  // meets it before it appears in the printed running header. getRefId() lazily mints on
+  // a fresh form — the same id the first save then persists — and restoreDraft() re-adopts
+  // a draft's id before INIT's post-restore refresh, so a restored session shows its own id.
+  const refEl = $("#packet-refid");
+  if (refEl) refEl.textContent = getRefId();
 }
 
 /* ------------------------------------------------------
@@ -1426,7 +1432,8 @@ function restoreDraft() {
   if (d.acks) Object.entries(d.acks).forEach(([k, v]) => { const el = $(`#acks [name="${k}"]`); if (el) el.checked = v; });
   // (Older drafts' neighbors roster / neighborForm keys restore harmlessly into
   // nothing — the Adjacent Owners section was removed when the journey became
-  // print-first; the signature form is a blank page of the printed packet now.)
+  // print-first; the signature form is the strip at the bottom of the printed
+  // cover now, Sprint 21.)
   // signatures
   if (typedSigInput) typedSigInput.value = d.ownerTypedSignature || "";
   if (d.ownerSigMethod === "type") setSigMethod("type");
@@ -1798,6 +1805,10 @@ function plotLegendHTML(cls) {
    form's change summary. (The old single crammed improvements *table* on the application
    page was replaced by the dedicated page in Sprint 19.) */
 const ACTION_LABEL = { add: "Add", replace: "Replace", remove: "Remove" };
+// Print labels for the per-item "Where is it?" select (Sprint 25); values match the
+// improvementTemplate() options. An unknown/legacy value falls through as raw text.
+const LOCATION_LABEL = { front: "Front yard", back: "Back yard", side: "Side yard",
+  exterior: "Home exterior", multiple: "Multiple / whole property" };
 function improvementRows(d) {
   return (d.items || []).filter(it => it.name || it.materials || it.dimensions || itemPhotoNames(it).length);
 }
@@ -1893,20 +1904,21 @@ function buildWarningCoverHTML() {
     </section>`;
 }
 
-/* Page 1 of the printed packet (the cover). Below the masthead, three content blocks are
+/* Page 1 of the printed packet (the cover). Below the masthead, the content blocks are
    spread down the sheet with even whitespace between them (.print-cover-body, a flex column
    with justify-content:space-between): (1) a grouped top card (.print-topgroup) holding the
-   Applicant of Record summary + the Owner Certification signature block as one unit, (2) the
-   four submission steps, and (3) the adjacent-owner signature strip. A single-line "Questions?"
-   contact footer sits below that body at the bottom of the sheet. Everything the applicant
-   needs to submit lives in the four-step block (2026-07-11): the destination email + the two
-   nearest turn-in deadlines are folded into the email step. The applicant table + owner
-   certification were grouped and the three blocks set to even distribution 2026-07-11 at the
-   user's request (the record + certification had previously been separated by the steps). Within
-   the certification block the "Owner certification" header sits on top, the acknowledgments
-   summary under it, then the signature (2/3 width) + date (1/3 width) fields share one baseline.
-   The full incompleteness warning prints as its own front page when anything is missing
-   (buildWarningCoverHTML).
+   Applicant of Record summary + a one-line acknowledgment/signature summary (Sprint 26 moved
+   the owner signature block itself — and its signer1 e-sign tags — onto the Owner
+   Acknowledgments page, so the terms sit immediately before the signature; the summary line
+   points there), (2) the four submission steps, (3) a CONDITIONAL "Also attach these files"
+   manifest (Sprint 26 — every attachment whose bytes preparePrintImages could NOT embed:
+   PDFs, undecodable images; absent when everything is embedded, which is also when step 1's
+   "everything is already inside it" claim is asserted unconditionally), and (4) the
+   adjacent-owner signature strip. A single-line "Questions?" contact footer sits below that
+   body at the bottom of the sheet. Everything the applicant needs to submit lives in the
+   four-step block (2026-07-11): the destination email + the two nearest turn-in deadlines are
+   folded into the email step. The full incompleteness warning prints as its own front page
+   when anything is missing (buildWarningCoverHTML).
 
    Design polish (2026-07-11): the cover is refined line-art letterhead — NO solid ink blocks
    (matching the warning page's approved aesthetic). The masthead is the wordmark alone, closed
@@ -1924,8 +1936,7 @@ function buildWarningCoverHTML() {
    @top-*: content none }) since the masthead already stands in for it. All cover CSS is
    cover-scoped in printPreview's inline <style>; note .print-cover__head h4 sets border:0 to
    neutralize the print doc's generic h4 rule. */
-function buildInstructionsHTML(d) {
-  const uploadPlot = d.planMode === "upload";
+function buildInstructionsHTML(d, separate) {
   const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
   const deadlines = nextDeadlines(2);
   const dlText = x => x ? `${x.label}${x.tentative ? " (tentative)" : ""}` : "";
@@ -1962,29 +1973,11 @@ function buildInstructionsHTML(d) {
             </table>
           </div>
 
-          <div class="print-certline" aria-label="Owner certification">
-            <p class="print-certline__ack">
-              ${acksChecked
-                ? "All 8 acknowledgment items have been read and accepted."
-                : "⚠ Not all acknowledgment items were checked."}
-            </p>
-            <div class="print-certline__sign">
-              <div class="print-sig-field print-sig-field--sign">
-                <div class="print-sig-ink">${
-                  d.ownerSigMethod === "type"
-                    ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
-                    : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" alt="Homeowner signature" />` : "")
-                }${esignTag("Sig_es_:signer1:signature")}</div>
-                <div class="print-sig-line"></div>
-                <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " (signed electronically by typing name)" : ""}</div>
-              </div>
-              <div class="print-sig-field print-sig-field--date">
-                <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
-                <div class="print-sig-line"></div>
-                <div class="print-sig-label">Date</div>
-              </div>
-            </div>
-          </div>
+          <p class="print-certsummary">${acksChecked
+            ? "All 8 acknowledgment items have been read and accepted"
+            : "⚠ Not all acknowledgment items were checked"} &mdash; the full terms and the
+            owner&rsquo;s signature are on the <strong>Owner Acknowledgments</strong> page,
+            immediately after this cover.</p>
         </div>
 
         <div class="print-cover">
@@ -1992,17 +1985,84 @@ function buildInstructionsHTML(d) {
             <h4>Submit in four steps</h4>
           </div>
           <ol class="print-steps">
-            <li><strong>Save or print this packet.</strong> Everything you entered (proposed improvements, plot plan, property photos, and your signature) is already inside it.</li>
+            <li><strong>Save or print this packet.</strong> ${separate.length
+              ? `Everything you entered is inside it <strong>except the separate ${separate.length === 1 ? "file" : "files"} listed below</strong>, which can&rsquo;t be embedded in a printed packet.`
+              : "Everything you entered (proposed improvements, plot plan, property photos, and your signature) is already inside it."}</li>
             <li><strong>Collect adjacent-owner signatures</strong> on the form at the bottom of this cover, in person, then scan or photograph the signed cover. A signature confirms notification, not approval.</li>
-            <li><strong>Email everything to <span class="print-email">carolmarie.taylor@fsresidential.com</span>.</strong> Send this packet and the signed cover${uploadPlot ? ", plus your plot-plan file," : ""} so it arrives by a posted deadline. The next two are <span class="dl">${dl1}</span> and <span class="dl">${dl2}</span>. Meeting a deadline puts you on that month&rsquo;s board agenda.</li>
+            <li><strong>Email everything to <span class="print-email">carolmarie.taylor@fsresidential.com</span>.</strong> Send this packet and the signed cover${separate.length ? `, plus the separate ${separate.length === 1 ? "file" : "files"} listed below,` : ""} so it arrives by a posted deadline. The next two are <span class="dl">${dl1}</span> and <span class="dl">${dl2}</span>. Meeting a deadline puts you on that month&rsquo;s board agenda.</li>
             <li><strong>Wait for our reply. No payment is due now.</strong> Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment &mdash; review does not begin until both the complete application and the fee are received.</li>
           </ol>
         </div>
+
+        ${!separate.length ? "" : (() => {
+          // Cap the rendered rows so a big batch of separate files (contractor PDFs, a
+          // phone's HEIC photos) can't overflow the cover's one-page budget and shove the
+          // neighbor signature strip onto a second sheet; the tail row keeps the count
+          // honest, and the section pages still name an improvement's own separate files.
+          const MANIFEST_MAX = 8;
+          const shown = separate.slice(0, MANIFEST_MAX);
+          const extra = separate.length - shown.length;
+          return `<div class="print-attachlist">
+          <div class="print-attachlist__head">Also attach ${separate.length === 1 ? "this file" : `these ${separate.length} files`} to your email</div>
+          <p class="print-attachlist__note">${separate.length === 1 ? "This attachment" : "These attachments"} can&rsquo;t be embedded in a printed packet &mdash; your submission is complete only when ${separate.length === 1 ? "it rides" : "they ride"} along as ${separate.length === 1 ? "a separate file" : "separate files"} in the same email.</p>
+          <ul>${shown.map(f => `<li><span class="print-attachlist__file">${esc(f.name)}</span> &mdash; ${esc(f.context)}</li>`).join("")}${
+            extra ? `<li class="print-attachlist__more">&hellip;and ${extra} more &mdash; attach every file you added to the form, even those not listed here.</li>` : ""
+          }</ul>
+        </div>`;
+        })()}
 
         ${buildNeighborStripHTML(d)}
       </div>
 
       <p class="print-cover__questions"><strong>Questions?</strong> CarolMarie Taylor, Sr. Architectural Specialist · 951-801-4246 · Tue to Sat, 9:00&nbsp;AM to 4:30&nbsp;PM, by appointment</p>
+    </section>`;
+}
+
+/* ----- Owner Acknowledgments page (Sprint 26): the packet is the contract. -----
+   Reproduces all 8 acknowledgment terms verbatim (the ACKS constants — minus their in-app
+   cross-reference asides: the muted "(…Section 04…)" spans exist to orient someone filling
+   the web form, not the signer of the printed record) with each term's checked state, and
+   the owner signature + date directly beneath — the terms sit immediately before the
+   signature, mirroring page 4 of the source form. The signer1 Adobe Sign tags live HERE
+   and only here (the cover carries a summary line pointing at this page instead), so an
+   uploaded packet gets exactly one owner signature/date field pair. Unconditional — the
+   signature block must always exist, so this page always prints, directly after the cover. */
+function buildAcksPageHTML(d) {
+  const stripAside = html => html.replace(/\s*<span class="muted">[\s\S]*?<\/span>/g, "");
+  const terms = ACKS.map((text, i) => {
+    const checked = !!d.acks["ack_" + (i + 1)];
+    return `<li class="print-ack${checked ? "" : " print-ack--unchecked"}">
+        <span class="print-ack__num">${i + 1}</span>
+        <span class="print-ack__box" aria-hidden="true">${checked ? "✓" : ""}</span>
+        <div class="print-ack__text">${stripAside(text)}${checked ? "" : ` <span class="print-ack__flag">Not accepted in the application</span>`}</div>
+      </li>`;
+  }).join("");
+  const acksChecked = ACKS.every((_, i) => d.acks["ack_" + (i + 1)]);
+  return `<section class="print-page print-acks-page">
+      <h3 class="print-pagetitle">Owner Acknowledgments</h3>
+      <p class="print-acks-intro">The following terms were presented to the homeowner(s) named on the cover. Each box shows the answer given in the application.</p>
+      <ol class="print-acks">${terms}</ol>
+      <div class="print-acks-sign" aria-label="Owner certification">
+        <p class="print-acks-sign__status">${acksChecked
+          ? "All 8 acknowledgment items have been read and accepted."
+          : "⚠ Not all acknowledgment items were checked &mdash; the unaccepted terms are marked above."}</p>
+        <div class="print-sig-row">
+          <div class="print-sig-field print-sig-field--sign">
+            <div class="print-sig-ink">${
+              d.ownerSigMethod === "type"
+                ? (d.ownerTypedSignature ? `<span class="print-sig-typed">${esc(d.ownerTypedSignature)}</span>` : "")
+                : (d.ownerAckSignature ? `<img src="${d.ownerAckSignature}" style="height:36px;" alt="Homeowner signature" />` : "")
+            }${esignTag("Sig_es_:signer1:signature")}</div>
+            <div class="print-sig-line"></div>
+            <div class="print-sig-label">Homeowner(s) Signature${d.ownerSigMethod === "type" ? " (signed electronically by typing name)" : ""}</div>
+          </div>
+          <div class="print-sig-field print-sig-field--date">
+            <div class="print-sig-ink">${esc(d.ackDate)}${esignTag("Dte_es_:signer1:date")}</div>
+            <div class="print-sig-line"></div>
+            <div class="print-sig-label">Date</div>
+          </div>
+        </div>
+      </div>
     </section>`;
 }
 
@@ -2023,15 +2083,24 @@ function buildImprovementsPageHTML(d, imgs) {
     const noDims = !!cat && !cat.dims; // paint: no dimensions field at all
     const pics = imgs.filter(e => e.kind === "imp" && e.ownerId === it.uid);
     const picNames = itemPhotoNames(it); // includes non-image (PDF) attachments too
+    // Files attached to this item but not embedded (PDFs, undecodable images) — named here
+    // so the item block itself accounts for them, not just the cover manifest (Sprint 26).
+    const embeddedNames = new Set(pics.map(p => p.name));
+    const sepNames = picNames.filter(n => !embeddedNames.has(n));
     const fields = [
+      // Location (Sprint 26, from Sprint 25's per-item select): every Add/Replace item gets
+      // the row (an honest "—" when unanswered); a Remove item only when one was chosen (the
+      // requirements engine treats location as not-applicable for removals).
+      (remove && !it.location) ? "" : `<tr><td>Location</td><td>${esc(LOCATION_LABEL[it.location] || it.location) || "—"}</td></tr>`,
       remove ? "" : `<tr><td>Materials / details</td><td>${esc(it.materials) || "—"}</td></tr>`,
       (remove || noDims) ? "" : `<tr><td>Dimensions</td><td>${esc(it.dimensions) || "—"}</td></tr>`
     ].join("");
+    const sepNote = sepNames.length
+      ? `<p class="print-imp-noimg">Example / catalog file${sepNames.length > 1 ? "s" : ""} attached separately (see the cover): ${sepNames.map(esc).join(", ")}.</p>`
+      : "";
     const picsHTML = pics.length
-      ? `<div class="print-imp-imgs">${pics.map(e => printImg(e, "print-imp-img", `Example or catalog image for ${it.name || "proposed improvement"}${e.name ? `: ${e.name}` : ""}`)).join("")}</div>`
-      : picNames.length
-        ? `<p class="print-imp-noimg">Example / catalog file attached separately: ${picNames.map(esc).join(", ")}.</p>`
-        : `<p class="print-imp-noimg">${remove ? "No picture (optional for a removal)." : "⚠ No example / catalog picture attached."}</p>`;
+      ? `<div class="print-imp-imgs">${pics.map(e => printImg(e, "print-imp-img", `Example or catalog image for ${it.name || "proposed improvement"}${e.name ? `: ${e.name}` : ""}`)).join("")}</div>${sepNote}`
+      : sepNote || `<p class="print-imp-noimg">${remove ? "No picture (optional for a removal)." : "⚠ No example / catalog picture attached."}</p>`;
     return `<div class="print-imp-block">
       <div class="print-imp-head">
         <span class="print-imp-action print-imp-action--${esc(it.action)}">${esc(ACTION_LABEL[it.action] || it.action || "—")}</span>
@@ -2116,17 +2185,20 @@ function buildPhotosPageHTML(d, imgs) {
 
 /* The printed packet: an incompleteness warning page FIRST (Sprint 21 — printed only when
    something's missing, else absent), then the cover (which now leads with the applicant +
-   acknowledgments + owner-signature summary, folds in the submission steps, and pins the
-   adjacent-owner signatures to its bottom — the standalone application page was merged into
-   it 2026-07-05), then a dedicated page per heavy section (improvements, site/plot, photos —
-   each with real scaled images). `imgs` is the pre-compressed image set gathered
-   asynchronously by printPreview (preparePrintImages). */
-function buildPrintHTML(d, imgs) {
+   acknowledgment summary, folds in the submission steps + the conditional separate-files
+   manifest, and pins the adjacent-owner signatures to its bottom — the standalone
+   application page was merged into it 2026-07-05), then the Owner Acknowledgments page
+   (Sprint 26 — the full terms + the owner signature), then a dedicated page per heavy
+   section (improvements, site/plot, photos — each with real scaled images). `imgs` is the
+   pre-compressed image set gathered asynchronously by printPreview (preparePrintImages). */
+function buildPrintHTML(d, imgs, separate) {
   imgs = imgs || [];
+  separate = separate || [];
   return `
     <div class="print-doc">
       ${buildWarningCoverHTML()}
-      ${buildInstructionsHTML(d)}
+      ${buildInstructionsHTML(d, separate)}
+      ${buildAcksPageHTML(d)}
       ${buildImprovementsPageHTML(d, imgs)}
       ${buildPlotPageHTML(d, imgs)}
       ${buildPhotosPageHTML(d, imgs)}
@@ -2220,43 +2292,61 @@ async function encodeToBudget(blob, targetBytes) {
 
 // Gather every embeddable image in the packet (requested photos in questionnaire order,
 // each improvement's example pictures, and the plot — drawn→rendered PNG or uploaded
-// image), allocate the byte budget across them, and compress each. Returns an array of
-// entries {key, kind, ownerId, caption, name, dataUrl, w, h, bytes} for the page builders;
-// non-image attachments (a PDF) are skipped here and stay named-only in the instructions.
+// image), allocate the byte budget across them, and compress each. Returns {imgs, separate}:
+// `imgs` is the embedded set ({key, kind, ownerId, caption, name, dataUrl, w, h, bytes})
+// for the page builders; `separate` (Sprint 26) is its complement — every attached file
+// whose bytes did NOT make it into the packet (non-image attachments the gather skips,
+// plus any image that later fails to decode/encode, e.g. HEIC in some browsers), each
+// {name, context}. Both derive from the ONE synchronous DOM walk below, taken before the
+// (multi-second) compression awaits — so the packet and the cover's "Also attach these
+// files" manifest can never disagree about what's embedded, even if the user edits
+// attachments mid-compression while the parent window is still interactive.
 async function preparePrintImages(d) {
   const sources = [];
+  const separate = [];
   photoChecklist().forEach(r => {
     const input = $(`[data-photo-input="${r.id}"]`, photoRequestsEl);
     const info = PHOTO_INFO[r.id] || { area: "", shot: r.title, instr: "" };
     Array.from((input && input.files) || []).forEach((f, i) => {
-      if (f.type && f.type.startsWith("image/")) sources.push({ key: `photo:${r.id}:${i}`, kind: "photo", ownerId: r.id, caption: r.title, area: info.area, shotTitle: info.shot, instr: info.instr, name: f.name, blob: f });
+      if (f.type && f.type.startsWith("image/")) sources.push({ key: `photo:${r.id}:${i}`, kind: "photo", ownerId: r.id, caption: r.title, area: info.area, shotTitle: info.shot, instr: info.instr, name: f.name, blob: f, context: `photo, ${r.title}` });
+      else separate.push({ name: f.name, context: `photo, ${r.title}` });
     });
   });
   $$(".improvement", improvementList).forEach(node => {
     const uid = node.dataset.impUid;
+    const itemName = ($("[data-imp-name]", node)?.value || "").trim();
+    const context = `example / catalog file for ${itemName || "a proposed improvement"}`;
     const input = $("input[data-imp-photo]", node);
     Array.from((input && input.files) || []).forEach((f, i) => {
-      if (f.type && f.type.startsWith("image/")) sources.push({ key: `imp:${uid}:${i}`, kind: "imp", ownerId: uid, name: f.name, blob: f });
+      if (f.type && f.type.startsWith("image/")) sources.push({ key: `imp:${uid}:${i}`, kind: "imp", ownerId: uid, name: f.name, blob: f, context });
+      else separate.push({ name: f.name, context });
     });
   });
   if (d.planMode === "upload") {
-    const f = plotUploadInput.files && plotUploadInput.files[0];
-    if (f && f.type && f.type.startsWith("image/")) sources.push({ key: "plot", kind: "plot", name: f.name, blob: f });
+    // At most the FIRST uploaded file is embedded, image-only; a non-image first file and
+    // every additional file ride the email separately.
+    Array.from((plotUploadInput && plotUploadInput.files) || []).forEach((f, i) => {
+      if (i === 0 && f.type && f.type.startsWith("image/")) sources.push({ key: "plot", kind: "plot", name: f.name, blob: f, context: "plot plan" });
+      else separate.push({ name: f.name, context: "plot plan" });
+    });
   } else if (plotUsed()) {
     const url = renderPlotImage();
     if (url) sources.push({ key: "plot", kind: "plot", blob: dataURLToBlob(url) });
   }
   lastPrintImageBytes = 0;
-  if (!sources.length) return [];
+  if (!sources.length) return { imgs: [], separate };
   const targets = allocateImageBudget(sources.map(s => s.blob.size), PRINT_IMAGE_BUDGET);
-  const out = [];
+  const imgs = [];
   for (let i = 0; i < sources.length; i++) {
     try {
       const enc = await encodeToBudget(sources[i].blob, targets[i]);
-      if (enc) { out.push({ ...sources[i], dataUrl: enc.dataUrl, w: enc.w, h: enc.h, bytes: enc.bytes }); lastPrintImageBytes += enc.bytes; }
-    } catch (_) { /* skip an image that won't decode */ }
+      if (enc) { imgs.push({ ...sources[i], dataUrl: enc.dataUrl, w: enc.w, h: enc.h, bytes: enc.bytes }); lastPrintImageBytes += enc.bytes; continue; }
+    } catch (_) { /* an image that won't decode falls through to the separate list */ }
+    // Not embedded after all — it must ride the email separately. (The drawn plot's
+    // rendered PNG has no filename and isn't a user file; nothing to attach for it.)
+    if (sources[i].name) separate.push({ name: sources[i].name, context: sources[i].context });
   }
-  return out;
+  return { imgs, separate };
 }
 
 /* ----- SHARED: open the print/save-PDF window -----
@@ -2281,11 +2371,11 @@ async function printPreview() {
     + '<p>Preparing your application packet — scaling and compressing images so it stays emailable…</p></body>');
   w.document.close();
 
-  let imgs = [];
-  try { imgs = await preparePrintImages(d); } catch (_) { imgs = []; }
+  let imgs = [], separate = [];
+  try { ({ imgs, separate } = await preparePrintImages(d)); } catch (_) { /* keep empty */ }
   if (w.closed) return; // the user closed the placeholder while we worked
 
-  const html = buildPrintHTML(d, imgs);
+  const html = buildPrintHTML(d, imgs, separate);
   // Running-header content: reference id + applicant name/address/phone/email, plus page counters.
   const applicant = [d.ownerName, d.propertyAddress, d.ownerPhone, d.ownerEmail].filter(Boolean).join("  ·  ");
   const refCss = cssStr("Ref " + (d.refId || ""));
@@ -2366,17 +2456,22 @@ async function printPreview() {
          bottom, and .print-cover-body filling the middle. min-height stays under the ~9.66in
          content box so the whole cover keeps to one page. */
       .print-cover-page { display: flex; flex-direction: column; min-height: 9.2in; page: cover; }
-      /* The three content blocks (grouped record+certification, the steps, the signature strip)
-         are spread down the page with even whitespace between them (space-between; the gap is a
-         floor so a full page still breathes). ONE-PAGE BUDGET (measured 2026-07-12): the packed
-         natural height of this cover is ~9.23in, which clears the ~9.66in printable content box
-         (letter minus the 18/16/16mm @page margins) by ~0.4in. The block paddings/margins here,
-         the four-step gaps, and the .nf-table row height (.38in) were tuned to hold that budget —
-         the neighbor strip's 6 rows are the dominant term. Re-inflating any of them (or restoring
-         the .46in rows) pushes the cover onto a second page, so re-measure if you loosen spacing. */
+      /* The content blocks (grouped record+ack summary, the steps, the conditional separate-
+         files manifest, the signature strip) are spread down the page with even whitespace
+         between them (space-between; the gap is a floor so a full page still breathes).
+         ONE-PAGE BUDGET (measured 2026-07-12 at ~9.23in packed against the ~9.66in printable
+         content box — letter minus the 18/16/16mm @page margins): Sprint 26 then moved the
+         owner-signature block off the cover (frees ~0.6in) and spent part of that headroom on
+         the conditional .print-attachlist manifest (~0.35in + ~0.14in per listed file when it
+         renders at all). The block paddings/margins here, the four-step gaps, and the .nf-table
+         row height (.38in) were tuned to hold the budget — the neighbor strip's 6 rows are the
+         dominant term. Re-inflating any of them (or restoring the .46in rows) risks pushing a
+         manifest-bearing cover onto a second page, so re-measure if you loosen spacing. */
       .print-cover-body { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; gap: 13px; }
-      /* Grouped top card: Applicant of Record + Owner Certification read as one unit, the
-         certification's own top hairline serving as the internal divider between them. */
+      /* Grouped top card: Applicant of Record + the one-line acknowledgment/signature
+         summary read as one unit, the summary's own top hairline serving as the internal
+         divider (the certification signature block itself moved to the Owner
+         Acknowledgments page in Sprint 26). */
       .print-topgroup { border: 1px solid #e6ddd4; border-radius: 6px; padding: 10px 14px; }
       /* Zero the strip's own top margin inside the evenly-distributed body so the space-between
          gap above it matches the gap above the steps (its crimson top rule + padding stay). */
@@ -2393,6 +2488,20 @@ async function printPreview() {
       .print-steps strong { color: #1d1a17; }
       .print-steps .dl { font-weight: 700; color: #a4111f; white-space: nowrap; }
       .print-email { font-weight: 700; color: #7d0d18; border-bottom: 1.5px solid #d9b8b5; padding-bottom: .5px; overflow-wrap: anywhere; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      /* --- "Also attach these files" manifest (Sprint 26): attachments whose bytes are NOT
+         embedded in the packet (non-image files, undecodable images). Conditional — the
+         block doesn't render at all when everything is embedded. Line-art callout, matching
+         the warning page's bordered-card treatment. --- */
+      .print-attachlist { border: 1px solid #e6c9c6; border-left: 4px solid #a4111f; border-radius: 0 4px 4px 0; padding: 8px 13px 9px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-attachlist__head { font-size: 9.5pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #a4111f; }
+      .print-attachlist__note { margin: 2px 0 0; font-size: 9pt; line-height: 1.4; color: #5b5650; }
+      /* Two columns keep the (already row-capped) list compact against the cover's one-page
+         budget; wrap-anywhere on the monospace filename so a long phone/scanner name can't
+         overflow the card (same treatment as .print-email above). */
+      .print-attachlist ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+      .print-attachlist li { font-size: 9pt; line-height: 1.35; color: #2a2620; padding: 1.5px 0; }
+      .print-attachlist__file { font-family: Consolas, 'SFMono-Regular', ui-monospace, monospace; font-weight: 600; overflow-wrap: anywhere; }
+      .print-attachlist__more { font-style: italic; color: #5b5650; grid-column: 1 / -1; }
       /* Single-line contact footer, pinned to the bottom of the cover (after the signature strip). */
       .print-cover__questions { margin: 9px 0 0; padding: 7px 12px; font-size: 8pt; color: #45413c; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #faf8f4; border: 1px solid #ecdfd6; border-left: 3px solid #a4111f; border-radius: 0 4px 4px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-cover__questions strong { color: #7d0d18; letter-spacing: .01em; }
@@ -2419,13 +2528,16 @@ async function printPreview() {
       .print-legend__swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid #777; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .print-legend svg, .print-legend img { flex: none; width: 12px; height: 12px; }
       .print-ack-summary { font-size: 9.5pt; margin: 4px 0 7px; }
-      /* Owner certification: acknowledgment summary, then the
+      /* Cover summary line standing in for the moved signature block (Sprint 26): the
+         acknowledgment status + a pointer to the Owner Acknowledgments page. Its top
+         hairline keeps the topgroup's internal record/certification divider. */
+      .print-certsummary { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid #efe9e1; font-size: 9.5pt; line-height: 1.45; color: #45413c; }
+      .print-certsummary strong { color: #7d0d18; }
+      /* Owner signature row (on the Owner Acknowledgments page since Sprint 26): the
          signature (2/3) + date (1/3) fields on one shared baseline. */
-      .print-certline { display: block; margin-top: 9px; padding-top: 8px; position: relative; }
-      .print-certline__ack { margin: 0 0 9px; font-size: 9.5pt; color: #45413c; line-height: 1.42; }
-      .print-certline__sign { display: flex; align-items: flex-end; gap: 24px; }
-      .print-certline__sign .print-sig-field--sign { flex: 2 1 0; }
-      .print-certline__sign .print-sig-field--date { flex: 1 1 0; white-space: nowrap; }
+      .print-sig-row { display: flex; align-items: flex-end; gap: 24px; }
+      .print-sig-row .print-sig-field--sign { flex: 2 1 0; }
+      .print-sig-row .print-sig-field--date { flex: 1 1 0; white-space: nowrap; }
       .print-sig-ink { min-height: 30px; display: flex; align-items: flex-end; }
       .print-sig-line { border-bottom: 1px solid #333; margin-top: 2px; }
       .print-sig-typed { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 14pt; }
@@ -2434,6 +2546,22 @@ async function printPreview() {
          them to fillable fields on upload. Tiny near-white text so they don't mar the printed
          signature spots. print-color-adjust:exact keeps the near-white from being darkened. */
       .print-esign-tag { font-size: 5px; line-height: 1; color: #efece7; letter-spacing: 0; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      /* --- Owner Acknowledgments page (Sprint 26): the full terms + the owner signature.
+         Terms verbatim from the ACKS constants; each row carries its checked state, and the
+         signature block (moved off the cover — the signer1 e-sign tags live here now) sits
+         immediately below the terms, mirroring page 4 of the source form. --- */
+      .print-acks-intro { font-size: 10pt; color: #514c46; font-style: italic; margin: -4px 0 10px; }
+      .print-acks { list-style: none; margin: 0; padding: 0; }
+      .print-acks li { display: flex; gap: 9px; align-items: flex-start; padding: 8px 2px; border-top: 1px solid #efe9e1; break-inside: avoid; }
+      .print-acks li:first-child { border-top: none; }
+      .print-ack__num { flex: none; width: 18px; font-family: Georgia, serif; font-size: 11pt; font-weight: 700; color: #a4111f; line-height: 1.3; }
+      .print-ack__box { flex: none; width: 14px; height: 14px; margin-top: 2px; border: 1.5px solid #1d1a17; border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #1d1a17; }
+      .print-ack--unchecked .print-ack__box { border-color: #a4111f; }
+      .print-ack__text { font-size: 10pt; line-height: 1.45; color: #2a2620; }
+      .print-ack__text a { color: inherit; }
+      .print-ack__flag { display: inline-block; font-size: 8.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #a4111f; border: 1px solid #e6c9c6; border-radius: 3px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; }
+      .print-acks-sign { margin-top: 20px; padding-top: 12px; border-top: 1px solid #d5d0c9; break-inside: avoid; }
+      .print-acks-sign__status { margin: 0 0 10px; font-size: 9.5pt; color: #45413c; }
       .print-footer-note { font-size: 9pt; color: #5b5650; margin-top: 12px; border-top: 1px solid #ddd; padding-top: 4px; }
       /* --- dedicated section pages (Sprint 19): improvements, site/plot, photos --- */
       .print-pagetitle { font-family: Georgia, serif; font-size: 16pt; font-weight: 600; color: #7d0d18; border-bottom: 3px solid #a4111f; padding-bottom: 5px; margin: 0 0 12px; }

@@ -1772,6 +1772,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .ack-sign { margin-top: 1.4rem; align-items: end; }
 
 /* ===================== REVIEW & SUBMIT (packet + guided finish) ===================== */
+/* Sprint 26: the packet reference id, surfaced on screen before it appears in the printed
+   running header. Monospace so the id reads as a citable code. */
+.packet-ref { margin: 0 0 1.4rem; font-size: .92rem; color: var(--ink-soft); }
+.packet-ref strong { font-family: Consolas, ui-monospace, monospace; font-size: .95rem; color: var(--crimson); letter-spacing: .02em; }
+.packet-ref__hint { color: var(--ink-faint); }
 .packet__subhead {
   font-family: var(--font-disp);
   font-size: 1.05rem;
