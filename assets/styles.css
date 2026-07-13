@@ -942,6 +942,16 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
    host scrolls it (native scrollbars + middle-mouse / hand-tool panning). The wrap is exactly
    the canvas's box, so corner overlays (zoom, scale badge, loading) anchor to the canvas. */
 .plot__grid-wrap { position: relative; }
+/* A held finger on the drawing surface must never start a text selection: the host's own
+   user-select:none isn't enough on iOS — a long-press on unselectable content walks OUT of
+   it and selects the surrounding page (reads as a page-wide select-all), and WebKit needs
+   the -webkit- prefix + touch-callout besides. Make the canvas and all the chrome a thumb
+   can rest on (overlays, rail, swatch row, status strip) one unselectable island. */
+.plot__grid-wrap, .tool-rail, .plot-status, #palette, .plot-steps-nav {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
 .plot__konva-host {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -949,6 +959,8 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   border: 1px solid var(--ink-faint);
   background: #fbfaf7;
   user-select: none;
+  -webkit-user-select: none; /* iOS Safari needs the prefix */
+  -webkit-touch-callout: none; /* no long-press callout over the canvas */
   touch-action: none;
   line-height: 0; /* Konva's <canvas> is inline by default and picks up a few px of text baseline gap otherwise */
   overscroll-behavior: contain;

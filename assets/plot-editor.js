@@ -555,6 +555,7 @@ function initPlotStage() {
   window.addEventListener("pointerup", onHostPointerUp);
   plotHost.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); }); // suppress MMB autoscroll
   plotHost.addEventListener("contextmenu", e => e.preventDefault()); // right-click erases instead of opening the menu
+  plotHost.addEventListener("selectstart", e => e.preventDefault()); // a held thumb must never start a text selection (CSS user-select is the primary guard; this backstops engines that still fire it)
   stageReady = true;
   applyStageSize();
   fitView();
