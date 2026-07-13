@@ -689,8 +689,10 @@ body.is-file-drag .dropzone { border-color: var(--gold); background: var(--paper
   border-radius: var(--radius-sm);
   font-size: .88rem;
 }
+/* Neutral to-gather marker — deliberately NOT a checkmark, which read as already-done
+   (Sprint 24). An unchecked box says "you'll need this", matching the list's intent. */
 .checklist--static li::before {
-  content: "✓"; color: var(--crimson); font-weight: 700; flex-shrink: 0;
+  content: "□"; color: var(--crimson); font-weight: 700; flex-shrink: 0;
 }
 
 input[type="checkbox"] {

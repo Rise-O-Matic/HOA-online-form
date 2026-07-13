@@ -665,6 +665,14 @@ const STEP_SUBTITLES = {
   3: "Drag anywhere on the map to spin it until the front of your property (the street side) faces the bottom.",
   4: "Pick a material and a drawing tool, mark up your lot, then press <strong>Done</strong> below to add the plan to your packet.",
 };
+// Step 4's instruction depends on the Done-lock: a confirmed plan must not say "press
+// Done below" while Done is a disabled badge (Sprint 24). Swapped by showStep(4) and —
+// via app.js's refreshPlotDoneUI — whenever the confirmed flag changes.
+const STEP4_SUBTITLE_LOCKED = "This plan is locked into your packet. Press <strong>Make changes</strong> below to edit it, or continue on to the Photos section.";
+export function syncDrawSubtitle() {
+  if (currentStep !== 4 || !stepSubtitle) return;
+  stepSubtitle.innerHTML = isPlotConfirmed() ? STEP4_SUBTITLE_LOCKED : STEP_SUBTITLES[4];
+}
 const mapContainer = $("#map-container");
 let step2Camera = null; // Select-step center/zoom, captured on 2→3 so backing up restores the view as it was left
 let orientCamera = null; // Orient-step framed view (center + base zoom incl. ORIENT_ZOOM_IN), the anchor the wheel zooms around
@@ -840,6 +848,7 @@ export function showStep(n) {
   }
   currentStep = n;
   if (stepSubtitle && STEP_SUBTITLES[n]) stepSubtitle.innerHTML = STEP_SUBTITLES[n];
+  if (n === 4) syncDrawSubtitle(); // a confirmed plan gets the locked-state instruction instead
   $$(".plot-step").forEach(el => el.classList.toggle("is-active", +el.dataset.step === n));
   stepDots.forEach(dot => {
     const s = +dot.dataset.goto;

@@ -17,7 +17,7 @@ import {
 } from "./plot-editor.js";
 import {
   planMode, setPlanMode, plotUploadInput, restoreParcelFromDraft,
-  parcelBearing, selectedAPN, selectedParcelGeoJSON, mapInstance
+  parcelBearing, selectedAPN, selectedParcelGeoJSON, mapInstance, syncDrawSubtitle
 } from "./map-wizard.js";
 import { registerDropzone, DROPZONE_ICON } from "./dropzone.js";
 import {
@@ -1179,6 +1179,12 @@ function refreshPlotDoneUI() {
   if (plotEl) plotEl.classList.toggle("is-locked", confirmed);
   const drawDot = $('.plot-steps-nav__dot[data-goto="4"]');
   if (drawDot) drawDot.classList.toggle("is-done", confirmed);
+  // The step-4 instruction line and the "Drawing not working out?" bail track the lock
+  // too (Sprint 24): a confirmed plan must not say "press Done below" or offer the
+  // switch-to-upload escape while every drawing control is hidden.
+  syncDrawSubtitle();
+  const bail = $("#plot-bail-line");
+  if (bail) bail.hidden = confirmed;
 }
 
 export function refreshPacketUI() {
@@ -1693,8 +1699,8 @@ function buildWarningCoverHTML() {
         <div class="print-warncover__eyebrow">Stop — do not submit yet</div>
         <h1 class="print-warncover__title">This application is incomplete</h1>
         <p class="print-warncover__lead">This packet was printed before every section was finished.
-          <strong>An incomplete application is returned unreviewed</strong>, and the 45-day review period
-          does not begin until everything is received.</p>
+          <strong>An incomplete application is returned and automatically denied</strong> — please
+          finish every item below before submitting.</p>
 
         <div class="print-warncover__card">
           <div class="print-warncover__cardhead">Still to finish<span>${n} item${n === 1 ? "" : "s"}</span></div>
@@ -1814,7 +1820,7 @@ function buildInstructionsHTML(d) {
             <li><strong>Save or print this packet.</strong> Everything you entered (proposed improvements, plot plan, property photos, and your signature) is already inside it.</li>
             <li><strong>Collect adjacent-owner signatures</strong> on the form at the bottom of this cover, in person, then scan or photograph the signed cover. A signature confirms notification, not approval.</li>
             <li><strong>Email everything to <span class="print-email">carolmarie.taylor@fsresidential.com</span>.</strong> Send this packet and the signed cover${uploadPlot ? ", plus your plot-plan file," : ""} so it arrives by a posted deadline. The next two are <span class="dl">${dl1}</span> and <span class="dl">${dl2}</span>. Meeting a deadline puts you on that month&rsquo;s board agenda.</li>
-            <li><strong>Wait for our reply. No payment is due now.</strong> The committee requests the review fee only after confirming your application is complete.</li>
+            <li><strong>Wait for our reply. No payment is due now.</strong> Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment &mdash; review does not begin until both the complete application and the fee are received.</li>
           </ol>
         </div>
 

@@ -73,7 +73,7 @@
   <div class="landing__inner">
     <p class="landing__eyebrow">Before you begin</p>
     <h2 class="landing__title">What you&rsquo;ll need to apply</h2>
-    <p class="landing__lead">The Architectural Review Committee can only review a <strong>complete</strong> packet. Gather these items before you start — you&rsquo;ll attach each one as you go. An application missing any required item is considered <strong>incomplete</strong>, and the 45-day review period does not begin until everything is provided.</p>
+    <p class="landing__lead">The Architectural Review Committee can only review a <strong>complete</strong> packet — an application missing any required item is <strong>returned and automatically denied</strong>. Gather these items before you start; you&rsquo;ll attach each one as you go.</p>
 
     <div class="landing__grid">
       <!-- Required submissions overview -->
@@ -82,9 +82,9 @@
         <ul class="checklist checklist--static">
           <li><span><strong>Plot design of your lot</strong>, with the location of the proposed modification clearly marked. Build one with our interactive tool or upload your own.</span></li>
           <li><span><strong>Sketches, dimensions, example photos and materials</strong> for the proposed modifications.</span></li>
-          <li><span><strong>Photos of your yard</strong> — we&rsquo;ll ask a few questions and tell you exactly which photos to take and how to frame each one.</span></li>
-          <li><span><strong>Signatures from all impacted neighbors</strong> — the signature form is on the bottom of your printed packet's cover page; collect signatures in person and submit the signed form with your application.</span></li>
-          <li><span><strong>Application fee</strong> — nothing is due when you apply; if the application is approved, the committee will contact you to arrange payment.</span></li>
+          <li><span><strong>Photos of your yard</strong> — answer a few questions and the form will request the photos the committee needs, with a framing example for each.</span></li>
+          <li><span><strong>Signatures from adjacent property owners</strong> most affected by the change — the signature form is on the bottom of your printed packet's cover page; collect signatures in person and submit the signed form with your application.</span></li>
+          <li><span><strong>Application fee</strong> — no payment is due when you apply. Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment — review does not begin until both the complete application and the fee are received.</span></li>
         </ul>
       </div>
 
@@ -102,8 +102,8 @@
     <div class="landing__submit-info">
       <div class="info-card">
         <h3 class="ref-title">How to submit</h3>
-        <p>This online form is the <strong>current, required application</strong>. Older or printed versions of the form are not accepted.</p>
-        <p>Completed packets are submitted <strong>by email only</strong> to CarolMarie Taylor, Sr. Architectural Specialist — no other staff member will accept applications:</p>
+        <p>This form prepares a complete packet based on the association&rsquo;s <strong>May 2026 application</strong>. Before submitting, please confirm with the office that a packet prepared here will be accepted.</p>
+        <p>Completed packets are submitted <strong>by email only</strong> to CarolMarie Taylor, Sr. Architectural Specialist:</p>
         <p class="info-card__email"><a href="mailto:carolmarie.taylor@fsresidential.com">carolmarie.taylor@fsresidential.com</a></p>
         <p>Incomplete applications will be returned and automatically denied — please read all instructions thoroughly before submitting.</p>
       </div>
@@ -118,8 +118,8 @@
       </div>
       <div class="info-card info-card--wide">
         <h3 class="ref-title">Fees &amp; payment</h3>
-        <p>Please do <strong>not</strong> call or come into the office to pay. The application fee is collected <strong>only after</strong> the Architectural Specialist has reviewed your application and confirmed it is complete — nothing is charged for an incomplete application.</p>
-        <p>Carol will contact you directly to collect the fee, and a receipt is emailed to the address on file.</p>
+        <p>Please do <strong>not</strong> call or come into the office to pay. No payment is due when you apply. Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment — <strong>review does not begin</strong> until both the complete application and the fee are received.</p>
+        <p>CarolMarie will contact you directly to collect the fee, and a receipt is emailed to the address on file.</p>
       </div>
     </div>
 
@@ -202,7 +202,7 @@
           <span class="card__num">02</span>
           <div>
             <h2>Proposed Improvements</h2>
-            <p class="card__sub">List each change as its own item. Pick the <strong>type of change</strong> and we&rsquo;ll ask only for what it needs — materials &amp; color and dimensions for a structure, plant details for landscaping, a color code for paint — always with an <strong>example or catalog picture</strong>, matching the &ldquo;must include&rdquo; list printed on the ARC template.</p>
+            <p class="card__sub">List each change as its own item. Pick the <strong>type of change</strong> and we&rsquo;ll ask only for what it needs — materials &amp; color and dimensions for a structure, plant details for landscaping, a color code for paint — always with an <strong>example or catalog picture</strong>, so the committee can see exactly what you&rsquo;re proposing.</p>
           </div>
         </header>
 
@@ -493,7 +493,7 @@
               <button type="button" class="btn btn--primary" id="plot-done" disabled>Done — use this plan</button>
               <button type="button" class="btn btn--ghost btn--sm" id="plot-edit" hidden>Make changes</button>
             </div>
-            <p class="plot-step__bail">Drawing not working out? <button type="button" class="linklike" data-switch-upload>Upload an existing plan instead</button> — anything you've drawn is kept in case you switch back.</p>
+            <p class="plot-step__bail" id="plot-bail-line">Drawing not working out? <button type="button" class="linklike" data-switch-upload>Upload an existing plan instead</button> — anything you've drawn is kept in case you switch back.</p>
           </div>
         </div>
       </section>
@@ -504,7 +504,7 @@
           <span class="card__num">04</span>
           <div>
             <h2>Photos of Your Property</h2>
-            <p class="card__sub">Clear, complete photos help the committee review your request without a site visit. Answer the questions below and we&rsquo;ll tell you <strong>exactly which photos to take</strong> — with a framing example for each.</p>
+            <p class="card__sub">Clear, complete photos help the committee review your request without a site visit. Answer the questions below and we&rsquo;ll request <strong>the photos the committee needs</strong> — with a framing example for each.</p>
           </div>
         </header>
 
@@ -538,9 +538,8 @@
 
         <aside class="pause-note">
           <strong>Need daylight for these photos?</strong>
-          Come back anytime — your answers save automatically in this browser, so you can take the
-          photos when conditions are right. Just attach the files in the same sitting you submit —
-          the browser can't hold on to attached files between visits.
+          Come back anytime — your answers <em>and</em> attached photos are saved automatically in
+          this browser, so you can pause now and finish when the light is right.
         </aside>
       </section>
 
@@ -599,7 +598,7 @@
             <div class="finish-step__body">
               <h4 class="finish-step__title">Save &amp; print your application packet</h4>
               <p class="finish-step__desc">Opens the print view — choose <strong>Save as PDF</strong> as the printer/destination and remember where the file is saved, or print paper copies. The packet is complete on its own: <strong>page 1 is your submission instructions, with the adjacent-owner signature form on the bottom of that same page</strong> — collect those signatures in person after printing — and the application follows with your plot plan and signature included automatically. <em>A neighbor&rsquo;s signature does not constitute approval or disapproval.</em></p>
-              <p class="finish-step__note"><strong>No payment is due now.</strong> The fee is collected only after Carol reviews your application and confirms it&rsquo;s complete — she&rsquo;ll contact you directly to collect it, and a receipt is emailed to you.</p>
+              <p class="finish-step__note"><strong>No payment is due now.</strong> Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment — review does not begin until both the complete application and the fee are received.</p>
               <div class="finish-step__actions">
                 <button type="button" class="btn btn--primary" id="finish-pdf-btn">Save &amp; print packet</button>
               </div>
@@ -622,8 +621,9 @@
     <div class="next-steps-notice">
       <h3>What Happens Next</h3>
       <ol>
-        <li><strong>Committee review</strong> — The Architectural Review Committee will review your application at the next scheduled board meeting (dates are listed under <a href="#" id="view-dates">Requirements &amp; dates</a>). The 45-day review period begins once all required materials are received.</li>
-        <li><strong>Decision &amp; payment</strong> — If the application is approved, the committee will contact you to arrange payment of the application fee and provide written approval before any work may begin.</li>
+        <li><strong>Completeness check &amp; fee</strong> — No payment is due when you apply. Once the Architectural Specialist confirms your application is complete, she will contact you to arrange payment — review does not begin until both the complete application and the fee are received.</li>
+        <li><strong>Committee review</strong> — The Architectural Review Committee reviews your application at the next scheduled board meeting (dates are listed under <a href="#" id="view-dates">Requirements &amp; dates</a>). The 45-day review period begins once everything is received.</li>
+        <li><strong>Decision</strong> — If the application is approved, you&rsquo;ll receive written approval. No exterior work may begin before it arrives.</li>
       </ol>
     </div>
 
@@ -678,9 +678,9 @@
       <button type="button" class="modal__x" data-close aria-label="Close">&times;</button>
     </header>
     <div class="modal__scroll">
-      <p class="gate-lead" id="gate-lead">Nothing here stops you from saving your packet &mdash; but the committee <strong>returns any incomplete application unreviewed</strong>. If it&rsquo;s incomplete on the submission deadline, it will not be reviewed until the following month &mdash; no exceptions. Finish the items below, or continue anyway:</p>
+      <p class="gate-lead" id="gate-lead">Nothing here stops you from saving your packet &mdash; but an incomplete application is <strong>returned and automatically denied</strong>, and a resubmission after the deadline waits for the following month&rsquo;s meeting &mdash; no exceptions. Finish the items below, or continue anyway:</p>
       <ul class="gate-missing" id="gate-missing"></ul>
-      <p class="gate-fine" id="gate-appointment">Not sure it&rsquo;s complete? Call the ARCH Specialist&rsquo;s office at <a href="tel:+19518014246">951-801-4246</a> to schedule an appointment <em>before</em> the deadline &mdash; she is not available for meetings on the deadline day itself.</p>
+      <p class="gate-fine" id="gate-appointment">Not sure it&rsquo;s complete? Call the Architectural Specialist at <a href="tel:+19518014246">951-801-4246</a> to schedule an appointment <em>before</em> the deadline &mdash; no exceptions are made for incomplete submissions.</p>
     </div>
     <footer class="modal__foot">
       <button type="button" class="btn btn--ghost" data-close>Keep editing</button>
