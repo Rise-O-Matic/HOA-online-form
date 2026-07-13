@@ -105,9 +105,10 @@ get applied.
     yard. *(That enumerates only 3 back-yard shots; the 4th is unstated. Page 1's "back
     corners", plural, suggests two corner shots.)*
 - **Provisional position (shipped):** the questionnaire asks which areas the work touches
-  and requests per-area shots (3 front / 4 back incl. both rear corners / sides /
-  exterior) plus close-ups of each work area and a material sample when a new paint color
-  or exterior material is introduced. The landing/Section 04 copy no longer claims we tell
+  and requests per-area shots — **3 front / 3 back** (full-yard + each side; no rear-corner
+  shot exists in the app today, pending answer (b) below) / sides / exterior — plus
+  close-ups of each work area and a material sample when a new paint color or exterior
+  material is introduced. The landing/Section 04 copy no longer claims we tell
   you "**exactly** which photos to take" — softened to "the photos the committee needs"
   until this matrix is confirmed.
 - **Decision requested:** (a) are the front + back overview sets mandatory for *every*
