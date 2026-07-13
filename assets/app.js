@@ -1129,9 +1129,13 @@ function packetItemNode(item) {
     a.className = "packet-item__link";
     a.href = item.href;
     a.textContent = "Open section";
-    // Paint the section's gap hints before the anchor jump runs, so the user
-    // arrives with the missing fields already highlighted (see highlightStepGaps).
-    if (item.onJump) a.addEventListener("click", item.onJump);
+    // Paint the section's gap hints, then scroll to the first actual gap rather
+    // than letting the native href jump land on the section's top anchor.
+    if (item.onJump) a.addEventListener("click", e => {
+      e.preventDefault();
+      const painted = item.onJump();
+      scrollToIssue((painted && painted[0]) || item.href);
+    });
     li.appendChild(a);
     // The whole incomplete row is a click target — the ✗ + reason text reads as
     // the actionable thing, so clicking anywhere on it behaves like the link.
@@ -1690,15 +1694,20 @@ function gapPaintOps(row) {
 }
 
 // Highlight every incomplete requirement in one section. Fresh assessment per
-// call — the click may come long after the last render.
+// call — the click may come long after the last render. Returns the painted
+// elements in row order, so a caller can scroll to the first actual gap
+// instead of just the section's top anchor.
 function highlightStepGaps(stepId) {
+  const painted = [];
   assessApplication(requirementsInput()).rows
     .filter(r => r.step === stepId && r.status === REQUIRED_MISSING)
     .forEach(row => gapPaintOps(row).forEach(op => {
       if (op.error) setFieldError(op.el, op.error);
       else if (op.flag) op.el.classList.add("invalid");
       else markGapHint(op.el);
+      if (op.el && !painted.includes(op.el)) painted.push(op.el);
     }));
+  return painted;
 }
 
 // Remove-only reconciliation, run from every updateProgress(): clear painted gap
@@ -2632,7 +2641,11 @@ function openGateModal(issues, onContinue, continueLabel) {
       btn.type = "button";
       btn.className = "gate-jump";
       btn.innerHTML = esc(iss.label) + " <span aria-hidden=\"true\">›</span>";
-      btn.addEventListener("click", () => { closeGateModal(); if (iss.onJump) iss.onJump(); scrollToIssue(iss.target); });
+      btn.addEventListener("click", () => {
+        closeGateModal();
+        const painted = iss.onJump ? iss.onJump() : null;
+        scrollToIssue((painted && painted[0]) || iss.target);
+      });
       li.appendChild(btn);
     } else {
       li.textContent = iss.label;
