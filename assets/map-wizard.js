@@ -11,7 +11,7 @@ import {
   computeSnapAngles, snapBearing, computeEdgeSquareFlags,
   FOOT_IN_METERS, GRID_MARGIN, GRID_MIN_PAD, MAX_GRID_DIM
 } from "./geometry.js";
-import { $, $$, esc } from "./utils.js";
+import { $, $$, esc, trapModalFocus, releaseModalFocus } from "./utils.js";
 import { rebuildGridForParcel, setPlotBackdrop, plotUsed, isPlotConfirmed, setPlotConfirmed, openMaterialLibrary } from "./plot-editor.js";
 import { registerDropzone } from "./dropzone.js";
 // Function-only imports from the entry module (a deliberate ESM cycle — see the
@@ -1028,6 +1028,7 @@ if (new URLSearchParams(location.search).has("reset") || location.hash === "#res
 function openTutorialModal() {
   tutorialModal.hidden = false;
   document.body.style.overflow = "hidden";
+  trapModalFocus(tutorialModal);
   // Every route here is a click handler (replay button, the step3-next "Continue" button),
   // so unmuted autoplay is gesture-activated; if a browser still refuses, retry muted.
   tutorialVideo.play().catch(() => {
@@ -1036,10 +1037,14 @@ function openTutorialModal() {
   });
 }
 function closeTutorialModal() {
+  if (tutorialModal.hidden) return;
   tutorialModal.hidden = true;
   document.body.style.overflow = "";
   tutorialVideo.pause();
   tutorialVideo.currentTime = 0;
+  // Fallback: the auto-shown (first-run) open records a control of the Orient step,
+  // which is display:none by close time — the replay button is the stable trigger.
+  releaseModalFocus(tutorialModal, "#tutorial-replay-btn");
 }
 $$("[data-close]", tutorialModal).forEach(el => el.addEventListener("click", closeTutorialModal));
 document.addEventListener("keydown", e => {

@@ -15,7 +15,7 @@ import {
   computeBBox, fitSimilarity, buildParcelGrid, computeFloodFill, pointInPolygon,
   interpolateAerialNudge, applyPolygonOffsets
 } from "./geometry.js";
-import { $, $$ } from "./utils.js";
+import { $, $$, trapModalFocus, releaseModalFocus } from "./utils.js";
 // Function-only imports from the entry module (a deliberate ESM cycle: app.js
 // imports this module. Hoisted function declarations are safe to import in a
 // cycle as long as they're only CALLED at event time — never read a non-function
@@ -572,7 +572,7 @@ function initPlotStage() {
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k !== "z" && k !== "y") return;
-    if (isTypingTarget(e.target)) return;
+    if (isTypingTarget(e.target) || anyModalOpen()) return;
     if (!plotHost || plotHost.offsetParent === null) return;
     if (plotConfirmedFlag) return;   // locked plan: undo/redo disabled until "Make changes"
     e.preventDefault();
@@ -583,7 +583,7 @@ function initPlotStage() {
   // listening/dragging so a press starts a pan, never a node drag (see syncNodeInteractivity).
   window.addEventListener("keydown", (e) => {
     if (e.code !== "Space") return;
-    if (isTypingTarget(e.target) || !plotHover || !plotHost || plotHost.offsetParent === null) return;
+    if (isTypingTarget(e.target) || anyModalOpen() || !plotHover || !plotHost || plotHost.offsetParent === null) return;
     e.preventDefault();  // no page scroll / focused-button activation while over the canvas
     if (e.repeat || spacePan) return; // key auto-repeat still needs the preventDefault above
     spacePan = true;
@@ -607,7 +607,7 @@ function initPlotStage() {
   // Ignored mid-gesture — switching tools inside an in-progress stroke would corrupt it.
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (isTypingTarget(e.target)) return;
+    if (isTypingTarget(e.target) || anyModalOpen()) return;
     if (!plotHover || !plotHost || plotHost.offsetParent === null || plotConfirmedFlag) return;
     if (spacePan || painting || rectDraft || lineDraft || gridLineDraft || calloutDraft || dragOrigin || stampArmed) return;
     const t = TOOL_MODES.find(x => x.key === e.key.toLowerCase());
@@ -618,7 +618,7 @@ function initPlotStage() {
   // Backspace / Delete removes the shape selected with the Select tool.
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Backspace" && e.key !== "Delete") return;
-    if (isTypingTarget(e.target)) return;
+    if (isTypingTarget(e.target) || anyModalOpen()) return;
     if (!selectedNode || plotConfirmedFlag || !plotHost || plotHost.offsetParent === null) return;
     e.preventDefault();
     deleteAnnotation(selectedNode);
@@ -629,6 +629,14 @@ function initPlotStage() {
 // rest of the form is full of inputs) — shared guard for every canvas keyboard shortcut.
 function isTypingTarget(t) {
   return !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable));
+}
+// ...nor while any dialog is open (Sprint 27's focus trap keeps focus on modal BUTTONS,
+// which isTypingTarget doesn't cover — without this, Ctrl+Z in the material library would
+// undo canvas strokes, Backspace would delete the selected annotation, a letter key would
+// switch tools, and the Space-pan handler would swallow Space activation of a focused
+// button whenever the pointer happens to still hover the canvas under the dialog).
+function anyModalOpen() {
+  return !!document.querySelector(".modal:not([hidden])");
 }
 
 /* --- Middle-mouse / hand-tool / held-Space panning (adjusts native scroll) --- */
@@ -1532,6 +1540,11 @@ export function openMaterialLibrary(force = false) {
   const modal = $("#material-library-modal");
   if (!modal) return;
   if (!force && selectedMaterials.length) return; // auto-open route: only offer while the row is empty
+  // Auto-open also yields to a dialog that's already up — on a first run, the tutorial
+  // modal and this library both fire on entering Draw, and stacking would put the focus
+  // trap on a panel hidden UNDER the tutorial overlay. The user still gets the library
+  // via "+ Choose materials" or the paint-press-with-no-material reopen.
+  if (!force && anyModalOpen()) return;
   matLibPending = new Set(selectedMaterials);
   renderMatLibGrid();
   syncMatLibFooter();
@@ -1539,6 +1552,7 @@ export function openMaterialLibrary(force = false) {
   if (warn) warn.hidden = true;
   modal.hidden = false;
   document.body.style.overflow = "hidden";
+  trapModalFocus(modal);
 }
 
 function closeMaterialLibrary(apply) {
@@ -1556,6 +1570,9 @@ function closeMaterialLibrary(apply) {
   matLibPending = null;
   modal.hidden = true;
   document.body.style.overflow = "";
+  // Fallback: the commit path's renderPaletteChips() above just rebuilt the chip
+  // row, detaching whichever chip opened the library — land on the fresh add chip.
+  releaseModalFocus(modal, ".palette__add");
 }
 
 function renderMatLibGrid() {

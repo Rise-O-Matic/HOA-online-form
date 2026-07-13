@@ -10,7 +10,7 @@
    No backend; no build step — the browser loads these ES
    modules directly.
    ========================================================= */
-import { $, $$, esc } from "./utils.js";
+import { $, $$, esc, trapModalFocus, releaseModalFocus } from "./utils.js";
 import {
   plotUsed, isPlotConfirmed, renderPlotImage, rebuildGridForParcel,
   serializePlot, restorePlot, plotLegend, materialSwatchStyle
@@ -968,6 +968,7 @@ export function updateProgress() {
   // the plot, the acks, the signature — is actually present.
   const { rows, progress } = assessApplication(requirementsInput());
   $("#progress-fill").style.width = progress.pct + "%";
+  $("#progress-bar").setAttribute("aria-valuenow", progress.pct);
   $("#progress-text").textContent = progress.pct + "% complete";
   reconcileGapPaint(rows); // drop stale jump-click highlights whose gap got fixed
   refreshPacketUI();
@@ -1129,6 +1130,10 @@ function packetItemNode(item) {
     a.className = "packet-item__link";
     a.href = item.href;
     a.textContent = "Open section";
+    // Six rows all read "Open section" — give each a unique accessible name
+    // (starting with the visible text, per label-in-name) so an AT link list
+    // isn't six indistinguishable entries.
+    a.setAttribute("aria-label", `Open section: ${item.name || item.label}`);
     // Paint the section's gap hints, then scroll to the first actual gap rather
     // than letting the native href jump land on the section's top anchor.
     if (item.onJump) a.addEventListener("click", e => {
@@ -1163,6 +1168,7 @@ function renderStepStatus() {
     const notes = (s.notes || []).join(" ");
     stepStatusEl.appendChild(packetItemNode({
       label: `${s.num} · ${s.label}`,
+      name: s.label, // bare section name for the link's accessible name
       ok: s.ok,
       note: s.ok ? (notes || null) : [s.reason, notes].filter(Boolean).join(" "),
       href: s.href,
@@ -1596,7 +1602,18 @@ function scrollToIssue(target) {
   const el = typeof target === "string" ? $(target) : target;
   if (!el) return;
   el.scrollIntoView({ behavior: "smooth", block: "center" });
-  try { if (el.focus) el.focus({ preventScroll: true }); } catch (_) {}
+  try {
+    // Block-shaped gap targets (a photo card, a questionnaire block, a section) aren't
+    // natively focusable, so a bare focus() no-ops — and since closing the gate modal
+    // just restored focus to #finish-pdf-btn, the next Tab would yank the viewport back
+    // to the bottom of the page. A tabindex="-1" stopgap (removed on blur) makes the
+    // jump target the real focus point without joining the sequential tab order.
+    if (!el.hasAttribute("tabindex") && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|VIDEO)$/.test(el.tagName)) {
+      el.setAttribute("tabindex", "-1");
+      el.addEventListener("blur", () => el.removeAttribute("tabindex"), { once: true });
+    }
+    if (el.focus) el.focus({ preventScroll: true });
+  } catch (_) {}
 }
 
 /* ----- gap highlighting (jump-to-section hints) -----
@@ -2784,10 +2801,15 @@ function openGateModal(issues, onContinue, continueLabel) {
   gateContinueBtn.textContent = continueLabel || "Continue anyway";
   gateModal.hidden = false;
   document.body.style.overflow = "hidden";
+  trapModalFocus(gateModal);
 }
 function closeGateModal() {
+  if (gateModal.hidden) return;
   gateModal.hidden = true;
   document.body.style.overflow = "";
+  // Focus returns to the opener (#finish-pdf-btn); a jump link's own
+  // scrollToIssue focus runs after this and wins, which is what we want.
+  releaseModalFocus(gateModal);
 }
 $$("[data-close]", gateModal).forEach(el => el.addEventListener("click", closeGateModal));
 gateContinueBtn.addEventListener("click", () => {
@@ -2837,7 +2859,9 @@ function setView(view, { push = false } = {}) {
     landingEl.hidden = false;
   }
   if (changed) {
-    window.scrollTo({ top: 0, behavior: "auto" });
+    // "instant", not "auto": under html { scroll-behavior: smooth } "auto" still
+    // animates, swooshing across the whole page on every landing↔form switch.
+    window.scrollTo({ top: 0, behavior: "instant" });
     if (view === "form") {
       if (mapInstance) setTimeout(() => mapInstance.resize(), 60);
       // The signature pads were constructed while the layout was display:none (0×0 rect),
@@ -2906,7 +2930,8 @@ if (hadDraft) {
   let savedScroll;
   try { savedScroll = sessionStorage.getItem(SCROLL_KEY); } catch (e) {}
   if (savedScroll !== null && savedScroll !== undefined) {
-    setTimeout(() => window.scrollTo({ top: parseInt(savedScroll, 10) || 0, behavior: "auto" }), 250);
+    // "instant" (not "auto") — see setView: "auto" animates under smooth scroll-behavior.
+    setTimeout(() => window.scrollTo({ top: parseInt(savedScroll, 10) || 0, behavior: "instant" }), 250);
   }
 }
 // Default the acknowledgment date to today (local time) unless the draft carried one.
