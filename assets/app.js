@@ -2505,24 +2505,45 @@ $("#download-json").addEventListener("click", () => {
 const landingEl = $("#landing");
 const layoutEl = $("#form-layout");
 
-function enterForm() {
+// The landing screen and the form behave like two browser "pages": entering the form
+// pushes a history entry, so the browser Back button returns to the landing (where the
+// 2026 review-dates table lives) and Forward returns to the form. Routing is driven by
+// history.state — NOT the URL hash — so it never collides with the sidenav's in-page
+// #section anchors (which push their own null-state hash entries) or the ?reset/#reset
+// escape hatch. The landing baseline entry is established in the INIT block below.
+let currentView = "landing";
+function setView(view, { push = false } = {}) {
   if (!landingEl || !layoutEl) return;
-  landingEl.hidden = true;
-  layoutEl.hidden = false;
-  window.scrollTo({ top: 0, behavior: "auto" });
-  if (mapInstance) setTimeout(() => mapInstance.resize(), 60);
-  // The signature pads were constructed while the layout was display:none (0×0 rect), so
-  // their canvas backing stores are still unsized — size them now that they're visible.
-  // Timeout 0 keeps this ahead of restoreDraft()'s 60ms fromDataURL, so restored ink lands
-  // on a properly sized canvas.
-  setTimeout(() => Object.values(sigPads).forEach(p => p.resize(true)), 0);
+  const changed = view !== currentView;
+  currentView = view;
+  if (view === "form") {
+    landingEl.hidden = true;
+    layoutEl.hidden = false;
+  } else {
+    layoutEl.hidden = true;
+    landingEl.hidden = false;
+  }
+  if (changed) {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    if (view === "form") {
+      if (mapInstance) setTimeout(() => mapInstance.resize(), 60);
+      // The signature pads were constructed while the layout was display:none (0×0 rect),
+      // so their canvas backing stores are still unsized — size them now that they're
+      // visible. Timeout 0 keeps this ahead of restoreDraft()'s 60ms fromDataURL, so
+      // restored ink lands on a properly sized canvas.
+      setTimeout(() => Object.values(sigPads).forEach(p => p.resize(true)), 0);
+    }
+  }
+  if (push) { try { history.pushState({ fcView: view }, ""); } catch (e) {} }
 }
-function showLanding() {
-  if (!landingEl || !layoutEl) return;
-  layoutEl.hidden = true;
-  landingEl.hidden = false;
-  window.scrollTo({ top: 0, behavior: "auto" });
-}
+function enterForm() { setView("form", { push: true }); }
+function showLanding() { setView("landing", { push: true }); }
+
+// Back/Forward: section anchors push null-state entries that are still "within the form",
+// so anything that isn't explicitly the landing view resolves back to the form.
+window.addEventListener("popstate", e => {
+  setView(e.state && e.state.fcView === "landing" ? "landing" : "form", { push: false });
+});
 
 $("#start-application")?.addEventListener("click", enterForm);
 $("#view-landing")?.addEventListener("click", e => { e.preventDefault(); showLanding(); });
@@ -2557,7 +2578,13 @@ if (new URLSearchParams(location.search).has("reset") || location.hash === "#res
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
 }
 
-// Returning users with a saved draft skip the landing and go straight to the form.
+// Establish the landing view as the baseline history entry, so the first browser Back
+// from the form always resolves to the landing (dates) rather than leaving the app.
+// Runs after the ?reset block above, which does its own replaceState.
+try { history.replaceState({ fcView: "landing" }, ""); } catch (e) {}
+
+// Returning users with a saved draft skip the landing and go straight to the form
+// (enterForm() pushes a form entry on top of the baseline, so Back still reaches it).
 const hadDraft = restoreDraft();
 if (hadDraft) {
   enterForm();

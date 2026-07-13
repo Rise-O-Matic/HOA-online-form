@@ -309,6 +309,67 @@ The user explicitly prioritized this pass ahead of the remaining Sprint 23 visua
 - [x] **Demo patio-cover diagnosis** — the current local pipeline is correct: `assets/demo/patio-cover-1.jpg` decodes, demo mode attaches it, the interface renders its thumbnail, and `preparePrintImages()` includes improvement files. The observed public-site failure was deployment state: commit `2551564` (image + demo-data reference) existed locally while `origin/master` was still two commits behind. This pass publishes that commit together with the accessibility work, then verifies the public asset and rendered flow.
 - [x] `node --check assets/app.js` and `node --test` clean (61/61).
 
+## Completion-integrity, packet-fidelity & accessibility tranche (Sprints 24–29) — planned 2026-07-13
+
+Distilled from two same-day audits of the full user-facing experience against `docs/source-form.pdf`: this agent's end-to-end review (code + live walkthrough of the empty and demo journeys) and Sol's independent review (desktop + 390px mobile). Findings agree on the diagnosis:
+
+**The through-line:** the form *presents* far better than the original PDF, but it can tell an applicant "100% complete" while the packet would be returned under the HOA's own rules (only the item *name* gates Section 02; an unanswered material-sample question counts as "no" — the demo data itself exercises both holes), and the printed record omits the very acknowledgment terms the owner signs. Meanwhile several policy statements contradict each other (two fee stories — a regression of Sprint 8's canonicalization — two incomplete-outcome phrasings, "official required form" vs "unofficial mockup") or assert things the source form never says. This tranche makes **"complete," "required," and "ready to submit" mean the same thing everywhere** (one requirements engine feeding meter → checklist → gate → warning page → packet), restores the packet's fidelity as a signed record, and pays down the mobile/accessibility debt. Items only the ARC can answer get a **policy docket** in Sprint 24; engineering proceeds on clearly-marked provisional positions; Sprint 29 lands the answers.
+
+## Sprint 24 — Policy docket + "one story" copy sweep
+
+Fix what code can fix; docket what only the ARC can decide. All copy edits ship with a provisional position explicitly chosen and recorded, so nothing waits on the docket coming back.
+
+- [ ] **`docs/policy-docket.md`** — one entry per open policy question, each with: where it surfaces in the app (file:line), what the May 2026 source form says, the provisional position shipped in the meantime, and the decision requested. Questions: (1) **form authority** — prototype vs officially adopted; (2) **fee timing** — after completeness confirmation vs after approval (source: review doesn't begin until application + fee are received); (3) **incomplete-application outcome** — "returned unreviewed" vs "returned and automatically denied" (the source contains both concepts); (4) **neighbor-signature scope** — who exactly must sign (source: "adjacent property owners most affected by the change"); (5) **the definitive photo matrix** — are front + back overviews mandatory for every application? what is the source's 4th back-yard photo (page 1 says back *corners*, plural)? are work-area close-ups additional or a substitute? when are side-yard / exterior shots required?; (6) **verify or drop three unsupported claims** — "older or printed versions are not accepted", "no other staff member will accept applications", "not available for meetings on the deadline day itself".
+- [ ] **Authority framing (provisional: prototype)** — the landing "How to submit" card (`index.html:105`) stops claiming this is the "current, required application"; instead: it prepares a packet based on the May 2026 form — confirm acceptance with the office. This makes the landing consistent with the banner/footer mockup language instead of contradicting it.
+- [ ] **Fee story → one canonical version** (provisional: the source-aligned completeness trigger already used by the landing fees card, Section 06 note, and print cover step 4): rewrite the landing checklist item (`index.html:87`) and "What Happens Next" (`index.html:626`), which still say fee-after-*approval*. Five locations total must read identically. (This re-fixes Sprint 8's "fee explained three ways" finding, which the print-first rework regressed.)
+- [ ] **Incomplete-outcome wording → one phrase** across the landing, gate modal, and warning cover (provisional: the source page-6 "returned and automatically denied", the harshest and most explicit).
+- [ ] **Neighbor scope** — revert "all impacted neighbors" to the source's "adjacent property owners most affected by the change" (landing checklist + cover strip) pending the docket definition.
+- [ ] **Stale / self-contradicting copy:** the Photos pause-note (`index.html:539`) still claims attached files can't survive between visits — false since Sprint 18's IndexedDB store; the Draw step's subtitle still says "press **Done** below" while the plan is locked and Done is a disabled badge (add a locked-state subtitle swapped by `setPlotConfirmed`/`refreshPlotDoneUI`, and hide the "Drawing not working out?" bail line under a confirmed plan); soften Section 04's "we'll tell you **exactly which photos to take**" claim until the photo matrix is decided (Sol's point: don't claim "exactly" while the matrix is unresolved).
+- [ ] **Copy nits:** gate modal's "ARCH Specialist" → "Architectural Specialist" (`index.html:683`); normalize Carol/CarolMarie to one name; Section 02's card-sub reference to "the ARC template" → plain language (applicants never saw the old PDF); the landing "Required submissions" ✓ bullets → neutral markers (they currently read as already-done).
+
+## Sprint 25 — Requirements engine: completion you can trust
+
+Replace the scattered completion logic (per-section `[required]` census + two hardcoded step signals) with one category-aware requirements model shared by every consumer. Philosophy unchanged: **advisory, never blocks** — but never silent either.
+
+- [ ] **`assets/requirements.js`** — new pure, DOM-free module (unit-tested via `node --test`, same discipline as geometry/image-budget): takes `collect()`-shaped data + questionnaire state and returns requirement rows with four states: **required-present · required-missing · not-applicable · recommended**. Single source of truth for "what does this application still need."
+- [ ] **Category-aware item requirements** — per `CATEGORIES`: structure/hardscape/pool require materials + dimensions; landscape requires plant type & quantity (mature size stays optional); paint requires the color name/code (no dimensions); equipment requires make/model + location; a Remove item requires nothing beyond its name. **Example/catalog picture: required-missing for Add/Replace items** (source page 2: "Must Include: Materials, Dimensions, and Example Pictures for *everything*"; incomplete = returned + auto-denied). This deliberately promotes what Sprint 20 de-gated — the "nagging" objection is answered by tone (advisory reasons, never a block), not by silence, and the shelved Sprint 16 is partially un-shelved here per both audits.
+- [ ] **Photos completeness** — an unanswered material-sample radio counts as *unanswered* (required-missing: "answer both questions"), not as "no" (the demo currently proves the hole: `photoMaterial: null` yet step 04 reads ✓ at 100%); a paint / exterior-material item in Section 02 surfaces an advisory nudge on the material question.
+- [ ] **Re-key every consumer to the engine:** progress meter (an empty form reads ~0%, not 6% off the prefilled date), step-status overview (sub-reasons name the actual gaps: "2 of 3 items are missing materials"), the advisory gate, and the printed warning cover. Delete the now-redundant ad-hoc checks (`sectionRequiredComplete` step signals, the hand-rolled photo/plot conditions in `stepStatus`).
+- [ ] **Upload-path plan checklist** (source page 6, Design Diagram Requirements): the upload panel lists what an acceptable plan must show — property outline, location of every change, dimensions, labels, a color key, legible — and the engine emits a *recommended* row for it, so the checklist rides the overview without hard-gating a file that's already attached.
+- [ ] *(Stretch — defer freely)* per-item "Where is it?" area select (front/back/side/exterior), answering the source's explicit "Location" ask in the description block; feeds the improvements print page and can cross-suggest photo-questionnaire areas.
+
+## Sprint 26 — The packet is the contract (print fidelity)
+
+- [ ] **Print the acknowledgment terms being signed** — a new "Owner Acknowledgments" print page reproducing all 8 terms verbatim with each term's checked state, with the owner signature + date (and the Adobe Sign `signer1` tags) moved onto it so the terms sit immediately before the signature, mirroring the source's page 4. The cover's certification block becomes a summary line referencing that page — the `Sig_es_` tag must exist exactly once, and moving the signature off the cover also relieves the cover's measured one-page budget (see the ~9.23in note in `printPreview`'s inline CSS).
+- [ ] **"Also attach these files" manifest on the cover** — a generated list of every non-embedded attachment (upload-mode PDF plot plan, PDF catalog/contract files — everything `preparePrintImages` skips as non-image), so nothing is omitted accidentally; the "packet is complete on its own" claim becomes conditional (asserted only when nothing rides separately).
+- [ ] **Surface the reference id in Section 06** ("Your packet reference: FC-ARC-…") so the applicant meets the id on screen before it appears in the printed header and the neighbor strip cites it.
+- [ ] Per-item location line on the improvements print page, if Sprint 25's stretch item landed.
+
+## Sprint 27 — Accessibility & mobile mechanics
+
+From Sol's 390px + assistive-tech pass, plus two scroll findings from this agent's walkthrough.
+
+- [ ] **Selects join the primary field styling** — native `<select>`s render ~19px tall on mobile because the field rules only target input/textarea.
+- [ ] **Touch targets** — remove buttons, sidenav links, utility buttons, and the drawing controls that reasonably can grow, up to ~44px effective size.
+- [ ] **Kill the 390px horizontal scrollbar** (photo-group overflow).
+- [ ] **Modal focus management ×3** (material library, gate, tutorial): move focus into the dialog on open, trap Tab inside, return focus to the trigger on close.
+- [ ] **Unique accessible names for the "Open section" links** ("Open Applicant Information", "Open Photos", …).
+- [ ] **`role="progressbar"` + `aria-valuenow/min/max`** on the sidenav meter.
+- [ ] **Instant jumps where jumps are intended:** `html { scroll-behavior: smooth }` makes `scrollTo({behavior:"auto"})` animate, so entering the form and the reload scroll-restore currently swoosh across thousands of pixels — switch those two calls to `behavior:"instant"` (smooth stays everywhere it's wanted).
+- [ ] **Present the upload route explicitly as the keyboard/AT alternative** in Section 03's copy (it already is one — say so).
+
+## Sprint 28 — Journey mechanics & demo hygiene
+
+- [ ] **Mobile journey relief, no wizard redesign** — the completed mobile demo measured ~14,590px tall (Improvements + Photos dominate): a sticky mobile progress/section header plus a "Next section →" action at the end of each card.
+- [ ] **Demo mode out of the applicant path** — the banner toggle only renders behind a `?demo` query flag, and filling never overwrites non-empty real data without an explicit confirm.
+- [ ] **Acknowledgment-date freshness** — stamp/refresh the date when the signature is provided rather than on first page load (today a date from days before the actual signing survives silently; `app.js:2599`).
+- [ ] **Improvement "×" gets a confirm or single-shot undo** — it currently destroys the row's typed fields and its stored IDB picture instantly, with the same finality as Clear plan / Clear all data, both of which confirm.
+
+## Sprint 29 — Decision-gated: land the ARC's answers 🔒 (blocked on the Sprint 24 docket)
+
+- [ ] Apply the returned policy sheet: the definitive photo matrix (then restore Section 04's "exactly which photos" claim), the neighbor-scope definition, final fee/outcome wording everywhere, and the authority decision — if officially adopted, strip the mockup framing, get sign-off on every policy statement, and decide whether the cover should carry the source's STAFF ONLY (date received / paid) block for the office.
+
 ## Decision-gated / backlog
 
 - Photo questionnaire partially re-asks what the proposal/plot already express — acceptable; revisit only if users stumble.
+- The Sprint 24 **policy docket** (`docs/policy-docket.md`, once written) is the collection point for every question awaiting an ARC answer; Sprint 29 is its landing sprint.

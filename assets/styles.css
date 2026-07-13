@@ -380,11 +380,29 @@ body:has(#form-layout:not([hidden])) .masthead__scene { display: none; }
   border-radius: var(--radius-sm);
 }
 .sidenav__save-warning strong { display: block; }
+/* Way back to the landing screen (requirements + review dates). Styled as a real
+   breadcrumb chip — not faint utility text — so a returning user, dropped straight
+   into the form, can actually spot the route back. Rides the sticky sidenav on
+   desktop; floats to the top of the page on mobile (see the responsive block). */
 .sidenav__landing-link {
-  display: inline-block; margin: 0 .65rem .8rem;
-  font-size: .78rem; color: var(--ink-faint); text-decoration: none;
+  display: inline-flex; align-items: center; gap: .4rem;
+  margin: 0 .65rem 1rem;
+  padding: .42rem .8rem .42rem .6rem;
+  font-size: .82rem; font-weight: 600;
+  color: var(--ink-soft); text-decoration: none;
+  background: var(--paper-2);
+  border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: var(--shadow);
+  transition: background .18s, color .18s, border-color .18s;
 }
-.sidenav__landing-link:hover { color: var(--crimson); }
+.sidenav__landing-link::before {
+  content: "\2039"; /* ‹ */
+  font-size: 1.15rem; line-height: 1; margin-top: -1px;
+  color: var(--crimson);
+}
+.sidenav__landing-link:hover {
+  color: var(--crimson); background: #fff; border-color: var(--line-2);
+}
 
 /* Destructive actions, quarantined below everything else */
 .sidenav__danger {
