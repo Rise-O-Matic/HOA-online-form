@@ -367,7 +367,6 @@ body:has(#form-layout:not([hidden])) .masthead__scene { display: none; }
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
-.sidenav__actions { display: flex; gap: .4rem; padding: 0 .65rem; flex-wrap: wrap; }
 /* Persistent autosave-failure indicator (quota exceeded / storage blocked) */
 .sidenav__save-warning {
   margin: .8rem .65rem 0;
@@ -2056,7 +2055,6 @@ ul.tight li { margin-bottom: .25rem; }
   .sidenav nav ol { display: flex; flex-wrap: wrap; gap: .3rem; }
   .sidenav nav a { font-size: .8rem; padding: .35rem .6rem; }
   .sidenav__progress { padding: 0; }
-  .sidenav__actions { padding: 0; }
   .masthead__contact { text-align: left; }
   .contact-grid { text-align: left; justify-content: start; }
   .reference-grid { grid-template-columns: 1fr; }

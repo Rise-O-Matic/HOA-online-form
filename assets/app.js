@@ -1496,7 +1496,6 @@ function restoreDraft() {
   return true;
 }
 
-$("#save-draft").addEventListener("click", () => saveDraft(false));
 $("#clear-draft").addEventListener("click", async () => {
   if (!confirm("Clear all data and delete the saved draft?")) return;
   await wipeCurrentAttachments(); // clear stored file bytes before the reload cancels the async delete
@@ -2818,21 +2817,6 @@ gateContinueBtn.addEventListener("click", () => {
   pendingGateAction = null;
   closeGateModal();
   if (act) act();
-});
-
-/* ------------------------------------------------------
-   DOWNLOAD JSON
------------------------------------------------------- */
-$("#download-json").addEventListener("click", () => {
-  const d = collect();
-  const blob = new Blob([JSON.stringify(d, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  const name = (d.ownerName || "arc-application").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  a.download = `${name || "arc-application"}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  status("Application data downloaded as JSON.", "ok");
 });
 
 /* ------------------------------------------------------
