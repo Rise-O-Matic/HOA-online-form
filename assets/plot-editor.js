@@ -23,9 +23,18 @@ import { $, $$, trapModalFocus, releaseModalFocus } from "./utils.js";
 import { scheduleAutosave, updateProgress } from "./app.js";
 
 // The material library's built-in presets, in the order the library grid (and a
-// pre-library draft's default chip row) shows them: ground covers → hardscape →
-// water → structures. Ids are persisted in drafts — never rename one, only add.
+// pre-library draft's default chip row) shows them: the "Empty" eraser-as-material
+// entry first, then ground covers → hardscape → water → structures. Ids are
+// persisted in drafts — never rename one, only add.
+// "empty" is the palette's one sentinel: picking it as the active material makes
+// Marker/Rectangle/Fill erase instead of paint (onStagePointerDown/Move resolve
+// activeMaterial === EMPTY_MATERIAL to a null cell id, same as a right-click quick-
+// erase), so its color/texture only ever render as a swatch — cellState never
+// actually stores "empty", so it can never show up in the "materials used" print
+// legend the way a real material would.
+const EMPTY_MATERIAL = "empty";
 const PALETTE = [
+  { id: EMPTY_MATERIAL, label: "Empty",             color: "#f2efe7", texture: "empty" },
   { id: "turf",        label: "Turf",               color: "#7cb342" },
   { id: "grass",       label: "Grass",              color: "#a5d36a", texture: "tufts" },
   { id: "groundcover", label: "Ground Cover Plants", color: "#4e8f43", texture: "tufts" },
@@ -134,6 +143,13 @@ const TEXTURES = {
       ctx.quadraticCurveTo(12 * k, (y - 3 * dir) * k, 16 * k, y * k);
     });
     ctx.stroke();
+  } },
+  empty: { label: "None", draw(ctx, s) {         // "Empty" material swatch — a diagonal
+    // erase-red slash (matches the erase-gesture ghost color, #a4111f) rather than a
+    // brightness-derived mark, since this tile is never actually painted onto the grid.
+    const k = s / 16;
+    ctx.strokeStyle = "#a4111f"; ctx.lineWidth = 1.6 * k; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(2.5 * k, 13.5 * k); ctx.lineTo(13.5 * k, 2.5 * k); ctx.stroke();
   } }
 };
 
@@ -236,13 +252,12 @@ STAMPS.forEach(s => {
 const STAMP_MAP = Object.fromEntries(STAMPS.map(s => [s.id, s]));
 
 // Inline stroke icons (18px, currentColor) — one per tool. Most are 24-box glyphs at
-// stroke 1.9; the user-supplied ones (erase, fill, pan) are 48-box, so their stroke-width
+// stroke 1.9; the user-supplied ones (fill, pan) are 48-box, so their stroke-width
 // doubles to 3.8 for the same visual weight — cursorForMode reads each icon's own viewBox
 // to scale its halo/ink strokes to match.
 const ICON = {
   marker: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 3.5 20.5 6.5 10 17 5.5 18.5 7 14 17.5 3.5Z"/><path d="M4.5 20.5h5"/></svg>',
   rect: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/></svg>',
-  erase: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 42H45"/><path d="M41.1132 26.3865L43.0354 24.4644C44.988 22.5118 44.988 19.3459 43.0354 17.3933L33.1359 7.49383C31.1832 5.54121 28.0174 5.54121 26.0648 7.49383L24.1686 9.39003M31.1021 36.3976L25.4998 41.9999L11.2744 41.9999L4.92405 35.7777C2.93739 33.8312 2.92111 30.6375 4.88782 28.6708L14.1963 19.3623"/><path d="M32.4136 37.5867L13.1636 18.3367L23.1037 8.39648L42.3537 27.6465L32.4136 37.5867Z"/></svg>',
   fill: '<svg viewBox="0 0 48 48" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M39 20.9706L22.0294 4L5.76599 20.2635C3.81337 22.2161 3.81337 25.3819 5.76599 27.3345L15.6655 37.234C17.6181 39.1866 20.7839 39.1866 22.7366 37.234L39 20.9706Z"/><path d="M7.5 18.5L7.95002 18.8326C15.0052 24.0473 23.892 26.1367 32.5317 24.6121L36 24"/><path d="M40 31C42.619 32.9566 44.5 35.32 44.5 38.2738C44.5 40.8839 42.4851 43 40 43C37.5149 43 35.5 40.8839 35.5 38.2738C35.5 35.32 37.381 32.9566 40 31Z"/></svg>',
   callout: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v11H10l-4 4v-4H4z"/></svg>',
   measure: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="1.2"/><path d="M6.5 8v3M10 8v4M13.5 8v3M17 8v4"/></svg>',
@@ -259,15 +274,13 @@ const ICON = {
 // shown in the rail tooltip by buildToolbar).
 const TOOL_MODES = [
   { id: "paint",    label: "Marker",    key: "m", icon: ICON.marker,
-    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; <strong>Alt</strong>+scroll (or the control here) changes thickness. Right-click erases from any tool." },
+    hint: "Drag to paint the selected material — hold <strong>Shift</strong> for a straight stroke; <strong>Alt</strong>+scroll (or the control here) changes thickness. Pick <strong>Empty</strong> to erase instead, or right-click erases from any tool." },
   { id: "rect",     label: "Rectangle", key: "r", icon: ICON.rect,
-    hint: "Drag diagonally to fill a solid block with the selected material." },
-  { id: "erase",    label: "Erase",    key: "e", icon: ICON.erase,
-    hint: "Drag to clear painted tiles — <strong>Alt</strong>+scroll (or the control here) changes thickness. Click a shape (outline, stamp, callout, measurement) to delete just that shape." },
+    hint: "Drag diagonally to fill a solid block with the selected material — pick <strong>Empty</strong> to clear a block instead." },
   { id: "fill",     label: "Fill",     key: "f", icon: ICON.fill,
-    hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls. Right-click floods it back to empty." },
+    hint: "Click an enclosed area to flood it with the selected material — <strong>Outline</strong> edges act as walls. Pick <strong>Empty</strong> to flood-clear it instead, or right-click floods it back to empty." },
   { id: "stamp",    label: "Stamp",    key: "s", icon: ICON.stamp,
-    hint: "Pick a symbol here in this bar, then click inside your property line to place it — <strong>Select</strong> moves one, <strong>Erase</strong> removes it." },
+    hint: "Pick a symbol here in this bar, then click inside your property line to place it — <strong>Select</strong> moves one, right-click deletes it." },
   { id: "line",     label: "Outline",  key: "o", icon: ICON.line,
     hint: "Drag between two points to draw an outline edge. It snaps to grid corners and blocks <strong>Fill</strong> like a wall." },
   { id: "callout",  label: "Callout",  key: "c", icon: ICON.callout,
@@ -300,10 +313,10 @@ function cursorForMode(mode) {
   if (mode === "pan") return "grab";
   if (cursorCache[mode]) return cursorCache[mode];
   const t = TOOL_MODES.find(x => x.id === mode);
-  const fallback = mode === "erase" ? "cell" : (mode === "select" ? "default" : "crosshair");
+  const fallback = mode === "select" ? "default" : "crosshair";
   if (!t || !t.icon) return fallback;
   const inner = (t.icon.match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [, ""])[1];
-  // Most rail icons live in a 24-box, but not all (Erase/Fill/Pan are 48-box) —
+  // Most rail icons live in a 24-box, but not all (Fill/Pan are 48-box) —
   // read the glyph's own viewBox and scale the halo/ink stroke widths to match,
   // or a larger-box icon would render clipped and visually half-weight.
   const vb = Number((t.icon.match(/viewBox="0 0 (\d+)/) || [])[1]) || 24;
@@ -459,14 +472,22 @@ let cellState = new Map();     // "c,r" -> material id (sparse; big lots are mos
 let stageReady = false;
 let activeMaterial = "turf";
 let activeMode = "rect";
-let brushSize = 1;             // square paint brush, in tiles (= feet)
-let eraseSize = 1;             // square eraser, in tiles (= feet) — independent of the paint brush
+let brushSize = 1;             // square Marker brush, in tiles (= feet)
+let eraseSize = 1;             // square eraser, in tiles (= feet) — independent of the Marker brush,
+                                // used whenever the effective paint is an erase (a right-click quick-
+                                // erase gesture, or Marker with the Empty material picked)
 let painting = false, lastCell = null; // in-progress freehand paint/erase stroke
 let eraseGesture = false;              // right-click / Ctrl(⌘)+click forces erase regardless of tool
 let lineDraft = null, lineGhost = null; // shift-held straight-line paint stroke
 let gridLineDraft = null, gridLineGhost = null; // Line tool: grid-snapped vector line annotation
 let rectDraft = null, rectGhost = null; // Rectangle tool: drag-to-fill a block of cells
-let brushGhost = null;                  // Marker/Erase footprint hover preview (thickness > 1 only)
+let brushGhost = null;                  // Marker footprint hover preview (thickness > 1 only)
+
+// True while Marker would erase rather than paint on press — the Empty material is picked.
+// Mirrors the id===null resolution in onStagePointerDown/Move, and picks which of
+// eraseSize/brushSize the Thickness control and Alt+scroll dial (see nudgeBrushSize).
+function usingEraseMaterial() { return activeMaterial === EMPTY_MATERIAL; }
+
 let lastPlotAPN, lastPlotBearing; // guards the confirm-before-clear check in rebuildGridForParcel
 let lastPlotRing = null; // current parcel's lng/lat ring — feeds the aerial nudge lookup and the calibration overlay's centroid readout
 let calibNudge = { east: 0, north: 0 }; // manual dial from the dev-only calibration overlay (?calibrate-aerial), on top of the interpolated baseline; always {0,0} outside that mode
@@ -818,15 +839,15 @@ function cellFromPointer() {
   return { c: Math.floor(p.x / CELL_SIZE), r: Math.floor(p.y / CELL_SIZE) };
 }
 
-// Hover/stroke preview of the square Marker/Erase footprint (incl. the right-click
-// quick-erase stroke from any tool), snapped to the exact cells paintBrush would hit.
-// Shown only when the dialed thickness is > 1 — at 1 ft the cursor already marks the
-// single tile. Same overlayLayer ghost styling as the Rectangle tool's rubber-band.
+// Hover/stroke preview of the square Marker brush footprint (incl. Marker-with-Empty and
+// a right-click quick-erase stroke from any tool), snapped to the exact cells paintBrush
+// would hit. Shown only when the dialed thickness is > 1 — at 1 ft the cursor already marks
+// the single tile. Same overlayLayer ghost styling as the Rectangle tool's rubber-band.
 function updateBrushGhost() {
   if (!overlayLayer) return;
-  const erasing = (painting && eraseGesture) || activeMode === "erase";
+  const erasing = (painting && eraseGesture) || usingEraseMaterial();
   const size = erasing ? eraseSize : brushSize;
-  const show = (painting || activeMode === "paint" || activeMode === "erase")
+  const show = (painting || activeMode === "paint")
     && size > 1 && stageReady && plotHover && !spacePan && !panActive && !plotConfirmedFlag;
   const cell = show ? cellFromPointer() : null;
   if (!cell) { removeBrushGhost(); return; }
@@ -973,9 +994,10 @@ function zoomAt(rawZoom, cx, cy) {
 
 function onWheel(e) {
   e.evt.preventDefault();
-  // Alt+scroll dials the Marker/Erase thickness instead of zooming (scroll up = thicker).
-  // Only in those two modes — everywhere else (incl. a locked plan) the wheel keeps zooming.
-  if (e.evt.altKey && !plotConfirmedFlag && (activeMode === "paint" || activeMode === "erase")) {
+  // Alt+scroll dials the Marker's brush thickness instead of zooming (scroll up = thicker) —
+  // the eraser's own thickness, when Empty is the active material (see usingEraseMaterial).
+  // Only in Marker mode — everywhere else (incl. a locked plan) the wheel keeps zooming.
+  if (e.evt.altKey && !plotConfirmedFlag && activeMode === "paint") {
     nudgeBrushSize(e.evt.deltaY < 0 ? 1 : -1);
     return;
   }
@@ -1439,6 +1461,10 @@ function renderPaletteChips() {
       if (e.target === x) { removeSelectedMaterial(p.id); return; }
       activeMaterial = p.id;
       $$("#palette button").forEach(el => el.classList.toggle("is-active", el === b));
+      // Empty and a real material dial independent thicknesses (usingEraseMaterial) — keep
+      // the Thickness control honest on a bare swatch swap, without leaving Marker mode.
+      refreshBrushControl();
+      updateBrushGhost();
     });
     pal.appendChild(b);
   });
@@ -1729,10 +1755,11 @@ function setActiveMode(mode) {
     x.classList.toggle("is-active", on);
     x.setAttribute("aria-pressed", on ? "true" : "false");
   });
-  // The contextual slot in the status strip: brush width for Paint/Erase, symbol picker for Stamp.
+  // The contextual slot in the status strip: brush width for Marker (its own dial, or the
+  // Empty material's, per usingEraseMaterial()), symbol picker for Stamp.
   const brushControl = $("#brush-control");
-  if (brushControl) brushControl.hidden = mode !== "paint" && mode !== "erase";
-  if (mode === "paint" || mode === "erase") refreshBrushControl();
+  if (brushControl) brushControl.hidden = mode !== "paint";
+  if (mode === "paint") refreshBrushControl();
   updateBrushGhost(); // hotkey switch mid-hover: restyle or drop the footprint preview now
   const stampControl = $("#stamp-control");
   if (stampControl) stampControl.hidden = mode !== "stamp";
@@ -1740,8 +1767,9 @@ function setActiveMode(mode) {
   const alignControl = $("#align-control");
   if (alignControl) alignControl.hidden = mode !== "align";
   if (mode === "align") buildBoundaryHandles(); else destroyBoundaryHandles();
-  // Outside Erase/Select, annotations go inert so a paint stroke passes straight through
-  // to the grid underneath (the mode/lock logic lives in syncNodeInteractivity).
+  // Outside Select, annotations go inert so a paint stroke passes straight through to the
+  // grid underneath (the mode/lock logic lives in syncNodeInteractivity); a right-click
+  // quick-erase still hit-tests them via annotationAtPointer()'s temporary listening flip.
   syncAllNodeInteractivity();
   if (plotHost) plotHost.style.cursor = cursorForMode(mode);
 }
@@ -1751,29 +1779,30 @@ function setActiveMode(mode) {
 function nudgeBrushSize(delta) {
   const brushInput = $("#brush-size");
   const min = Number(brushInput?.min) || 1, max = Number(brushInput?.max) || 20;
-  const cur = activeMode === "erase" ? eraseSize : brushSize;
+  const cur = usingEraseMaterial() ? eraseSize : brushSize;
   const val = Math.max(min, Math.min(max, cur + delta));
   if (val === cur) return;
-  if (activeMode === "erase") eraseSize = val; else brushSize = val;
+  if (usingEraseMaterial()) eraseSize = val; else brushSize = val;
   refreshBrushControl();   // reflect into the slider + "N ft" readout
   updateBrushGhost();      // resize the footprint preview under the cursor immediately
 }
 
-// Reflect the active tool's dialed width into the shared Thickness slider (Paint and
-// Erase each keep their own size, so switching tools shows the right one).
+// Reflect the active tool's dialed width into the shared Thickness slider (the Marker and
+// the Empty-material eraser each keep their own size, so switching between them shows the
+// right one — including a plain material↔Empty swatch swap without leaving Marker mode).
 function refreshBrushControl() {
   const brushInput = $("#brush-size");
   if (!brushInput) return;
-  const val = activeMode === "erase" ? eraseSize : brushSize;
+  const val = usingEraseMaterial() ? eraseSize : brushSize;
   brushInput.value = val;
   const brushOut = $("#brush-size-val");
   if (brushOut) brushOut.textContent = val + " ft";
 }
 
-/* --- Annotation interactions: Erase click-to-delete, Select click/drag-to-move --- */
+/* --- Annotation interactions: Select click/drag-to-move, right-click/Backspace to delete --- */
 
-// One shared delete path (Erase click, right-click hit, Backspace, the selection ×):
-// snapshot for undo, drop the selection if it was the selected shape, destroy, autosave.
+// One shared delete path (right-click hit, Backspace/Delete, the selection ×): snapshot for
+// undo, drop the selection if it was the selected shape, destroy, autosave.
 function deleteAnnotation(node) {
   recordUndoPoint();
   if (node === selectedNode) clearSelection();
@@ -1785,8 +1814,8 @@ function deleteAnnotation(node) {
 }
 
 // The top-level drawLayer annotation an event target belongs to (or null). Works off the
-// Konva parent chain, so it only sees nodes that were actually hit — i.e. modes where
-// annotations are listening (Erase/Select).
+// Konva parent chain, so it only sees nodes that were actually hit — i.e. Select mode, or a
+// right-click quick-erase hit-test (annotationAtPointer flips listening on temporarily).
 function annotationRootOf(target) {
   let n = target;
   while (n && n !== stage) {
@@ -1831,14 +1860,9 @@ function attachShapeInteractions(node) {
   node.dragBoundFunc(pos => annotationDragBound(node, pos));
   node.on("click tap", () => {
     if (plotConfirmedFlag) return;
-    if (activeMode === "erase") {
-      deleteAnnotation(node);
-    } else if (activeMode === "select") {
-      selectShape(node);
-    }
+    if (activeMode === "select") selectShape(node); // the only mode where nodes listen at all
   });
-  // Double-click re-opens a callout's text (Select only — in Erase the first click has
-  // already deleted the node before a double-click could land).
+  // Double-click re-opens a callout's text (Select only).
   if (node.getAttr("kind") === "callout") {
     node.on("dblclick dbltap", () => {
       if (!plotConfirmedFlag && activeMode === "select") editCalloutText(node);
@@ -1849,14 +1873,15 @@ function attachShapeInteractions(node) {
   node.on("dragend", () => { updateSelectionRect(); refreshEditAnchorPositions(); scheduleAutosave(); });
 }
 
-// One place decides whether annotations respond to the pointer: they intercept events in
-// Erase (click removes) and Select (click/drag to move, handles reshape), are draggable only
-// in Select, and go fully inert while the plan is locked (marked Done). The lock HAS to be
-// reflected down here on the nodes — Konva starts a node drag from its own hit graph without
-// ever consulting the plotConfirmedFlag guards in the stage-level pointer handlers.
+// One place decides whether annotations respond to the pointer: they intercept events only in
+// Select (click/drag to move, handles reshape — draggable there too), and go fully inert while
+// the plan is locked (marked Done). A right-click quick-erase still reaches them regardless of
+// mode via annotationAtPointer()'s temporary listening flip. The lock HAS to be reflected down
+// here on the nodes — Konva starts a node drag from its own hit graph without ever consulting
+// the plotConfirmedFlag guards in the stage-level pointer handlers.
 function syncNodeInteractivity(node) {
   const unlocked = !plotConfirmedFlag && !spacePan; // held Space = pan, never a node grab
-  node.listening(unlocked && (activeMode === "erase" || activeMode === "select"));
+  node.listening(unlocked && activeMode === "select");
   node.draggable(unlocked && activeMode === "select");
 }
 
@@ -2331,7 +2356,8 @@ function buildCalloutGroup(tip, labelPos, text) {
    A stamp is a Konva.Group (kind:"stamp") on drawLayer: the glyph path drawn twice —
    a fat white halo under a black stroke, the standard plan-symbol treatment so it reads
    over both the aerial and painted fills — plus an invisible full-footprint hit disc so
-   Select/Erase can grab it anywhere inside the symbol, not just on a hairline stroke.
+   Select (or a right-click quick-erase hit-test) can grab it anywhere inside the symbol,
+   not just on a hairline stroke.
    Everything downstream (drag/erase wiring, undo, serialize/restore, print) comes free
    from the existing drawLayer vector pipeline. */
 function buildStampGroup(pos, spec) {
@@ -2468,7 +2494,7 @@ function onStagePointerDown(e) {
     // Rectangle tool: rubber-band a filled block of cells. Right-click/Ctrl erases the block instead.
     const cell = cellFromPointer();
     if (!cell) return;
-    const id = eraseGesture ? null : activeMaterial;
+    const id = (eraseGesture || activeMaterial === EMPTY_MATERIAL) ? null : activeMaterial;
     rectDraft = { c0: cell.c, r0: cell.r, id };
     const color = id ? (PALETTE_MAP[id]?.color || "#7cb342") : "#a4111f";
     rectGhost = new Konva.Rect({
@@ -2485,19 +2511,15 @@ function onStagePointerDown(e) {
     const cell = cellFromPointer();
     if (!cell) return;
     recordUndoPoint();
-    floodFill(cell.c, cell.r, eraseGesture ? null : activeMaterial, contentPos());
+    floodFill(cell.c, cell.r, (eraseGesture || activeMaterial === EMPTY_MATERIAL) ? null : activeMaterial, contentPos());
     gridLayer.batchDraw();
     scheduleAutosave();
     return;
   }
-  if (eraseGesture || activeMode === "paint" || activeMode === "erase") {
-    // Erase tool, pressing directly ON an annotation: the node's own click handler deletes
-    // it on release — don't also start a cell-erase stroke on the paint underneath. (A
-    // stroke that STARTS on empty ground and drags across a shape still leaves it alone.)
-    if (activeMode === "erase" && !eraseGesture && annotationRootOf(e.target)) return;
+  if (eraseGesture || activeMode === "paint") {
     const cell = cellFromPointer();
     if (!cell) return;
-    const id = (eraseGesture || activeMode === "erase") ? null : activeMaterial;
+    const id = (eraseGesture || activeMaterial === EMPTY_MATERIAL) ? null : activeMaterial;
     recordUndoPoint();
     if (evt && evt.shiftKey && !eraseGesture) {
       // Shift: rubber-band a straight line, committed on release.
@@ -2546,7 +2568,7 @@ function onStagePointerDown(e) {
 
 function onStagePointerMove() {
   if (!stageReady || pinch || plotConfirmedFlag) return;    // locked plan: no hover ghosts / in-progress shapes
-  updateBrushGhost(); // self-gating: only Marker/Erase (or a quick-erase stroke) at thickness > 1
+  updateBrushGhost(); // self-gating: only Marker (or a quick-erase stroke) at thickness > 1
   if (rectDraft && rectGhost) {
     const cell = cellFromPointer();
     if (cell) {
@@ -2581,7 +2603,7 @@ function onStagePointerMove() {
   if (painting) {
     const cell = cellFromPointer();
     if (cell && (!lastCell || cell.c !== lastCell.c || cell.r !== lastCell.r)) {
-      const id = (eraseGesture || activeMode === "erase") ? null : activeMaterial;
+      const id = (eraseGesture || activeMaterial === EMPTY_MATERIAL) ? null : activeMaterial;
       paintStroke(lastCell.c, lastCell.r, cell.c, cell.r, id);
       lastCell = cell;
       gridLayer.batchDraw();
@@ -2832,7 +2854,7 @@ if (brushInput) {
   const brushOut = $("#brush-size-val");
   brushInput.addEventListener("input", () => {
     const val = Math.max(1, parseInt(brushInput.value, 10) || 1);
-    if (activeMode === "erase") eraseSize = val; else brushSize = val;
+    if (usingEraseMaterial()) eraseSize = val; else brushSize = val;
     if (brushOut) brushOut.textContent = val + " ft";
     updateBrushGhost();
   });
