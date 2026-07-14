@@ -9,9 +9,14 @@ position** noted in each entry (chosen 2026-07-13, Sprint 24) — nothing is blo
 every provisional position should be confirmed or corrected before this form is treated as
 official.
 
+**Second source added 2026-07-13:** `docs/submission-process-email.md` — the office's own
+email explaining the updated process, supplied by the user. It settles items 2, 3, and 6
+below without waiting on the ARC; those entries are updated in place with a note.
+
 Line numbers are as of the Sprint 24 commit (2026-07-13) and will drift; the element ids /
-quoted copy are the stable anchors. Sprint 29 in `ROADMAP.md` is where returned answers
-get applied.
+quoted copy are the stable anchors. The three items the submission-process email settled
+outright landed in **Sprint 29** (2026-07-13); the remaining ARC-only items are
+**Sprint 30** in `ROADMAP.md`, where returned answers get applied.
 
 ---
 
@@ -48,6 +53,13 @@ get applied.
 - **Decision requested:** confirm the completeness-triggered story (or supply the real
   office workflow — e.g. whether payment can precede the completeness check, and accepted
   payment methods).
+- **2026-07-13 update — confirmed by `docs/submission-process-email.md`:** the shipped
+  provisional position is correct. "Payment will only be taken after the ARCH Specialist
+  has reviewed your application and confirmed it is complete... Payment will not be
+  processed for incomplete applications." Also new: payment is *never* taken at the office
+  counter — Carol calls the applicant, or the applicant provides card details by email.
+  No further decision needed unless the office wants that office-counter exclusion stated
+  explicitly in the app too.
 
 ## 3. Incomplete-application outcome — what actually happens?
 
@@ -70,6 +82,15 @@ get applied.
 - **Decision requested:** which outcome is true? (Or both — e.g. returned immediately, and
   denied only if not cured by the deadline?) The wording should then be corrected
   everywhere at once.
+- **2026-07-13 update — partially settled by `docs/submission-process-email.md`:** it
+  describes a middle ground neither page alone states: an incomplete application is
+  "returned" generally (implying correction + resubmission is possible within the cycle),
+  but one submitted incomplete **on the deadline date itself** gets no review that cycle
+  and must resubmit the following month — "No exceptions will be made." Still open: what
+  "returned" means for an incomplete application submitted *before* the deadline (does the
+  45-day clock wait, per page 1, or does it die outright, per page 6's "automatically
+  denied")? Recommend adopting the deadline-day framing as the confirmed hard rule and
+  keeping the pre-deadline question open.
 
 ## 4. Neighbor-signature scope — who exactly must sign?
 
@@ -129,6 +150,12 @@ If any is actually office policy, say so and we'll restore it as sourced copy.
 | c | "She is not available for meetings on the deadline day itself." | gate modal | "You must schedule an appointment if you need to meet with Carol in person" + "It is strongly recommended that you visit the office before the deadline date." |
 
 - **Decision requested:** confirm or deny each; sourced versions get restored verbatim.
+- **2026-07-13 update — all three confirmed by `docs/submission-process-email.md`:**
+  (a) "Old versions will not be accepted under any circumstances." (b) "No other staff
+  member will be accepting applications." (c) "Carol will not be available for meetings on
+  the deadline day." All three should be **restored as sourced copy** — see the ROADMAP.md
+  Sprint 29 note for the copy task; this is no longer blocked on the ARC, since the
+  office's own email is the source.
 
 ## 7. (Recorded, not blocking) Specialist name & title
 

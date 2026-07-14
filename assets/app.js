@@ -1902,8 +1902,9 @@ function buildWarningCoverHTML() {
         <div class="print-warncover__eyebrow">Stop — do not submit yet</div>
         <h1 class="print-warncover__title">This application is incomplete</h1>
         <p class="print-warncover__lead">This packet was printed before every section was finished.
-          <strong>An incomplete application is returned and automatically denied</strong> — please
-          finish every item below before submitting.</p>
+          <strong>An incomplete application is returned</strong>, and one still incomplete on the
+          deadline date will not be reviewed that cycle and must be resubmitted the following month
+          — please finish every item below before submitting.</p>
 
         <div class="print-warncover__card">
           <div class="print-warncover__cardhead">Still to finish<span>${n} item${n === 1 ? "" : "s"}</span></div>
