@@ -35,6 +35,9 @@ outright landed in **Sprint 29** (2026-07-13); the remaining ARC-only items are
 - **Decision requested:** Is this form officially adopted? If yes: we remove the mockup
   framing, and every policy statement in the app needs a sign-off (see Sprint 29). If no:
   the prototype framing stands.
+- **2026-07-14 update:** deliberately not being escalated to the ARC/office yet — per the
+  user, that relationship hasn't built enough trust for this ask yet. Stays TBD; prototype
+  framing stands until that changes. No timeline attached.
 
 ## 2. Fee timing — when is the application fee collected?
 
@@ -91,6 +94,13 @@ outright landed in **Sprint 29** (2026-07-13); the remaining ARC-only items are
   45-day clock wait, per page 1, or does it die outright, per page 6's "automatically
   denied")? Recommend adopting the deadline-day framing as the confirmed hard rule and
   keeping the pre-deadline question open.
+- **2026-07-14 note:** the user finds the deadline-day-bump rule counterintuitive (their
+  reaction: if submitting exactly on the deadline gets auto-bumped a cycle, why not just
+  define the deadline as the day before?). That's a critique of the office's own policy,
+  not new information about it — the email's wording stands as the confirmed hard rule
+  above and no app copy changes from this. Worth relaying to the office if the relationship
+  ever gets to that point (see item 1); the pre-deadline incomplete-outcome question is
+  still open.
 
 ## 4. Neighbor-signature scope — who exactly must sign?
 
@@ -109,6 +119,14 @@ outright landed in **Sprint 29** (2026-07-13); the remaining ARC-only items are
   line? Across the street too? Is six rows enough, and are fewer than six signatures
   acceptable when a lot has fewer adjacent owners? Does a rear-yard change need the
   front-facing neighbors at all?
+- **2026-07-14 update — user guidance (not ARC-confirmed, informal):** the user is confident
+  the real standard is **sightline-based**, not lot-line-based — it includes neighbors
+  across the street, and the office is not strict or specific about the exact boundary in
+  practice. Shipped copy updated (`index.html:86`) to say "generally anyone with a direct
+  view of it, including neighbors across the street; the committee isn't strict about the
+  exact boundary." Six rows still treated as a soft ceiling, not a hard requirement — still
+  worth a real confirmation once item 1 is answered, but no longer flagged as unsourced
+  guesswork.
 
 ## 5. The definitive photo matrix — which photos are required when?
 
@@ -136,6 +154,16 @@ outright landed in **Sprint 29** (2026-07-13); the remaining ARC-only items are
   application, or only when that area is affected? (b) what is the 4th back-yard photo?
   (c) are work-area close-ups additional to the overviews or a substitute? (d) when are
   side-yard / home-exterior shots required?
+- **2026-07-14 update — user guidance (not ARC-confirmed, informal):** the user confirms the
+  vagueness is real, not a gap in our reading of the source — the office wants photos
+  **germane to the specific project**, and doesn't work from (or want) a rigid enumerated
+  list, because edge cases make a fixed list impractical. This confirms the shipped
+  questionnaire-driven, per-area-affected approach is the right shape and should **stay
+  advisory rather than becoming a strict checklist** — do not pursue restoring the "exactly
+  which photos to take" claim (`ROADMAP.md:391`) even after item 1 is resolved. (b)/(c)/(d)
+  remain genuinely open detail questions, but they're now second-order — the app's existing
+  "photos the committee needs" framing already matches how the office actually thinks about
+  this.
 
 ## 6. Three claims the source does not support — verify or keep dropped
 

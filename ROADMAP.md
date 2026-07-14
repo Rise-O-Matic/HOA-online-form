@@ -383,13 +383,26 @@ Verified in-browser (fresh port 8391, `?reset`): selects at 44px with the field 
 
 ## Sprint 30 — Decision-gated: land the ARC's remaining answers 🔒 (blocked on the Sprint 24 docket)
 
-What Sprint 29 couldn't settle from the email alone — still needs the ARC / Architectural Specialist:
+**2026-07-14:** items 4 and 5 got informal user guidance (not an ARC ruling) and shipped
+partial copy updates already — see the docket's 2026-07-14 entries. What's left below is
+what's still genuinely blocked, either on the ARC/office directly or on that relationship
+being ready for the ask (item 1):
 
-- [ ] Item 1 — form authority: is this the official application? If yes, strip the mockup framing and get sign-off on every remaining policy statement.
-- [ ] Item 3 (remainder) — the pre-deadline incomplete-application outcome: does the 45-day review clock wait (page 1), or is it returned and denied outright (page 6)? The deadline-day rule is already confirmed and shipped (Sprint 29); this is the one narrower question left.
-- [ ] Item 4 — neighbor-signature scope: a definition the applicant can act on (adjacent = sharing a lot line? across the street? is six signature rows enough?).
-- [ ] Item 5 — the definitive photo matrix, then restore Section 04's "exactly which photos" claim.
-- [ ] Item 7 — specialist's preferred public name + current title for the packet's contact lines.
+- [ ] Item 1 — form authority: is this the official application? Deliberately not being
+      asked yet — the ARC relationship isn't there. If/when yes: strip the mockup framing
+      and get sign-off on every remaining policy statement.
+- [ ] Item 3 (remainder) — the pre-deadline incomplete-application outcome: does the 45-day
+      review clock wait (page 1), or is it returned and denied outright (page 6)? The
+      deadline-day rule is already confirmed and shipped (Sprint 29); this is the one
+      narrower question left.
+- [x] Item 4 — neighbor-signature scope: shipped as sightline-based, including across the
+      street, informally enforced (user guidance, `index.html:86`). A formal ARC definition
+      is still worth getting once item 1 is answered, but no longer blocking.
+- [x] Item 5 — the photo matrix: confirmed the vagueness is real office practice ("germane
+      to the project," not a fixed list) — do **not** restore Section 04's old "exactly
+      which photos to take" claim; keep the advisory questionnaire-driven approach as-is.
+- [ ] Item 7 — specialist's preferred public name + current title for the packet's contact
+      lines.
 
 ## Decision-gated / backlog
 
