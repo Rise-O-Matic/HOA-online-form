@@ -425,6 +425,10 @@ body:has(#form-layout:not([hidden])) .masthead__scene { display: none; }
   margin: .55rem 0 0; font-size: .72rem; line-height: 1.45; color: var(--ink-faint);
 }
 
+/* Mobile "where am I" strip — desktop has the sticky sidenav for this, so it's
+   display:none until the <=900px block below turns it on. */
+.mobile-progress-bar { display: none; }
+
 /* ===================== CARDS ===================== */
 .card {
   background: var(--paper-2);
@@ -465,6 +469,10 @@ body:has(#form-layout:not([hidden])) .masthead__scene { display: none; }
   letter-spacing: -.01em;
 }
 .card__sub { margin: .3rem 0 0; color: var(--ink-soft); font-size: .9rem; }
+
+/* "Next section" jump — mobile-only relief for the long single-page scroll (the
+   desktop sidenav already makes every section a one click away). */
+.card__nextnav { display: none; }
 .tutorial-replay {
   display: flex; align-items: center; gap: .4rem;
   margin-left: auto; align-self: center; flex-shrink: 0;
@@ -1097,6 +1105,9 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
   display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .9rem;
   scroll-margin-top: .75rem;
 }
+/* showStep() scrolls this header to the top when entering a builder step, so the section
+   title + per-step instruction subtitle stay in view above the dots/working surface. */
+#siteplan .card__head { scroll-margin-top: 1.5rem; }
 .plot-steps-nav__dot {
   display: flex; align-items: center; gap: .4rem;
   font-family: var(--font-ui); font-size: .78rem; font-weight: 500;
@@ -1195,15 +1206,20 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .plan-choice__title { font-weight: 700; font-size: 1rem; color: var(--ink); }
 .plan-choice__desc { font-size: .82rem; color: var(--ink-soft); line-height: 1.45; }
 .plan-upload { margin: 0 0 1rem; }
-/* The Design Diagram Requirements reminder under the upload dropzone (Sprint 25) —
-   advisory framing, matching the pause-note register rather than an error box. */
-.plan-upload__checklist {
-  margin: .85rem 0 0; padding: .8rem 1rem;
+/* Plot-plan requirements intro at the top of step 1 — laid out the way the printed
+   packet introduces the plot-plan section (source form p.6 "Design Diagram Requirements"),
+   covering both the build and upload paths. */
+.plan-intro { margin: .2rem 0 1.1rem; }
+.plan-intro > p { margin: 0 0 .3rem; font-size: .88rem; color: var(--ink-soft); line-height: 1.5; }
+/* The requirements card — advisory framing, matching the pause-note register
+   rather than an error box. */
+.plan-reqs {
+  margin: .55rem 0 0; padding: .8rem 1rem;
   background: var(--paper-2); border: 1px solid var(--line);
   border-radius: var(--radius-sm); font-size: .84rem; color: var(--ink-soft);
 }
-.plan-upload__checklist strong { display: block; margin-bottom: .35rem; color: var(--ink); }
-.plan-upload__checklist ul { margin: 0; }
+.plan-reqs strong { display: block; margin-bottom: .35rem; color: var(--ink); }
+.plan-reqs ul { margin: 0; }
 .plot-choice-msg { margin: .4rem 0 0; font-size: .84rem; min-height: 1em; }
 .plot-choice-msg.err { color: var(--crimson); font-weight: 600; }
 @media (max-width: 620px) { .plan-choice { grid-template-columns: 1fr; } }
@@ -1942,6 +1958,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--crimson); outlin
 .ref-title {
   font-family: var(--font-disp); font-weight: 600; font-size: 1.15rem;
   margin: 0 0 .5rem; letter-spacing: -.01em;
+  display: flex; align-items: center; gap: .55rem;
+}
+.ref-title__icon {
+  flex: none; width: 1.35em; height: 1.35em;
+  color: var(--crimson);
 }
 .ref-note { font-size: .8rem; color: var(--ink-faint); margin: .5rem 0; }
 .dates { width: 100%; border-collapse: collapse; font-size: .85rem; }
@@ -2060,6 +2081,43 @@ ul.tight li { margin-bottom: .25rem; }
   .reference-grid { grid-template-columns: 1fr; }
   .landing__grid { grid-template-columns: 1fr; }
   .landing__submit-info { grid-template-columns: 1fr; }
+
+  /* Sticky "where am I" strip — first in visual order (order:-2, ahead of the
+     sidenav's order:-1 wrapping-link row) so it starts sticking immediately. */
+  .mobile-progress-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem;
+    position: sticky;
+    top: 0;
+    order: -2;
+    z-index: 40;
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    padding: .55rem .9rem;
+    margin: 0 -1px; /* bleed under the .layout gutter so it reads edge-to-edge */
+  }
+  .mobile-progress-bar__section {
+    font-size: .76rem; font-weight: 700; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mobile-progress-bar__pct {
+    font-size: .72rem; font-weight: 600; color: var(--ink-faint); flex-shrink: 0;
+  }
+  /* Anchor jumps (sidenav links, Next-section buttons) land below the sticky
+     strip instead of underneath it. */
+  .card { scroll-margin-top: 2.75rem; }
+  #siteplan .card__head { scroll-margin-top: 2.75rem; }
+
+  .card__nextnav {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--line);
+  }
+  .card__nextnav .btn { width: 100%; justify-content: center; }
 }
 @media (max-width: 620px) {
   .grid-2 { grid-template-columns: 1fr; }
@@ -2113,7 +2171,7 @@ ul.tight li { margin-bottom: .25rem; }
 @media print {
   .masthead__rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; }
-  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference, .masthead__scene { display: none !important; }
+  .sidenav, .finish-steps, .form-status, .mockup-banner, .sitefoot, .modal__head, .modal__foot, .palette, .tool-rail, .plot-status, .plot__zoom, .plot__scale-badge, .hotkey-bar, .plot-step__nav, .map-reference, .masthead__scene, .mobile-progress-bar, .card__nextnav { display: none !important; }
   /* Advisory gap hints are screen chrome, never ink (the real packet is the print
      popup — this covers a direct Ctrl+P of the on-screen page). */
   .gap-hint { outline: none !important; animation: none !important; }

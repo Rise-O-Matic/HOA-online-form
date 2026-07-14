@@ -42,7 +42,7 @@
    ========================================================= */
 import { $, $$ } from "./utils.js";
 import { setPlanMode, restoreParcelFromDraft, showStep } from "./map-wizard.js";
-import { restorePlot, serializePlot } from "./plot-editor.js";
+import { restorePlot, serializePlot, plotUsed } from "./plot-editor.js";
 import { updateProgress, scheduleAutosave } from "./app.js";
 
 const DEMO_BASE = "assets/demo/";
@@ -227,14 +227,40 @@ const demoStatusEl = $("#demo-mode-status");
 function setStatus(msg) { if (demoStatusEl) demoStatusEl.textContent = msg; }
 function setBusy(on) { demoToggleWrap?.classList.toggle("is-busy", on); if (demoToggle) demoToggle.disabled = on; }
 
-demoToggle?.addEventListener("change", () => {
-  if (demoToggle.checked) {
-    fillDemoData();
-  } else {
-    // Held checked until the clear actually happens — #clear-draft's own confirm()
-    // decides whether the data really goes away (Cancel leaves it in place).
-    demoToggle.checked = true;
-    setStatus("");
-    $("#clear-draft")?.click();
-  }
-});
+// True once any real (non-demo) data has been entered — checked before a fill so
+// demo mode can never silently clobber someone's in-progress application.
+function formHasRealData() {
+  const coreFields = ["#owner-name", "#property-address", "#owner-phone", "#owner-email"];
+  if (coreFields.some(sel => ($(sel)?.value || "").trim())) return true;
+  if ($$("[data-imp-name]").some(el => el.value.trim())) return true;
+  if ($$("input[type=file]").some(el => el.files && el.files.length)) return true;
+  if (plotUsed()) return true;
+  return false;
+}
+
+// Applicants filling out a real application should never see the "Demo / mockup"
+// banner OR its data-fill toggle — both only exist for demoing/screenshotting the
+// mockup. Gate the whole banner behind an explicit ?demo (or #demo) URL flag;
+// without it, the banner is removed from the DOM entirely (not just hidden), so
+// there's nothing to find, read, or accidentally activate, and no listener is
+// ever wired.
+const demoFlagPresent = new URLSearchParams(location.search).has("demo") || location.hash === "#demo";
+if (!demoFlagPresent) {
+  $(".mockup-banner")?.remove();
+} else {
+  demoToggle?.addEventListener("change", () => {
+    if (demoToggle.checked) {
+      if (formHasRealData() && !confirm("This will overwrite the application data you've already entered with sample demo data. Continue?")) {
+        demoToggle.checked = false;
+        return;
+      }
+      fillDemoData();
+    } else {
+      // Held checked until the clear actually happens — #clear-draft's own confirm()
+      // decides whether the data really goes away (Cancel leaves it in place).
+      demoToggle.checked = true;
+      setStatus("");
+      $("#clear-draft")?.click();
+    }
+  });
+}

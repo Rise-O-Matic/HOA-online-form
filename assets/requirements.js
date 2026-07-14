@@ -76,13 +76,14 @@ export const ITEM_RULES = {
   other:     { materials: "materials / details", dims: null },
 };
 
-// The upload-path plan checklist (source page 6, Design Diagram Requirements) —
-// exported so the engine's recommended row and any UI checklist share one list.
+// The plot-plan checklist (source page 6, "Plot design of your lot…" + Design Diagram
+// Requirements) — exported so the engine's recommended row and the step-1 intro
+// (index.html .plan-reqs) share one list. Keep the two in sync.
 export const PLAN_CHECKLIST = [
-  "your property outline",
-  "the location of every proposed change",
+  "a plot design of your lot",
+  "the location of each proposed change",
   "dimensions",
-  "labels or a color key for each material",
+  "a key or color-coding for each material",
 ];
 
 const nonEmpty = v => !!(v && String(v).trim());

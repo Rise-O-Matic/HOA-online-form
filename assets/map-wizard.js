@@ -655,6 +655,7 @@ async function locateByAddress(address) {
 let currentStep = 1;
 const stepDots = $$(".plot-steps-nav__dot");
 const stepsNav = $(".plot-steps-nav");
+const siteplanHead = $("#siteplan .card__head");
 // Per-step instruction line, swapped into the Section 03 card-head subtitle by showStep().
 // The steps carry no h3/description of their own (reclaimed vertical space for the map/canvas);
 // this one line is where each step says what to do. Static HTML strings — innerHTML is safe.
@@ -961,14 +962,15 @@ export function showStep(n) {
     rebuildGridForParcel(selectedParcelGeoJSON, parcelBearing, selectedAPN);
   }
 
-  // Frame the step's working surface. Scrolling the step dots (the back-nav) to the viewport
-  // top puts each builder step's real content in view — the map on Select/Orient, the palette
-  // + canvas + status strip on Draw — without a manual scroll-hunt past the card header.
-  // Every route into steps 2–4 is user-initiated (plan-choice card / Next buttons / step dots —
-  // restoreParcelFromDraft never calls showStep), so this can't hijack scroll on page load.
-  // (Step 1's own routes handle their scroll: the bail-out targets the upload panel instead.)
+  // Frame the step's working surface. Scroll the Section 03 card *header* to the viewport top
+  // (not the step dots) so the section title + the per-step instruction subtitle stay in view
+  // above the dots and the working surface — the map on Select/Orient, the palette + canvas +
+  // status strip on Draw — instead of being scrolled off the top edge. Every route into steps
+  // 2–4 is user-initiated (plan-choice card / step dots — restoreParcelFromDraft never calls
+  // showStep), so this can't hijack scroll on page load. (Step 1's own routes handle their
+  // scroll: the bail-out targets the upload panel instead.)
   if (n >= 2) {
-    stepsNav?.scrollIntoView({ behavior: "smooth", block: "start" });
+    (siteplanHead || stepsNav)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -1006,7 +1008,6 @@ export function setPlanMode(mode) {
   // The Select/Orient/Draw steps only apply to the builder.
   // (Use inline display, not [hidden], because .plot-steps-nav__dot sets display:flex.)
   buildOnlyDots.forEach(d => { d.style.display = isUpload ? "none" : ""; });
-  $("#step1-next").hidden = mode !== "build";
   refreshPacketUI(); // switching build/upload changes what the packet expects
 }
 
@@ -1101,9 +1102,6 @@ planChoiceCards.forEach(card => {
   });
 });
 
-// Next button on step 1 (visible once "Build a plan" is chosen)
-$("#step1-next").addEventListener("click", startBuilder);
-
 // Mid-wizard bail-out: a user who abandons the builder on any of steps 2–4 (or hits the
 // Konva-load failure notice) lands back on step 1 with the upload panel open — without
 // losing their parcel selection or anything already drawn, in case they switch back.
@@ -1157,8 +1155,8 @@ $("#plot-done").addEventListener("click", () => {
 // the tools/hints and unfreezes the canvas via refreshPlotDoneUI), until Done is pressed again.
 $("#plot-edit").addEventListener("click", () => {
   setPlotConfirmed(false);
-  // Same framing as entering the Draw step: dots at the top, canvas filling the viewport.
-  stepsNav?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Same framing as entering the Draw step: card header + subtitle at the top, canvas below.
+  (siteplanHead || stepsNav)?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 // Rotation panel — slider + quick-adjust buttons, all drive parcelBearing

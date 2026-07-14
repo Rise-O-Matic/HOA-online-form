@@ -37,34 +37,35 @@ const SCROLL_KEY = "fairwayCanyonArcDraft.scroll"; // sessionStorage — per-tab
    is a client-side mockup with no backend, so this is a locally-generated handle for the
    applicant/reviewer to cite — NOT an official HOA case number. */
 let appRefId = null;
-// Base57 alphabet (the shortuuid default: 0/O/1/I/l dropped so a hand-cited id can't be
-// misread). Case-sensitive — the encoding depends on both cases, so never upper-case it.
-const REFID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+// Crockford Base32 alphabet: uppercase only, with I/L/O/U removed so a hand-cited id can't be
+// misread (no i/l/1 or o/0 confusion) AND can be read/typed case-insensitively — critical since
+// this id gets communicated over the phone, where mixed case (the old base57 tail) forced a
+// "capital-G, lowercase-q…" qualifier on every character or it got transcribed wrong.
+const REFID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // 32 symbols
 function genRefId() {
-  const uuid = (typeof crypto !== "undefined" && crypto.randomUUID)
-    ? crypto.randomUUID()
-    // Fallback for non-secure contexts where randomUUID is unavailable (e.g. plain http/file).
-    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-        const r = Math.floor(Math.random() * 16), v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
-  // Base57-encode the UUID and keep the low-order REFID_LEN digits as the random tail — no
-  // ambiguous glyphs, short to read aloud or type. The random tail carries ALL the collision
-  // resistance (57^8 ≈ 1.1e14 of space); the two-digit year prefix is pure human provenance
-  // (self-dating for filing) layered on top, and also partitions collisions by year. Because the
-  // year isn't load-bearing for uniqueness, a wrong client clock only mislabels the year — it
-  // can't raise collision risk (unlike a timestamp-only id, whose uniqueness IS the clock).
-  // Slicing the *tail* (low-order digits) stays uniform, whereas the leading digit is slightly
-  // constrained since 57^22 > 2^122. Old drafts keep their full-length refId (restore re-adopts
-  // d.refId verbatim), so this shortening/prefixing is forward-only.
-  let n = BigInt("0x" + uuid.replace(/-/g, "")), out = "";
-  while (n > 0n) { out = REFID_ALPHABET[Number(n % 57n)] + out; n /= 57n; }
+  // 8 random Base32 symbols = 32^8 ≈ 1.1e12 of space per year, grouped 4+4 for a natural
+  // read-aloud cadence (K7QP-4XZM). This is a client-side mockup with no backend to collide
+  // against, so a trillion-per-year is already far more than enough and readability wins over the
+  // old base57 tail's 1.1e14. The two-digit year prefix is pure human provenance (self-dating for
+  // filing) and partitions by year; it isn't load-bearing for uniqueness, so a wrong client clock
+  // only mislabels the year — it can't raise collision risk. Old drafts keep their prior refId
+  // verbatim (restore re-adopts d.refId), so this format change is forward-only.
   const REFID_LEN = 8;
-  const tail = out.padStart(REFID_LEN, REFID_ALPHABET[0]).slice(-REFID_LEN);
-  // Plain decimal year (not base57) so it reads as a year at a glance, kept as its own dash-
+  let bytes;
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    bytes = crypto.getRandomValues(new Uint8Array(REFID_LEN));
+  } else {
+    // Fallback for non-secure contexts where crypto is unavailable (e.g. plain http/file).
+    bytes = Array.from({ length: REFID_LEN }, () => Math.floor(Math.random() * 256));
+  }
+  // 256 is an exact multiple of 32, so `byte % 32` is uniform — no modulo bias to correct for.
+  let tail = "";
+  for (let i = 0; i < REFID_LEN; i++) tail += REFID_ALPHABET[bytes[i] % 32];
+  const grouped = tail.slice(0, 4) + "-" + tail.slice(4); // 4+4 groups for phone-friendly cadence
+  // Plain decimal year (not base32) so it reads as a year at a glance, kept as its own dash-
   // delimited segment so the familiar number never blurs into the opaque random tail.
   const yy = String(new Date().getFullYear() % 100).padStart(2, "0");
-  return "FC-ARC-" + yy + "-" + tail;
+  return "FC-ARC-" + yy + "-" + grouped;
 }
 function getRefId() { return appRefId || (appRefId = genRefId()); }
 
@@ -182,6 +183,25 @@ function ownerSignatureProvided() {
   return sigMethod === "type"
     ? !!(typedSigInput && typedSigInput.value.trim())
     : !sigPads.ownerAckSignature.isEmpty();
+}
+
+// Re-stamp #ack-date the moment a signature actually lands, so a date typed/
+// defaulted days before the real signing doesn't survive silently (it used to
+// only default once, at first page load). Only fires on the not-signed ->
+// signed transition, not on every subsequent stroke/keystroke while signed.
+let lastSignatureProvided = false;
+function restampAckDateIfJustSigned() {
+  const provided = ownerSignatureProvided();
+  if (provided && !lastSignatureProvided) {
+    const el = $("#ack-date");
+    if (el) {
+      const now = new Date();
+      el.value = now.getFullYear() + "-" +
+        String(now.getMonth() + 1).padStart(2, "0") + "-" +
+        String(now.getDate()).padStart(2, "0");
+    }
+  }
+  lastSignatureProvided = provided;
 }
 
 function setSigMethod(method) {
@@ -389,6 +409,19 @@ function renumberImprovements() {
 let impUidSeq = 0;
 function newImpUid() { return "iu-" + Date.now().toString(36) + "-" + (impUidSeq++).toString(36); }
 
+// Only the always-present blank starter row (or a freshly-added empty one)
+// should delete silently — any row the user actually typed into or attached
+// a picture to gets a confirm, matching Clear plan / Clear all data.
+function improvementRowHasData(node) {
+  const text = ["[data-imp-name]", "[data-imp-materials]", "[data-imp-dims]"]
+    .some(sel => ($(sel, node)?.value || "").trim());
+  const location = ($("[data-imp-location]", node)?.value || "") !== "";
+  const idx = node.dataset.improvement;
+  const photo = $(`[data-imp-photo="${idx}"]`, node);
+  const hasPhoto = !!(photo && photo.files && photo.files.length);
+  return text || location || hasPhoto;
+}
+
 function addImprovement(uid) {
   improvementCount++;
   const wrap = document.createElement("div");
@@ -397,6 +430,7 @@ function addImprovement(uid) {
   node.dataset.impUid = uid || newImpUid();
   improvementList.appendChild(node);
   $(".improvement__remove", node).addEventListener("click", () => {
+    if (improvementRowHasData(node) && !confirm("Remove this improvement? Its typed fields and any attached picture will be deleted.")) return;
     const rowUid = node.dataset.impUid;
     revokeThumbUrls("imp:" + rowUid); // release the row's thumbnail blob URLs
     node.remove();
@@ -540,10 +574,16 @@ DATES.forEach(([meeting, deadline]) => {
 ------------------------------------------------------ */
 const navLinks = $$(".sidenav nav a");
 const sections = navLinks.map(a => $(a.getAttribute("href"))).filter(Boolean);
+// The mobile sticky header (Sprint 28) has no room for a real nav — it just names
+// the current section, reusing this same spy instead of a second observer.
+const mobileSectionLabel = $("#mobile-progress-section");
 const spy = new IntersectionObserver(entries => {
   entries.forEach(en => {
     if (en.isIntersecting) {
-      navLinks.forEach(a => a.classList.toggle("is-active", a.getAttribute("href") === "#" + en.target.id));
+      const i = navLinks.findIndex(a => a.getAttribute("href") === "#" + en.target.id);
+      if (i < 0) return;
+      navLinks.forEach((a, ai) => a.classList.toggle("is-active", ai === i));
+      if (mobileSectionLabel) mobileSectionLabel.textContent = String(i + 1).padStart(2, "0") + " " + navLinks[i].textContent;
     }
   });
 }, { rootMargin: "-30% 0px -60% 0px" });
@@ -966,10 +1006,13 @@ export function updateProgress() {
   // (an empty form honestly reads 0%), and 100% means every category-aware requirement
   // — item materials/dimensions/pictures, both photo questions, every requested shot,
   // the plot, the acks, the signature — is actually present.
+  restampAckDateIfJustSigned();
   const { rows, progress } = assessApplication(requirementsInput());
   $("#progress-fill").style.width = progress.pct + "%";
   $("#progress-bar").setAttribute("aria-valuenow", progress.pct);
   $("#progress-text").textContent = progress.pct + "% complete";
+  const mobilePct = $("#mobile-progress-pct");
+  if (mobilePct) mobilePct.textContent = progress.pct + "% complete";
   reconcileGapPaint(rows); // drop stale jump-click highlights whose gap got fixed
   refreshPacketUI();
 }
@@ -977,6 +1020,15 @@ form.addEventListener("input", updateProgress);
 form.addEventListener("change", updateProgress);
 // also refresh after signing
 ["pointerup"].forEach(ev => document.addEventListener(ev, () => setTimeout(updateProgress, 50)));
+
+// "Next section ->" (Sprint 28, mobile-only via CSS): one delegated handler for
+// every card's closing button, same smooth-scroll convention as other
+// user-clicked jumps (scrollToIssue etc. — only programmatic restores use "instant").
+document.addEventListener("click", e => {
+  const btn = e.target.closest("[data-next-section]");
+  if (!btn) return;
+  $("#" + btn.dataset.nextSection)?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 /* ------------------------------------------------------
    WORKFLOW-STEP STATUS  (Sprint 20)
@@ -2891,13 +2943,21 @@ window.addEventListener("scroll", () => {
 // Dev/test escape hatch: `?reset` (or `#reset`) purges the saved draft before restore,
 // so a page load starts clean. A hard refresh only clears the HTTP cache, never
 // localStorage, so this is the reliable way to shed leftover test entries between runs.
-// The param is stripped from the URL afterward so an ordinary reload doesn't keep wiping.
+// Only `reset` is stripped from the URL afterward — other params (e.g. demo-mode.js's
+// `?demo` flag, checked by its own separate <script> loaded after this one runs) must
+// survive, or combining `?demo&reset` would silently wipe the demo flag before
+// demo-mode.js ever reads it.
 // (map-wizard.js checks the same param independently to also clear the tutorial seen-flag.)
 if (new URLSearchParams(location.search).has("reset") || location.hash === "#reset") {
   deleteDraft();
   // No refId adopted yet at this point, so purge the whole attachment store (fire-and-forget).
   if (idbAvailable()) clearAllAttachments().catch(() => {});
-  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  try {
+    const params = new URLSearchParams(location.search);
+    params.delete("reset");
+    const qs = params.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+  } catch (e) {}
 }
 
 // Establish the landing view as the baseline history entry, so the first browser Back
@@ -2908,6 +2968,11 @@ try { history.replaceState({ fcView: "landing" }, ""); } catch (e) {}
 // Returning users with a saved draft skip the landing and go straight to the form
 // (enterForm() pushes a form entry on top of the baseline, so Back still reaches it).
 const hadDraft = restoreDraft();
+// A restored draft's signature (if any) was applied by restoreDraft() above (synchronously,
+// via SignaturePad's hidden-pad "pending" path), not signed just now — seed the tracker so
+// the first post-restore updateProgress() doesn't mistake it for a fresh signing and stomp
+// the restored ackDate.
+lastSignatureProvided = ownerSignatureProvided();
 if (hadDraft) {
   enterForm();
   // enterForm() itself jumps to top; restore the remembered position after the

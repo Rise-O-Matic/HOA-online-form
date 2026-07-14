@@ -471,7 +471,7 @@ let paintClipGroup = null;                                      // clips painted
 let cellState = new Map();     // "c,r" -> material id (sparse; big lots are mostly empty)
 let stageReady = false;
 let activeMaterial = "turf";
-let activeMode = "rect";
+let activeMode = "paint";
 let brushSize = 1;             // square Marker brush, in tiles (= feet)
 let eraseSize = 1;             // square eraser, in tiles (= feet) — independent of the Marker brush,
                                 // used whenever the effective paint is an erase (a right-click quick-
@@ -2832,7 +2832,7 @@ buildStampPicker();
 buildTexturePicker();
 initPlotStage();
 initAerialCalibration();
-setActiveMode("rect");
+setActiveMode("paint");
 $("#plot-clear").addEventListener("click", clearPlot);
 $("#align-reset")?.addEventListener("click", resetBoundaryCorners);
 $("#custom-mat-add")?.addEventListener("click", addCustomMaterial);
