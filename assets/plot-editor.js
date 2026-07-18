@@ -1436,11 +1436,13 @@ function renderPaletteChips() {
     return;
   }
   pal.classList.remove("is-empty");
-  selectedMaterials = selectedMaterials.filter(id => PALETTE_MAP[id]); // a restore may have replaced the customs
-  if (!selectedMaterials.includes(activeMaterial)) activeMaterial = selectedMaterials[0] || "";
+  // Empty is the always-available eraser, never a library pick — keep it out of the
+  // selectable set (it's appended as a permanent chip below).
+  selectedMaterials = selectedMaterials.filter(id => PALETTE_MAP[id] && id !== EMPTY_MATERIAL); // a restore may have replaced the customs
+  if (activeMaterial !== EMPTY_MATERIAL && !selectedMaterials.includes(activeMaterial)) activeMaterial = selectedMaterials[0] || "";
   pal.innerHTML = "";
-  selectedMaterials.forEach(id => {
-    const p = PALETTE_MAP[id];
+  // removable chips carry a "×"; the permanent Empty chip does not.
+  const makeChip = (p, removable) => {
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.material = p.id;
@@ -1448,17 +1450,21 @@ function renderPaletteChips() {
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.cssText = materialSwatchStyle(p);
-    // The remove affordance is a span, not a nested <button> (invalid HTML) — the chip's
-    // click handler routes on the event target. Keyboard removal goes through the library
-    // modal instead (untick + Continue), which is fully focusable.
-    const x = document.createElement("span");
-    x.className = "palette__x";
-    x.title = "Remove from palette";
-    x.setAttribute("aria-hidden", "true");
-    x.textContent = "×";
-    b.append(sw, document.createTextNode(p.label), x);
+    b.append(sw, document.createTextNode(p.label));
+    let x = null;
+    if (removable) {
+      // The remove affordance is a span, not a nested <button> (invalid HTML) — the chip's
+      // click handler routes on the event target. Keyboard removal goes through the library
+      // modal instead (untick + Continue), which is fully focusable.
+      x = document.createElement("span");
+      x.className = "palette__x";
+      x.title = "Remove from palette";
+      x.setAttribute("aria-hidden", "true");
+      x.textContent = "×";
+      b.appendChild(x);
+    }
     b.addEventListener("click", e => {
-      if (e.target === x) { removeSelectedMaterial(p.id); return; }
+      if (x && e.target === x) { removeSelectedMaterial(p.id); return; }
       activeMaterial = p.id;
       $$("#palette button").forEach(el => el.classList.toggle("is-active", el === b));
       // Empty and a real material dial independent thicknesses (usingEraseMaterial) — keep
@@ -1466,8 +1472,11 @@ function renderPaletteChips() {
       refreshBrushControl();
       updateBrushGhost();
     });
-    pal.appendChild(b);
-  });
+    return b;
+  };
+  selectedMaterials.forEach(id => pal.appendChild(makeChip(PALETTE_MAP[id], true)));
+  // The Empty eraser is always in reach while drawing, regardless of library picks.
+  pal.appendChild(makeChip(PALETTE_MAP[EMPTY_MATERIAL], false));
   const add = document.createElement("button");
   add.type = "button";
   add.className = "palette__add";
@@ -1606,7 +1615,8 @@ function renderMatLibGrid() {
   const grid = $("#mat-lib-grid");
   if (!grid || !matLibPending) return;
   grid.innerHTML = "";
-  [...PALETTE, ...customMaterials].forEach(m => {
+  // Empty is the always-present eraser chip in the row, not a library material.
+  [...PALETTE, ...customMaterials].filter(m => m.id !== EMPTY_MATERIAL).forEach(m => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "mat-lib__item";
